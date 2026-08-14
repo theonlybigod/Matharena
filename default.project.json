@@ -24,6 +24,11 @@
     "StarterGui": {
       "$className": "StarterGui",
       "$path": "src/StarterGui"
+    },
+
+    "Workspace": {
+      "$className": "Workspace",
+      "$path": "src/Workspace"
     }
   }
 }
