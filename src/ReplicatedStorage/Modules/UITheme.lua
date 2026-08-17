@@ -26,6 +26,7 @@ UITheme.COLORS = {
 	Success = Color3.fromRGB(60, 200, 90),
 	Error = Color3.fromRGB(220, 60, 60),
 	Gold = Color3.fromRGB(255, 215, 0),
+	Gem = Color3.fromRGB(170, 130, 255),
 	Text = Color3.fromRGB(255, 255, 255),
 	SubText = Color3.fromRGB(190, 195, 210),
 }

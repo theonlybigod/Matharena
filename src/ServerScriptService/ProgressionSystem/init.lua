@@ -42,6 +42,7 @@ local function buildLeaderstats(player: Player)
 
 	createIntValue("Wins", leaderstats)
 	createIntValue("Coins", leaderstats)
+	createIntValue("Gems", leaderstats)
 	createIntValue("XP", leaderstats)
 	createIntValue("Level", leaderstats)
 
@@ -85,12 +86,14 @@ function ProgressionSystem.RefreshLeaderstats(player: Player)
 
 	local wins = leaderstats:FindFirstChild("Wins") :: IntValue
 	local coins = leaderstats:FindFirstChild("Coins") :: IntValue
+	local gems = leaderstats:FindFirstChild("Gems") :: IntValue
 	local xp = leaderstats:FindFirstChild("XP") :: IntValue
 	local level = leaderstats:FindFirstChild("Level") :: IntValue
 	local rank = leaderstats:FindFirstChild("Rank") :: StringValue
 
 	wins.Value = profile.wins
 	coins.Value = profile.coins
+	gems.Value = profile.gems
 	xp.Value = profile.xp
 	level.Value = profile.level
 	rank.Value = profile.rank
@@ -192,6 +195,72 @@ function ProgressionSystem.AwardCoins(player: Player, amount: number)
 
 	profile.coins += amount
 	ProgressionSystem.RefreshLeaderstats(player)
+end
+
+function ProgressionSystem.AwardGems(player: Player, amount: number)
+	if amount <= 0 then
+		return
+	end
+
+	local profile = DataSystem.GetProfile(player)
+	if not profile then
+		warn(("[ProgressionSystem] AwardGems called for %s with no loaded profile."):format(player.Name))
+		return
+	end
+
+	profile.gems += amount
+	ProgressionSystem.RefreshLeaderstats(player)
+end
+
+--[[
+	Spends coins if the player has enough. Returns true and deducts on
+	success; returns false (no mutation) if there's no loaded profile or
+	insufficient funds. Used by the shop (Message 10) so ShopSystem never
+	needs to touch profile.coins directly - purchases go through this
+	same trusted, server-only mutation surface as every other Award*
+	function here.
+]]
+function ProgressionSystem.SpendCoins(player: Player, amount: number): boolean
+	if amount <= 0 then
+		return true
+	end
+
+	local profile = DataSystem.GetProfile(player)
+	if not profile then
+		warn(("[ProgressionSystem] SpendCoins called for %s with no loaded profile."):format(player.Name))
+		return false
+	end
+
+	if profile.coins < amount then
+		return false
+	end
+
+	profile.coins -= amount
+	ProgressionSystem.RefreshLeaderstats(player)
+	return true
+end
+
+--[[
+	Spends gems if the player has enough. See SpendCoins - same contract.
+]]
+function ProgressionSystem.SpendGems(player: Player, amount: number): boolean
+	if amount <= 0 then
+		return true
+	end
+
+	local profile = DataSystem.GetProfile(player)
+	if not profile then
+		warn(("[ProgressionSystem] SpendGems called for %s with no loaded profile."):format(player.Name))
+		return false
+	end
+
+	if profile.gems < amount then
+		return false
+	end
+
+	profile.gems -= amount
+	ProgressionSystem.RefreshLeaderstats(player)
+	return true
 end
 
 function ProgressionSystem.AwardWin(player: Player)
