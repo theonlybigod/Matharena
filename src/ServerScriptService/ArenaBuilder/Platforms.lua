@@ -68,7 +68,7 @@ local function buildOne(index: number, position: Vector3, parent: Instance): Mod
 		thickness = baseHeight,
 		position = position + Vector3.new(0, baseHeight / 2, 0),
 		material = Enum.Material.Metal,
-		color = Color3.fromRGB(50, 55, 65),
+		color = ArenaConfig.PLATFORM_ALIVE_COLOR,
 		parent = model,
 	})
 

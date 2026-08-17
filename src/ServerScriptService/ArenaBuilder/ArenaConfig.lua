@@ -32,6 +32,7 @@ ArenaConfig.PLATFORM_COUNT = 12
 ArenaConfig.PLATFORM_DIAMETER = 10
 ArenaConfig.PLATFORM_HEIGHT = 3
 ArenaConfig.PLATFORM_SPACING = 28 -- center-to-center arc spacing between adjacent platforms
+ArenaConfig.PLATFORM_ALIVE_COLOR = Color3.fromRGB(50, 55, 65) -- Base color while a contestant is still in the round
 
 ArenaConfig.CENTER_STAGE_DIAMETER = 20
 ArenaConfig.CENTER_STAGE_HEIGHT = 1.5

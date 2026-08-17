@@ -16,6 +16,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Modules.Config)
+local ProgressionSystem = require(script.Parent.ProgressionSystem)
+local MatchSystem = require(script.Parent.MatchSystem)
 
 local GameManager = {}
 
@@ -23,14 +25,13 @@ local initialized = false
 
 local function onPlayerAdded(player: Player)
 	print(("[GameManager] %s joined %s"):format(player.Name, Config.GAME_NAME))
-	-- Future prompts: register player with DataSystem, place them in the
-	-- lobby, sync initial UI state, etc.
+	ProgressionSystem.SetupPlayer(player)
 end
 
 local function onPlayerRemoving(player: Player)
 	print(("[GameManager] %s left %s"):format(player.Name, Config.GAME_NAME))
-	-- Future prompts: clean up any active match/lobby state, flush data
-	-- to DataSystem, etc.
+	MatchSystem.HandlePlayerLeaving(player)
+	ProgressionSystem.TeardownPlayer(player)
 end
 
 --[[
