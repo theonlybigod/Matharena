@@ -28,7 +28,17 @@
 
     "Workspace": {
       "$className": "Workspace",
-      "$path": "src/Workspace"
+      "$path": "src/Workspace",
+
+      "Arena": {
+        "$path": "src/Workspace/Arena",
+        "$ignoreUnknownInstances": true
+      },
+
+      "Lobby": {
+        "$path": "src/Workspace/Lobby",
+        "$ignoreUnknownInstances": true
+      }
     }
   }
 }
