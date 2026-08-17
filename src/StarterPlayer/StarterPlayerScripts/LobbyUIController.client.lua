@@ -3,14 +3,17 @@
 
 	Builds the lobby menu: Play, Shop, Stats, Settings, Daily Rewards
 	buttons, plus a Stats panel (backed by real ProgressionSystem/
-	DataSystem data from Message 4) and placeholder panels for Shop/
+	DataSystem data from Message 4) and placeholder panels for
 	Settings/Daily Rewards.
 
-	Shop/Settings/Daily Rewards have no backing systems yet - clicking them
-	opens a "coming soon" panel. Button names are stable (ShopButton,
-	SettingsButton, DailyRewardsButton, ModalOverlay/ModalPanel) so future
-	economy/settings/rewards messages can wire real functionality into this
-	same UI without replacing it, per this message's pipeline instructions.
+	Settings/Daily Rewards have no backing systems yet - clicking them
+	opens a "coming soon" panel. The Shop button's click handling now
+	belongs to ShopUIController.client.lua (Message 10) instead of this
+	file's placeholder modal - see that script. Button names are stable
+	(ShopButton, SettingsButton, DailyRewardsButton, ModalOverlay/
+	ModalPanel) so future settings/rewards messages can wire real
+	functionality into this same UI without replacing it, per Message 8's
+	pipeline instructions.
 
 	Visible while not committed to an active match (Lobby/Waiting); hidden
 	once the match locks in (Starting onward).
@@ -139,7 +142,10 @@ local function openModal(title: string, body: string)
 end
 
 shopButton.MouseButton1Click:Connect(function()
-	openModal("Shop", "The shop is coming soon! Check back in a future update for items to buy with your coins.")
+	-- Intentionally not handled here - ShopUIController.client.lua
+	-- (Message 10) owns this button's click handling and opens the real
+	-- shop panel. This connection is a no-op so anyone reading this file
+	-- doesn't mistake ShopButton for being unwired.
 end)
 
 settingsButton.MouseButton1Click:Connect(function()

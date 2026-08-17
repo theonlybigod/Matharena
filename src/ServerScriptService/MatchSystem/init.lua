@@ -33,6 +33,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
+local RewardsConfig = require(ReplicatedStorage.Modules.RewardsConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 
@@ -265,11 +266,26 @@ function MatchSystem.EndMatch(winner: Player?)
 	setState(GameState.Winner)
 	matchWinnerEvent:FireAllClients(winner and winner.Name or nil)
 
+	-- Win/participation economy (Message 9). This is the single place ALL
+	-- match endings funnel through - both a CompetitionGameplay-driven
+	-- elimination win and a MatchSystem-driven forfeit win (via
+	-- RemoveParticipant, opponents disconnecting) - so granting the reward
+	-- here covers every end path uniformly. The winner gets the Win reward
+	-- only, not Participation too; everyone else gets Participation only.
+	-- (The separate Perfect Game bonus, when it applies, is granted by
+	-- CompetitionGameplay itself at the moment it identifies the winner,
+	-- since only that module knows whether the win came via elimination.)
 	for _, player in ipairs(finishedParticipants) do
 		local didWin = player == winner
 		ProgressionSystem.RecordGameCompleted(player, didWin)
 		if didWin then
 			ProgressionSystem.AwardWin(player)
+			ProgressionSystem.AwardXP(player, RewardsConfig.WIN_XP)
+			ProgressionSystem.AwardCoins(player, RewardsConfig.WIN_COINS)
+			ProgressionSystem.AwardGems(player, RewardsConfig.WIN_GEMS)
+		else
+			ProgressionSystem.AwardXP(player, RewardsConfig.PARTICIPATION_XP)
+			ProgressionSystem.AwardCoins(player, RewardsConfig.PARTICIPATION_COINS)
 		end
 	end
 

@@ -24,6 +24,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local GameplayConfig = require(ReplicatedStorage.Modules.GameplayConfig)
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
+local RewardsConfig = require(ReplicatedStorage.Modules.RewardsConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 
 local MatchSystem = require(ServerScriptService.MatchSystem)
@@ -48,6 +49,7 @@ local turnGeneration = 0
 local activePlayer: Player? = nil
 local currentQuestion: QuestionGenerator.Question? = nil
 local turnStartClock: number? = nil
+local turnTimerSeconds: number? = nil
 
 type RosterEntry = {
 	userId: number,
@@ -122,6 +124,7 @@ local function beginTurnAt(index: number)
 
 	local difficulty = GameplayConfig.GetDifficultyForRound(roundNumber)
 	local timerSeconds = GameplayConfig.TIMER_SECONDS[difficulty]
+	turnTimerSeconds = timerSeconds
 	local platform = MatchSystem.GetPlatformForPlayer(player)
 
 	turnStartedEvent:FireAllClients({
@@ -153,6 +156,18 @@ local function advanceAndBeginNextTurn(currentAlreadyRemoved: boolean)
 
 	if #alivePlayers == 1 then
 		local winner = alivePlayers[1]
+
+		-- Perfect Game bonus (Message 9): reaching this branch means every
+		-- OTHER contestant was removed from alivePlayers by answering
+		-- incorrectly or timing out (see resolveTurn's `not isCorrect`
+		-- branch) - the only way to leave this list. `winner` was never
+		-- removed, so they provably never answered a question incorrectly
+		-- in this match; on top of the Win reward (granted separately by
+		-- MatchSystem.EndMatch, which covers every match-ending path
+		-- uniformly), they additionally earn the Perfect Game bonus here,
+		-- since only this module has the information needed to know that.
+		ProgressionSystem.AwardXP(winner, RewardsConfig.PERFECT_GAME_BONUS_XP)
+
 		cleanupRound()
 		MatchSystem.EndMatch(winner)
 		return
@@ -178,10 +193,12 @@ resolveTurn = function(isCorrect: boolean, timedOut: boolean, myGeneration: numb
 	local player = activePlayer :: Player
 	local correctAnswer = currentQuestion.answer
 	local elapsed = turnStartClock and (os.clock() - turnStartClock) or nil
+	local timerSecondsForThisTurn = turnTimerSeconds
 
 	activePlayer = nil
 	currentQuestion = nil
 	turnStartClock = nil
+	turnTimerSeconds = nil
 
 	turnResolvedEvent:FireAllClients({
 		playerUserId = player.UserId,
@@ -191,6 +208,18 @@ resolveTurn = function(isCorrect: boolean, timedOut: boolean, myGeneration: numb
 	})
 
 	ProgressionSystem.RecordQuestionAnswer(player, isCorrect, if isCorrect then elapsed else nil)
+
+	-- Correct-answer economy (Message 9): base reward every time, plus a
+	-- fast-answer bonus if it came in under a fraction of the turn's
+	-- allotted time (proportional, since the timer varies by difficulty).
+	if isCorrect then
+		ProgressionSystem.AwardXP(player, RewardsConfig.CORRECT_ANSWER_XP)
+		ProgressionSystem.AwardCoins(player, RewardsConfig.CORRECT_ANSWER_COINS)
+
+		if elapsed and timerSecondsForThisTurn and elapsed <= timerSecondsForThisTurn * RewardsConfig.FAST_ANSWER_TIME_FRACTION then
+			ProgressionSystem.AwardCoins(player, RewardsConfig.FAST_ANSWER_BONUS_COINS)
+		end
+	end
 
 	local removedNow = false
 	if not isCorrect then

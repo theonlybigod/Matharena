@@ -31,12 +31,12 @@
       "$path": "src/Workspace",
 
       "Arena": {
-        "$path": "src/Workspace/Arena",
+        "$className": "Folder",
         "$ignoreUnknownInstances": true
       },
 
       "Lobby": {
-        "$path": "src/Workspace/Lobby",
+        "$className": "Folder",
         "$ignoreUnknownInstances": true
       }
     }
