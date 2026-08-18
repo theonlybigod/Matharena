@@ -33,6 +33,30 @@ UITheme.COLORS = {
 
 UITheme.CORNER_RADIUS = UDim.new(0, 12)
 
+-- Colorblind mode (Message 12): when enabled, Success/Error resolve to a
+-- blue/orange pair instead of green/red. Blue-orange remains
+-- distinguishable across protanopia, deuteranopia, and tritanopia, unlike
+-- green/red which is exactly the pair most colorblind types confuse.
+-- Static UITheme.COLORS.Success/Error are left as-is for anything that
+-- genuinely only ever wants "the success color" regardless of mode (rare);
+-- call sites that show correct/wrong feedback to the player should use
+-- GetSuccessColor()/GetErrorColor() instead so they respect this setting.
+local colorblindModeEnabled = false
+local COLORBLIND_SUCCESS = Color3.fromRGB(70, 150, 255)
+local COLORBLIND_ERROR = Color3.fromRGB(255, 150, 40)
+
+function UITheme.SetColorblindMode(enabled: boolean)
+	colorblindModeEnabled = enabled
+end
+
+function UITheme.GetSuccessColor(): Color3
+	return colorblindModeEnabled and COLORBLIND_SUCCESS or UITheme.COLORS.Success
+end
+
+function UITheme.GetErrorColor(): Color3
+	return colorblindModeEnabled and COLORBLIND_ERROR or UITheme.COLORS.Error
+end
+
 --[[
 	Adds a UICorner to any GuiObject. Returns the UICorner in case the
 	caller wants to tweak it further.

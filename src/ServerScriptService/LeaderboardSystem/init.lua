@@ -179,12 +179,21 @@ function LeaderboardSystem.GetTopEntries(category: string): { LeaderboardEntry }
 
 	for _, entry in ipairs(page) do
 		local userId = tonumber(entry.key)
-		local nameOk, name = pcall(function()
-			return Players:GetNameFromUserIdAsync(userId :: number)
-		end)
+		local displayName: string
+
+		if userId then
+			local nameOk, name = pcall(function()
+				return Players:GetNameFromUserIdAsync(userId :: number)
+			end)
+			displayName = if nameOk then name else ("Player_%d"):format(userId :: number)
+		else
+			-- A non-numeric or missing key (e.g. stray test data) - don't
+			-- crash the whole leaderboard fetch over one bad entry.
+			displayName = "Unknown"
+		end
 
 		table.insert(entries, {
-			name = if nameOk then name else ("Player_%d"):format(userId :: number),
+			name = displayName,
 			value = info.toDisplayValue(entry.value),
 		})
 	end

@@ -8,17 +8,27 @@
 
 	Only server code should ever call the Award*/Record* functions here.
 	Client code must never be trusted to grant XP, coins, wins, ranks, or
-	statistics — this module intentionally has no RemoteEvent/RemoteFunction
-	surface. Gameplay systems (MatchSystem, etc., in later prompts) call
-	these functions directly from server code.
+	statistics — the only RemoteEvent this module owns is "RewardGranted",
+	which is one-way server -> client (a notification for the floating
+	reward popup, Message 12) and carries no client input whatsoever.
+	Gameplay systems (MatchSystem, CompetitionGameplay, ShopSystem) call
+	the Award*/Spend* functions directly from server code.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ProgressionConfig = require(ReplicatedStorage.Modules.ProgressionConfig)
+local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local DataSystem = require(script.Parent.DataSystem)
 
 local ProgressionSystem = {}
+
+-- Message 12: notifies the client of an individual XP/Coins/Gems grant so
+-- it can show a floating "+10 XP"-style popup. Deliberately NOT fired for
+-- AwardWin - the Winner announcement/audio/confetti already give that
+-- moment strong feedback on its own, and stacking a redundant "+1 Win"
+-- popup on top would be visual noise rather than useful information.
+local rewardGrantedEvent = RemoteEvents.Get("RewardGranted")
 
 local function createIntValue(name: string, parent: Instance): IntValue
 	local value = Instance.new("IntValue")
@@ -180,6 +190,7 @@ function ProgressionSystem.AwardXP(player: Player, amount: number)
 	profile.rank = ProgressionConfig.GetRankForLevel(profile.level)
 
 	ProgressionSystem.RefreshLeaderstats(player)
+	rewardGrantedEvent:FireClient(player, { type = "XP", amount = amount })
 end
 
 function ProgressionSystem.AwardCoins(player: Player, amount: number)
@@ -195,6 +206,7 @@ function ProgressionSystem.AwardCoins(player: Player, amount: number)
 
 	profile.coins += amount
 	ProgressionSystem.RefreshLeaderstats(player)
+	rewardGrantedEvent:FireClient(player, { type = "Coins", amount = amount })
 end
 
 function ProgressionSystem.AwardGems(player: Player, amount: number)
@@ -210,6 +222,7 @@ function ProgressionSystem.AwardGems(player: Player, amount: number)
 
 	profile.gems += amount
 	ProgressionSystem.RefreshLeaderstats(player)
+	rewardGrantedEvent:FireClient(player, { type = "Gems", amount = amount })
 end
 
 --[[

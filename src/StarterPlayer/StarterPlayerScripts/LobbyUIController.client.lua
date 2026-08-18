@@ -149,7 +149,9 @@ shopButton.MouseButton1Click:Connect(function()
 end)
 
 settingsButton.MouseButton1Click:Connect(function()
-	openModal("Settings", "Settings are coming soon.")
+	-- Intentionally not handled here - SettingsUIController.client.lua
+	-- (Message 12) owns this button's click handling and opens the real
+	-- settings panel, same handoff pattern as ShopButton above.
 end)
 
 dailyRewardsButton.MouseButton1Click:Connect(function()

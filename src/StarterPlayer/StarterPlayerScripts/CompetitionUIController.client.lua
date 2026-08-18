@@ -281,7 +281,7 @@ local function rebuildRoster(roster: { any })
 		row.Font = Enum.Font.Gotham
 		row.TextScaled = true
 		row.TextXAlignment = Enum.TextXAlignment.Left
-		row.TextColor3 = entry.alive and UITheme.COLORS.Success or UITheme.COLORS.SubText
+		row.TextColor3 = entry.alive and UITheme.GetSuccessColor() or UITheme.COLORS.SubText
 		row.Text = ("%s%s  (%s)"):format(entry.alive and "" or "\u{2715} ", entry.name, entry.rank)
 		row.Parent = rosterList
 	end
@@ -393,10 +393,10 @@ RemoteEvents.Get("TurnResolved").OnClientEvent:Connect(function(payload)
 	submitButton.Visible = false
 
 	if payload.correct then
-		timerLabel.TextColor3 = UITheme.COLORS.Success
+		timerLabel.TextColor3 = UITheme.GetSuccessColor()
 		timerLabel.Text = "Correct!"
 	else
-		timerLabel.TextColor3 = UITheme.COLORS.Error
+		timerLabel.TextColor3 = UITheme.GetErrorColor()
 		local reason = payload.timedOut and "Time's up!" or "Wrong!"
 		timerLabel.Text = ("%s Answer: %s"):format(reason, tostring(payload.correctAnswer))
 	end

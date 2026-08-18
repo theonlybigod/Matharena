@@ -1,0 +1,30 @@
+# MathArena .gitignore
+# Rojo project: source files (src/, default.project.json) are the source
+# of truth. Nothing generated/local should be committed.
+
+# Rojo-generated files
+sourcemap.json
+*.rbxlx
+*.rbxl
+*.rbxlx.lock
+*.rbxl.lock
+
+# Rojo build/bake output (if a future .rbxmx baking pipeline is added)
+build/output/
+*.rbxmx
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor/IDE (user-specific, not shared project config)
+.vscode/settings.json
+.idea/
+
+# Local environment/secrets (none exist yet, but never commit these if added)
+.env
+.env.local
+
+# Logs
+*.log

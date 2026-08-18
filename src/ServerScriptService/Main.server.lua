@@ -11,9 +11,10 @@
 		5. LeaderboardDisplay   - refreshes the in-world Leaderboard Hall board (Message 11)
 		6. ProgressionSystem    - XP/coins/gems/wins/rank/statistics logic
 		7. ShopSystem           - cosmetics ownership/purchase/equip (Message 10)
-		8. MatchSystem          - matchmaking/game-flow state machine
-		9. CompetitionGameplay  - question rotation, subscribes to MatchSystem
-		10. GameManager         - player lifecycle, coordinates the above
+		8. SettingsSystem       - music/SFX/graphics/UI-scale/colorblind persistence (Message 12)
+		9. MatchSystem          - matchmaking/game-flow state machine
+		10. CompetitionGameplay - question rotation, subscribes to MatchSystem
+		11. GameManager         - player lifecycle, coordinates the above
 
 	LeaderboardSystem.Init() must run before GameManager.Init() (which is
 	what starts letting players join and eventually get saved) so its
@@ -21,13 +22,15 @@
 	tries to push a leaderboard update. LeaderboardDisplay.Init() must run
 	after LobbyBuilder.Build() (the board it looks for doesn't exist until
 	then) and after LeaderboardSystem.Init() (same OrderedDataStore
-	readiness reason).
+	readiness reason). SettingsSystem.Init() just needs to run before
+	GameManager.Init() so its remotes exist before any player can request
+	their settings snapshot.
 
 	Note: the pre-existing "Systems" folder is left untouched. GameManager,
 	MatchSystem, DataSystem, LobbyBuilder, ArenaBuilder, ProgressionSystem,
-	ShopSystem, LeaderboardSystem, LeaderboardDisplay, and CompetitionGameplay
-	are direct siblings of this script under ServerScriptService, per the
-	current architecture decision.
+	ShopSystem, SettingsSystem, LeaderboardSystem, LeaderboardDisplay, and
+	CompetitionGameplay are direct siblings of this script under
+	ServerScriptService, per the current architecture decision.
 ]]
 
 local LobbyBuilder = require(script.Parent.LobbyBuilder)
@@ -39,6 +42,7 @@ local LeaderboardSystem = require(script.Parent.LeaderboardSystem)
 local LeaderboardDisplay = require(script.Parent.LeaderboardDisplay)
 local ProgressionSystem = require(script.Parent.ProgressionSystem)
 local ShopSystem = require(script.Parent.ShopSystem)
+local SettingsSystem = require(script.Parent.SettingsSystem)
 local CompetitionGameplay = require(script.Parent.CompetitionGameplay)
 
 LobbyBuilder.Build()
@@ -48,6 +52,7 @@ LeaderboardSystem.Init()
 LeaderboardDisplay.Init()
 ProgressionSystem.Init()
 ShopSystem.Init()
+SettingsSystem.Init()
 MatchSystem.Init()
 CompetitionGameplay.Init()
 GameManager.Init()

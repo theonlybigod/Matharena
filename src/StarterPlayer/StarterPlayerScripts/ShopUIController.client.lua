@@ -121,6 +121,7 @@ tabBar.ZIndex = 22
 tabBar.Parent = shopPanel
 
 local tabLayout = Instance.new("UIListLayout")
+tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
 tabLayout.FillDirection = Enum.FillDirection.Horizontal
 tabLayout.Padding = UDim.new(0, 6)
 tabLayout.Parent = tabBar
@@ -416,9 +417,10 @@ end
 
 -- ===== Category tabs =====
 
-for _, category in ipairs(CosmeticsConfig.CATEGORIES) do
+for index, category in ipairs(CosmeticsConfig.CATEGORIES) do
 	local tabButton = Instance.new("TextButton")
 	tabButton.Name = category .. "Tab"
+	tabButton.LayoutOrder = index
 	tabButton.Size = UDim2.fromOffset(90, 28)
 	tabButton.Font = Enum.Font.GothamBold
 	tabButton.TextScaled = true

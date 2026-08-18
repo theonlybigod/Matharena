@@ -24,6 +24,7 @@ local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 
 local DataSystem = require(ServerScriptService.DataSystem)
 local ProgressionSystem = require(ServerScriptService.ProgressionSystem)
+local RemoteThrottle = require(ServerScriptService.RemoteThrottle)
 
 local ShopSystem = {}
 
@@ -119,9 +120,22 @@ end
 
 --[[
 	Clears whatever is equipped in `category`, if anything. Not an error
-	to call with nothing equipped there.
+	to call with nothing equipped there. Rejects unknown categories
+	("UnknownCategory") rather than silently writing an arbitrary client-
+	supplied string key into equippedCosmetics.
 ]]
 function ShopSystem.UnequipCategory(player: Player, category: string): (boolean, string?)
+	local isValidCategory = false
+	for _, validCategory in ipairs(CosmeticsConfig.CATEGORIES) do
+		if validCategory == category then
+			isValidCategory = true
+			break
+		end
+	end
+	if not isValidCategory then
+		return false, "UnknownCategory"
+	end
+
 	local profile = DataSystem.GetProfile(player)
 	if not profile then
 		return false, "NoProfile"
@@ -141,6 +155,9 @@ function ShopSystem.Init()
 		if typeof(itemId) ~= "string" then
 			return { success = false, reason = "InvalidRequest" }
 		end
+		if not RemoteThrottle.Check(player, "PurchaseCosmeticItem", 0.5) then
+			return { success = false, reason = "TooManyRequests" }
+		end
 		local ok, reason = ShopSystem.PurchaseItem(player, itemId)
 		return { success = ok, reason = reason }
 	end
@@ -149,6 +166,9 @@ function ShopSystem.Init()
 		if typeof(itemId) ~= "string" then
 			return { success = false, reason = "InvalidRequest" }
 		end
+		if not RemoteThrottle.Check(player, "EquipCosmeticItem", 0.25) then
+			return { success = false, reason = "TooManyRequests" }
+		end
 		local ok, reason = ShopSystem.EquipItem(player, itemId)
 		return { success = ok, reason = reason }
 	end
@@ -156,6 +176,9 @@ function ShopSystem.Init()
 	unequipCosmeticCategoryFunction.OnServerInvoke = function(player: Player, category: unknown)
 		if typeof(category) ~= "string" then
 			return { success = false, reason = "InvalidRequest" }
+		end
+		if not RemoteThrottle.Check(player, "UnequipCosmeticCategory", 0.25) then
+			return { success = false, reason = "TooManyRequests" }
 		end
 		local ok, reason = ShopSystem.UnequipCategory(player, category)
 		return { success = ok, reason = reason }

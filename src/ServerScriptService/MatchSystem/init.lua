@@ -38,6 +38,7 @@ local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 
 local ProgressionSystem = require(ServerScriptService.ProgressionSystem)
+local RemoteThrottle = require(ServerScriptService.RemoteThrottle)
 
 local Queue = require(script.Queue)
 local Teleporter = require(script.Teleporter)
@@ -228,6 +229,9 @@ local function onPortalTouched(hit: BasePart)
 end
 
 local function onRequestJoinQueue(player: Player)
+	if not RemoteThrottle.Check(player, "RequestJoinQueue", 1) then
+		return
+	end
 	tryJoinQueue(player)
 end
 

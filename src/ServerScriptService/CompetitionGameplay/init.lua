@@ -313,6 +313,13 @@ local function onSubmitAnswer(player: Player, rawAnswer: unknown)
 		return
 	end
 
+	-- Defense-in-depth: reject absurdly long input before even attempting
+	-- tonumber() (which is itself safe on any string, but there's no
+	-- legitimate reason an answer needs to be longer than this).
+	if typeof(rawAnswer) == "string" and #rawAnswer > 32 then
+		return
+	end
+
 	local answer = tonumber(rawAnswer)
 	if not answer then
 		return -- ignore non-numeric input rather than penalizing malformed submissions
