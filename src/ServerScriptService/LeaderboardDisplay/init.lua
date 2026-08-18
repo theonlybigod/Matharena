@@ -1,87 +1,77 @@
 --[[
 	LeaderboardDisplay
 
-	Refreshes the physical leaderboard board built into the Leaderboard
-	Hall building (Workspace.Lobby.Buildings.LeaderboardHall - see
-	LobbyBuilder/Buildings.lua) with live standings from LeaderboardSystem.
+	Refreshes the five separate physical leaderboard boards built by
+	LobbyBuilder/LeaderboardBoards.lua (Workspace.Lobby.Buildings.
+	<Category>Leaderboard - e.g. WinsLeaderboard) with live standings from
+	LeaderboardSystem.
 
-	This is Message 11's answer to "display leaderboards in lobby": an
-	in-world SurfaceGui rather than a menu/UI panel, since Message 2 built
-	this specific building back then in clear anticipation of exactly this
-	feature.
+	Single centralized refresh loop - one timer, one pass per cycle that
+	iterates all five categories - rather than five independent polling
+	loops. This also matches DataStore request budgeting: GetSortedAsync
+	calls count against read request budgets, so there's no reason to
+	poll faster than the underlying data actually changes (still the same
+	60s cadence as the DataStore autosave/leaderboard write cycle).
 
-	Refreshes on the same cadence as the DataStore autosave/leaderboard
-	write cycle (60s), since GetSortedAsync calls also count against
-	DataStore read request budgets - no reason to poll faster than the
-	underlying data actually changes.
+	Only row TEXT is touched here (rank/name/score). Podium styling (the
+	gold/silver/bronze rank-badge colors for the top 3) is baked in once
+	at build time in LeaderboardBoards.lua, since Row1 is always "rank 1"
+	regardless of which player currently holds it - no need to recompute
+	styling on every refresh.
 ]]
 
 local Workspace = game:GetService("Workspace")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local LeaderboardSystem = require(ServerScriptService.LeaderboardSystem)
+local LeaderboardConfig = require(ServerScriptService.LeaderboardConfig)
 
 local LeaderboardDisplay = {}
 
 local REFRESH_INTERVAL_SECONDS = 60
-local DISPLAY_ROWS = 5 -- how many entries fit on the physical board (see Buildings.lua)
-
-type CategoryDisplayInfo = {
-	id: string,
-	format: (value: number) -> string,
-}
-
-local CATEGORIES: { CategoryDisplayInfo } = {
-	{ id = "Wins", format = function(value) return tostring(value) end },
-	{ id = "XP", format = function(value) return tostring(value) end },
-	{ id = "QuestionsSolved", format = function(value) return tostring(value) end },
-	{ id = "Accuracy", format = function(value) return ("%.1f%%"):format(value) end },
-	{ id = "FastestAnswer", format = function(value) return ("%.2fs"):format(value) end },
-}
 
 local refreshLoopStarted = false
 
-local function findBoardRoot(): Frame?
+local function findBoardScroll(boardName: string): ScrollingFrame?
 	local lobby = Workspace:FindFirstChild("Lobby")
 	local buildings = lobby and lobby:FindFirstChild("Buildings")
-	local hall = buildings and buildings:FindFirstChild("LeaderboardHall")
-	local base = hall and hall:FindFirstChild("Base")
-	local gui = base and base:FindFirstChild("LeaderboardDisplay")
+	local board = buildings and buildings:FindFirstChild(boardName)
+	local base = board and board:FindFirstChild("Base")
+	local gui = base and base:FindFirstChild("BoardDisplay")
 	local root = gui and gui:FindFirstChild("Root")
-	return root :: Frame?
+	local scroll = root and root:FindFirstChild("EntriesScroll")
+	return scroll :: ScrollingFrame?
 end
 
-local function refreshCategory(root: Frame, category: CategoryDisplayInfo)
-	local categoriesRow = root:FindFirstChild("CategoriesRow")
-	local column = categoriesRow and categoriesRow:FindFirstChild(category.id .. "Column")
-	if not column then
+local function refreshCategory(category)
+	local scroll = findBoardScroll(category.boardName)
+	if not scroll then
+		warn(("[LeaderboardDisplay] Could not find %s - skipping this refresh."):format(category.boardName))
 		return
 	end
 
 	local entries = LeaderboardSystem.GetTopEntries(category.id)
 
-	for row = 1, DISPLAY_ROWS do
-		local rowLabel = column:FindFirstChild("Row" .. row) :: TextLabel?
-		if rowLabel then
-			local entry = entries[row]
+	for rank = 1, LeaderboardConfig.TOP_LIMIT do
+		local row = scroll:FindFirstChild("Row" .. rank)
+		local nameLabel = row and row:FindFirstChild("NameLabel") :: TextLabel?
+		local valueLabel = row and row:FindFirstChild("ValueLabel") :: TextLabel?
+		if nameLabel and valueLabel then
+			local entry = entries[rank]
 			if entry then
-				rowLabel.Text = ("%d. %s - %s"):format(row, entry.name, category.format(entry.value))
+				nameLabel.Text = entry.name
+				valueLabel.Text = category.format(entry.value)
 			else
-				rowLabel.Text = ("%d. -"):format(row)
+				nameLabel.Text = "-"
+				valueLabel.Text = "-"
 			end
 		end
 	end
 end
 
 local function refreshAll()
-	local root = findBoardRoot()
-	if not root then
-		warn("[LeaderboardDisplay] Could not find the LeaderboardHall display board - skipping this refresh.")
-		return
-	end
-
-	for _, category in ipairs(CATEGORIES) do
-		task.spawn(refreshCategory, root, category)
+	for _, category in ipairs(LeaderboardConfig.CATEGORIES) do
+		task.spawn(refreshCategory, category)
 	end
 end
 

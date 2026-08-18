@@ -13,16 +13,13 @@
 		- Tutorial: a rounded corner turret with a beacon light
 		- StatisticsBuilding: a tall vertical "data spire" with neon rings
 
-	LEADERBOARD REVERSION (Message 16, section 7-10): Leaderboard Hall is
-	no longer a walk-in building - BuildLeaderboardScreen below replaces
-	BuildShell/Furnish* for it entirely with a freestanding futuristic
-	screen structure (support pylons, neon frame, a plinth, and open-air
-	benches facing it) instead of walls/floor/ceiling/doorway/terminal.
-	The screen still names its display-bearing part "Base" and still gets
-	addLeaderboardDisplay(base) called on it from Buildings.lua exactly as
-	before, so LeaderboardDisplay.lua (which looks up
-	Workspace.Lobby.Buildings.LeaderboardHall.Base.LeaderboardDisplay.Root)
-	needs ZERO changes - the existing leaderboard system is fully reused.
+	LEADERBOARD: Leaderboard Hall no longer gets any geometry from this
+	file. It isn't a walk-in building (Message 15/16), and it isn't a
+	single freestanding screen either anymore - that design (the old
+	BuildLeaderboardScreen below) has been replaced by five separate
+	boards fanned across an arc; see LobbyBuilder/LeaderboardBoards.lua,
+	which Buildings.lua calls directly for the "LeaderboardHall" entry
+	instead of anything in this file.
 
 	Terminals (Shop/Rewards/Statistics/Tutorial): unchanged from Message 15
 	- each terminal Part gets a ProximityPrompt with a stable Name, and the
@@ -665,128 +662,6 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 		"Learn How to Play",
 		"Tutorial"
 	)
-end
-
---[[
-	Leaderboard Screen (Message 16 - replaces the walk-in Leaderboard Hall
-	entirely; see the module doc comment above). A freestanding futuristic
-	display: a ground plinth, two angled support pylons, a neon-framed
-	screen panel ("Base" - same name/role Buildings.lua already expects
-	for addLeaderboardDisplay), and a floating crown accent on top. Two
-	open-air benches sit in front, facing the screen, instead of inside a
-	room.
-]]
-function BuildingInteriors.BuildLeaderboardScreen(def, model: Model): BasePart
-	local basePos = def.position
-	local screenWidth = def.size.X
-	local screenHeight = def.height - 4
-	local screenBottomY = 5
-
-	-- Ground plinth
-	PartUtils.CreatePart({
-		name = "Plinth",
-		size = Vector3.new(screenWidth + 6, 1, def.size.Y * 0.6),
-		position = basePos + Vector3.new(0, 0.5, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(45, 48, 56),
-		parent = model,
-	})
-	PartUtils.CreatePart({
-		name = "PlinthTrim",
-		size = Vector3.new(screenWidth + 6.3, 0.2, def.size.Y * 0.6 + 0.3),
-		position = basePos + Vector3.new(0, 1.05, 0),
-		material = Enum.Material.Neon,
-		color = ACCENT_COLOR,
-		canCollide = false,
-		parent = model,
-	})
-
-	-- Angled support pylons
-	for _, side in ipairs({ -1, 1 }) do
-		PartUtils.CreatePart({
-			className = "WedgePart",
-			name = "SupportPylon",
-			size = Vector3.new(2, screenBottomY + screenHeight * 0.3, 2),
-			cframe = CFrame.new(basePos + Vector3.new(side * (screenWidth / 2 - 3), screenBottomY * 0.4, -1))
-				* CFrame.Angles(0, math.rad(side == -1 and 90 or -90), 0),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(45, 48, 56),
-			parent = model,
-		})
-	end
-
-	-- "Base": the screen panel itself - unchanged role, Buildings.lua
-	-- calls addLeaderboardDisplay(base) on this exactly as before.
-	local base = PartUtils.CreatePart({
-		name = "Base",
-		size = Vector3.new(screenWidth, screenHeight, 1.2),
-		position = basePos + Vector3.new(0, screenBottomY + screenHeight / 2, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(20, 22, 28),
-		parent = model,
-	})
-
-	-- Neon frame around the screen
-	PartUtils.CreatePart({
-		name = "ScreenFrameTop",
-		size = Vector3.new(screenWidth + 1, 0.4, 1.6),
-		position = basePos + Vector3.new(0, screenBottomY + screenHeight + 0.2, 0),
-		material = Enum.Material.Neon,
-		color = ACCENT_COLOR,
-		canCollide = false,
-		parent = model,
-	})
-	PartUtils.CreatePart({
-		name = "ScreenFrameBottom",
-		size = Vector3.new(screenWidth + 1, 0.4, 1.6),
-		position = basePos + Vector3.new(0, screenBottomY - 0.2, 0),
-		material = Enum.Material.Neon,
-		color = ACCENT_COLOR,
-		canCollide = false,
-		parent = model,
-	})
-	for _, side in ipairs({ -1, 1 }) do
-		PartUtils.CreatePart({
-			name = "ScreenFrameSide",
-			size = Vector3.new(0.4, screenHeight + 0.8, 1.6),
-			position = basePos + Vector3.new(side * (screenWidth / 2 + 0.2), screenBottomY + screenHeight / 2, 0),
-			material = Enum.Material.Neon,
-			color = ACCENT_COLOR,
-			canCollide = false,
-			parent = model,
-		})
-	end
-
-	-- Floating crown accent above the screen
-	local crown = PartUtils.CreatePart({
-		name = "CrownAccent",
-		size = Vector3.new(screenWidth * 0.5, 0.6, 0.6),
-		position = basePos + Vector3.new(0, screenBottomY + screenHeight + 2.5, 0),
-		material = Enum.Material.Neon,
-		color = ACCENT_COLOR,
-		canCollide = false,
-		parent = model,
-	})
-
-	local crownLight = Instance.new("PointLight")
-	crownLight.Color = ACCENT_COLOR
-	crownLight.Range = 30
-	crownLight.Brightness = 2
-	crownLight.Parent = crown
-
-	-- Open-air seating facing the screen (in the plaza, not inside a room).
-	for _, x in ipairs({ -12, 12 }) do
-		PartUtils.CreatePart({
-			name = "Bench",
-			size = Vector3.new(6, 1.2, 2),
-			position = basePos + Vector3.new(x, 0.85, def.size.Y / 2),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(45, 48, 56),
-			parent = model,
-		})
-	end
-
-	return base
 end
 
 return BuildingInteriors

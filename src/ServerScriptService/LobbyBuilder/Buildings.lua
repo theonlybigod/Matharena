@@ -2,20 +2,20 @@
 	Buildings.lua
 
 	Constructs the five named lobby buildings from LobbyConfig.BUILDINGS.
-	Each building is now a genuinely walkable shell (BuildingInteriors) with
-	a neon roofline trim band, a doorway, interior furnishings/terminals,
+	Each building is a genuinely walkable shell (BuildingInteriors) with a
+	neon roofline trim band, a doorway, interior furnishings/terminals,
 	and a sign facing the plaza (+Z direction, where spawns are).
 
-	LeaderboardHall (Message 11) gets a bigger, custom display instead of
-	the generic name-only sign: a SurfaceGui with a title plus 5 columns
-	(Wins/XP/Questions Solved/Accuracy/Fastest Answer), each pre-built with
-	placeholder rows. This building was built back in Message 2 specifically
-	in anticipation of a leaderboard display, so this is that display's
-	static geometry - LeaderboardDisplay (Message 11, ServerScriptService)
-	finds these instances by path and periodically fills in the row text
-	from LeaderboardSystem's live OrderedDataStore data. Nothing in this
-	file talks to a DataStore itself - it only builds empty placeholder
-	labels for that other module to populate.
+	LEADERBOARD REDESIGN (separated boards): the "LeaderboardHall" entry
+	in LobbyConfig.BUILDINGS no longer builds a single walk-in building or
+	a single big combined display screen. It now only anchors the
+	position/region for LeaderboardBoards.BuildAll, which builds five
+	separate, independently-named boards (WinsLeaderboard,
+	XPLeaderboard, QuestionsSolvedLeaderboard, AccuracyLeaderboard,
+	FastestAnswerLeaderboard) fanned across an arc in that same region -
+	see LobbyBuilder/LeaderboardBoards.lua. This file never touches a
+	DataStore itself; LeaderboardDisplay (ServerScriptService) finds the
+	five boards by their stable names and fills in live values.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,6 +23,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local LobbyConfig = require(script.Parent.LobbyConfig)
 local BuildingInteriors = require(script.Parent.BuildingInteriors)
+local LeaderboardBoards = require(script.Parent.LeaderboardBoards)
 
 local Buildings = {}
 
@@ -41,115 +42,19 @@ local function addSign(basePart: BasePart, text: string)
 	label.Parent = gui
 end
 
--- Leaderboard categories shown on LeaderboardHall's display board. Kept in
--- the same order as the design doc (Wins, XP, Questions Solved, Accuracy,
--- Fastest Answer). DISPLAY_ROWS is how many entries fit on the physical
--- board - LeaderboardSystem itself can track more than this; the board
--- just shows the top slice of it.
-local LEADERBOARD_CATEGORIES = {
-	{ id = "Wins", label = "Wins" },
-	{ id = "XP", label = "XP" },
-	{ id = "QuestionsSolved", label = "Questions Solved" },
-	{ id = "Accuracy", label = "Accuracy" },
-	{ id = "FastestAnswer", label = "Fastest Answer" },
-}
-local LEADERBOARD_DISPLAY_ROWS = 5
-
---[[
-	Builds LeaderboardHall's custom display: a title bar plus 5 equal
-	columns (one per category), each with a header label and
-	LEADERBOARD_DISPLAY_ROWS placeholder row labels named "Row1".."RowN" so
-	LeaderboardDisplay (a separate server module) can find and fill them in
-	by a stable path without this file needing to know anything about
-	DataStores or live data.
-]]
-local function addLeaderboardDisplay(basePart: BasePart)
-	local gui = Instance.new("SurfaceGui")
-	gui.Name = "LeaderboardDisplay"
-	gui.Face = Enum.NormalId.Back -- same face as other buildings' signs, facing the plaza/spawns
-	gui.Parent = basePart
-
-	local root = Instance.new("Frame")
-	root.Name = "Root"
-	root.Size = UDim2.fromScale(1, 1)
-	root.BackgroundTransparency = 1
-	root.Parent = gui
-
-	local titleLabel = Instance.new("TextLabel")
-	titleLabel.Name = "TitleLabel"
-	titleLabel.Size = UDim2.new(1, 0, 0.14, 0)
-	titleLabel.BackgroundTransparency = 1
-	titleLabel.Font = Enum.Font.GothamBlack
-	titleLabel.TextScaled = true
-	titleLabel.TextColor3 = LobbyConfig.NEON_COLOR
-	titleLabel.Text = "LEADERBOARDS"
-	titleLabel.Parent = root
-
-	local categoriesRow = Instance.new("Frame")
-	categoriesRow.Name = "CategoriesRow"
-	categoriesRow.Size = UDim2.new(1, 0, 0.86, 0)
-	categoriesRow.Position = UDim2.new(0, 0, 0.14, 0)
-	categoriesRow.BackgroundTransparency = 1
-	categoriesRow.Parent = root
-
-	local categoriesLayout = Instance.new("UIListLayout")
-	categoriesLayout.FillDirection = Enum.FillDirection.Horizontal
-	categoriesLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	categoriesLayout.Parent = categoriesRow
-
-	for _, category in ipairs(LEADERBOARD_CATEGORIES) do
-		local column = Instance.new("Frame")
-		column.Name = category.id .. "Column"
-		column.Size = UDim2.new(1 / #LEADERBOARD_CATEGORIES, 0, 1, 0)
-		column.BackgroundTransparency = 1
-		column.Parent = categoriesRow
-
-		local columnLayout = Instance.new("UIListLayout")
-		columnLayout.SortOrder = Enum.SortOrder.LayoutOrder
-		columnLayout.Parent = column
-
-		local rowSlots = 1 + LEADERBOARD_DISPLAY_ROWS -- header + N rows
-
-		local headerLabel = Instance.new("TextLabel")
-		headerLabel.Name = "Header"
-		headerLabel.LayoutOrder = 0
-		headerLabel.Size = UDim2.new(1, 0, 1 / rowSlots, 0)
-		headerLabel.BackgroundTransparency = 1
-		headerLabel.Font = Enum.Font.GothamBold
-		headerLabel.TextScaled = true
-		headerLabel.TextColor3 = LobbyConfig.NEON_COLOR
-		headerLabel.Text = category.label
-		headerLabel.Parent = column
-
-		for row = 1, LEADERBOARD_DISPLAY_ROWS do
-			local rowLabel = Instance.new("TextLabel")
-			rowLabel.Name = "Row" .. row
-			rowLabel.LayoutOrder = row
-			rowLabel.Size = UDim2.new(1, 0, 1 / rowSlots, 0)
-			rowLabel.BackgroundTransparency = 1
-			rowLabel.Font = Enum.Font.Gotham
-			rowLabel.TextScaled = true
-			rowLabel.TextColor3 = Color3.fromRGB(220, 220, 230)
-			rowLabel.Text = row .. ". -"
-			rowLabel.Parent = column
-		end
+local function buildOne(def, parent: Instance): Model?
+	-- LeaderboardHall no longer builds a single Model of its own (walk-in
+	-- building OR one big screen) - it builds five separate, independently
+	-- named board Models directly into `parent`, and returns nil since
+	-- there's no single "the building" instance to hand back.
+	if def.name == "LeaderboardHall" then
+		LeaderboardBoards.BuildAll(def, parent)
+		return nil
 	end
-end
 
-local function buildOne(def, parent: Instance): Model
 	local model = Instance.new("Model")
 	model.Name = def.name
 	model.Parent = parent
-
-	-- Leaderboard Hall is no longer a walk-in building (Message 16) - it's
-	-- a freestanding screen structure with its own frame/plinth, so it
-	-- skips BuildShell/the shared TrimBand entirely.
-	if def.name == "LeaderboardHall" then
-		local base = BuildingInteriors.BuildLeaderboardScreen(def, model)
-		addLeaderboardDisplay(base)
-		model.PrimaryPart = base
-		return model
-	end
 
 	local base = BuildingInteriors.BuildShell(def, model)
 

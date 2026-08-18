@@ -2,15 +2,17 @@
 	SignConfig.lua
 
 	Shared configuration for the floating "MATHARENA" landmark sign above
-	the lobby (Message 2 addition). Both the server-side builder
-	(ServerScriptService/LobbyBuilder/Sign.lua) and the client-side
-	floating-motion controller (StarterPlayerScripts/MatharenaSignController
-	.client.lua) read from here, so the sign's size, position, colors, and
-	bob motion can all be retuned from a single place without touching
-	either script.
+	the lobby. Both the server-side builder (ServerScriptService/
+	LobbyBuilder/Sign.lua) and the client-side floating-motion controller
+	(StarterPlayerScripts/MatharenaSignController.client.lua) read from
+	here, so the sign's size, position, colors, typography, and bob motion
+	can all be retuned from a single place without touching either script.
 
-	Supersedes the small "MatharenaLogo" that used to be built in
-	Decorations.lua - see the note in Decorations.lua for why.
+	Redesigned (sign cleanup pass): the sign is no longer a solid colored
+	panel framed by metal trim bars. It's now borderless - just glowing
+	typography and a soft light/particle accent, floating above the lobby.
+	This is the single, primary MATHARENA sign; do not add a second one
+	(see Sign.lua's header for why one previously had to be removed).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -31,24 +33,34 @@ SignConfig.SIGN_NAME = "MatharenaSign"
 -- so no lobby structure can obscure the sign from anywhere in the plaza.
 SignConfig.POSITION = Vector3.new(0, 85, 0)
 
--- Panel size, in studs. Notably larger than a normal decorative building
--- sign (compare Buildings.lua's addSign, which sizes its label to the
--- building's own face) so this reads as the lobby's major landmark.
-SignConfig.PANEL_SIZE = Vector3.new(56, 16, 3)
-
-SignConfig.PANEL_COLOR = Config.BRAND_NEON_COLOR
-SignConfig.TRIM_COLOR = Color3.fromRGB(235, 235, 245) -- bright metal, for the shiny trim bars
+-- Invisible frame the text/light/particles attach to, in studs. Sized
+-- larger and with a less-wide aspect ratio than the original (was
+-- 56x16, a 3.5:1 wide-and-flat box) specifically so TextScaled has more
+-- vertical room to work with - the same word reads noticeably taller
+-- without getting any wider or distorted.
+SignConfig.PANEL_SIZE = Vector3.new(68, 28, 2)
 
 SignConfig.TEXT = "MATHARENA"
 SignConfig.TEXT_COLOR = Color3.fromRGB(255, 255, 255)
-SignConfig.TEXT_FONT = Enum.Font.GothamBlack
-SignConfig.TEXT_STROKE_TRANSPARENCY = 0.5 -- subtle outline so the bold text pops against the neon panel
+-- Oswald: a tall, condensed, clean sans-serif - increases the lettering's
+-- vertical presence (the actual ask) without widening it, and reads as
+-- modern/futuristic rather than "boxy handwritten neon".
+SignConfig.TEXT_FONT = Enum.Font.Oswald
+-- A light top-to-bottom sheen on the lettering itself (a "shiny" pass
+-- without a physical border/panel around it).
+SignConfig.TEXT_SHIMMER_COLORS = {
+	Color3.fromRGB(255, 255, 255),
+	Color3.fromRGB(210, 235, 255),
+}
 
--- Glow. Kept to a single light + a low-rate emitter per side so the sign
--- stays readable rather than busy.
-SignConfig.GLOW_BRIGHTNESS = 3
+-- The glow lives in the text's own outline plus a soft light/particle
+-- accent - not in a background panel, so there's no border/frame reading
+-- as a "box" around the word.
+SignConfig.GLOW_COLOR = Config.BRAND_NEON_COLOR
+SignConfig.TEXT_STROKE_TRANSPARENCY = 0.15 -- stronger than a plain outline - this IS the sign's glow
+SignConfig.GLOW_BRIGHTNESS = 4
 SignConfig.GLOW_RANGE = 60
-SignConfig.PARTICLE_RATE = 4
+SignConfig.PARTICLE_RATE = 4 -- restrained; a soft accent, not a distraction from the text
 
 -- Floating/bobbing motion. Purely visual, so it's driven client-side (see
 -- MatharenaSignController.client.lua) rather than tweening the real

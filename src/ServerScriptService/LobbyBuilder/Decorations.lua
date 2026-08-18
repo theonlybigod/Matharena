@@ -2,17 +2,41 @@
 	Decorations.lua
 
 	Builds the lobby's decorative dressing: a perimeter ring of trees
-	(every LobbyConfig.TREE_SPACING studs), streetlights and benches on
-	concentric rings further inset, flower beds near each building
-	entrance, and a floating, particle-emitting Matharena logo above the
-	plaza.
+	(every LobbyConfig.TREE_SPACING studs), futuristic street lamps on
+	their own concentric ring, seating (see LobbyBuilder/Seating.lua), and
+	flower beds near each building entrance.
+
+	The floating "MATHARENA" plaza logo that used to be built here
+	(createFloatingLogo) has been removed (sign cleanup pass) - it was a
+	duplicate of the larger, borderless landmark sign now built by
+	LobbyBuilder/Sign.lua. Having both left two floating MATHARENA signs in
+	the lobby at once, which was a bug, not an intended design. Sign.lua is
+	now the only floating-sign construction path.
+
+	Street lamps (redesigned): the old plain 12-stud pole + floating neon
+	ball has been replaced by LobbyBuilder/StreetLamps.lua's taller,
+	fixture-styled lamp (see that module + StreetLampConfig.lua for the
+	design/config). This file still owns PLACEMENT (the ring layout, jitter,
+	and avoidance of spawns/buildings/portal/seating) - StreetLamps.lua only
+	knows how to build one lamp at a given position/orientation.
+
+	Seating (redesigned): the old single repeated "Bench" design (a plain
+	wood plank seat+back, ring-placed with no avoidance) has been replaced
+	by LobbyBuilder/Seating.lua - four distinct seat types placed into five
+	hand-designed zones (queue portal plaza, main walkway, a social lounge
+	cluster, building entrances, and the leaderboard viewing area). This
+	file just calls Seating.BuildAll and reuses the seat positions it
+	returns for street lamp avoidance, same role the old benchPositions list
+	played.
 ]]
 
-local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local LobbyConfig = require(script.Parent.LobbyConfig)
+local StreetLamps = require(script.Parent.StreetLamps)
+local StreetLampConfig = require(script.Parent.StreetLampConfig)
+local Seating = require(script.Parent.Seating)
 
 local Decorations = {}
 
@@ -278,62 +302,6 @@ local function createTree(position: Vector3, parent: Instance)
 	end
 end
 
-local function createStreetlight(position: Vector3, parent: Instance)
-	local model = Instance.new("Model")
-	model.Name = "Streetlight"
-	model.Parent = parent
-
-	PartUtils.CreatePart({
-		name = "Pole",
-		size = Vector3.new(0.8, 12, 0.8),
-		position = position + Vector3.new(0, 6, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(50, 50, 55),
-		parent = model,
-	})
-
-	local lamp = PartUtils.CreatePart({
-		name = "Lamp",
-		size = Vector3.new(1.6, 1.6, 1.6),
-		position = position + Vector3.new(0, 12, 0),
-		material = Enum.Material.Neon,
-		color = LobbyConfig.NEON_COLOR,
-		shape = Enum.PartType.Ball,
-		canCollide = false,
-		parent = model,
-	})
-
-	local light = Instance.new("PointLight")
-	light.Color = LobbyConfig.NEON_COLOR
-	light.Range = 16
-	light.Brightness = 2
-	light.Parent = lamp
-end
-
-local function createBench(position: Vector3, parent: Instance)
-	local model = Instance.new("Model")
-	model.Name = "Bench"
-	model.Parent = parent
-
-	PartUtils.CreatePart({
-		name = "Seat",
-		size = Vector3.new(4, 0.4, 1.5),
-		position = position + Vector3.new(0, 1.2, 0),
-		material = Enum.Material.WoodPlanks,
-		color = Color3.fromRGB(110, 80, 55),
-		parent = model,
-	})
-
-	PartUtils.CreatePart({
-		name = "Back",
-		size = Vector3.new(4, 1.2, 0.3),
-		position = position + Vector3.new(0, 1.9, -0.6),
-		material = Enum.Material.WoodPlanks,
-		color = Color3.fromRGB(110, 80, 55),
-		parent = model,
-	})
-end
-
 local FLOWER_COLORS = {
 	Color3.fromRGB(230, 60, 90),
 	Color3.fromRGB(250, 200, 40),
@@ -353,54 +321,6 @@ local function createFlowerBed(position: Vector3, parent: Instance)
 			parent = parent,
 		})
 	end
-end
-
-local function createFloatingLogo(parent: Instance)
-	local model = Instance.new("Model")
-	model.Name = "MatharenaLogo"
-	model.Parent = parent
-
-	local panel = PartUtils.CreatePart({
-		name = "LogoPanel",
-		size = Vector3.new(20, 6, 1),
-		position = Vector3.new(0, LobbyConfig.LOGO_HEIGHT, 0),
-		material = Enum.Material.Neon,
-		color = LobbyConfig.NEON_COLOR,
-		canCollide = false,
-		parent = model,
-	})
-
-	local gui = Instance.new("SurfaceGui")
-	gui.Face = Enum.NormalId.Back -- faces the plaza/spawns (+Z)
-	gui.Parent = panel
-
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 1
-	label.TextColor3 = Color3.fromRGB(255, 255, 255)
-	label.Font = Enum.Font.GothamBold
-	label.TextScaled = true
-	label.Text = "MATHARENA"
-	label.Parent = gui
-
-	local emitter = Instance.new("ParticleEmitter")
-	emitter.Color = ColorSequence.new(LobbyConfig.NEON_COLOR)
-	emitter.Lifetime = NumberRange.new(1, 2)
-	emitter.Rate = 8
-	emitter.Speed = NumberRange.new(1, 2)
-	emitter.SpreadAngle = Vector2.new(180, 180)
-	emitter.Parent = panel
-
-	-- Gentle floating bob, driven by TweenService rather than a per-frame
-	-- loop script, so the position replicates efficiently on its own.
-	local tween = TweenService:Create(
-		panel,
-		TweenInfo.new(3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-		{ Position = panel.Position + Vector3.new(0, 3, 0) }
-	)
-	tween:Play()
-
-	return model
 end
 
 function Decorations.BuildAll(parent: Instance): Folder
@@ -427,18 +347,41 @@ function Decorations.BuildAll(parent: Instance): Folder
 		createTree(position, treesFolder)
 	end
 
+	-- Seating is computed before street lamps (order matters here) so
+	-- every seat's position can be folded into the lamp avoidance list
+	-- below - lamps must not obstruct seating per the street-lamp redesign
+	-- spec, and per the seating redesign's own "avoid important interactive
+	-- objects"/spacing requirements, nothing else should crowd a seat
+	-- either.
+	local _seatingFolder, seatPositions = Seating.BuildAll(folder)
+
+	-- Street lamps: their own ring, with the general avoidPoints (spawns/
+	-- buildings/portal) plus the seating just placed above. The floating
+	-- Matharena sign sits directly above the queue portal position (X=0,
+	-- Z=0), which is already in avoidPoints, so no separate entry is
+	-- needed for it.
+	local lampAvoidPoints = table.clone(avoidPoints)
+	for _, seatPosition in ipairs(seatPositions) do
+		table.insert(lampAvoidPoints, seatPosition)
+	end
+
 	local lightsFolder = Instance.new("Folder")
 	lightsFolder.Name = "Streetlights"
 	lightsFolder.Parent = folder
-	for _, position in ipairs(ringPositions(LobbyConfig.PERIMETER_INSET + 10, LobbyConfig.TREE_SPACING * 2)) do
-		createStreetlight(position, lightsFolder)
-	end
-
-	local benchesFolder = Instance.new("Folder")
-	benchesFolder.Name = "Benches"
-	benchesFolder.Parent = folder
-	for _, position in ipairs(ringPositions(LobbyConfig.PERIMETER_INSET + 20, LobbyConfig.TREE_SPACING * 2)) do
-		createBench(position, benchesFolder)
+	local lampPositions = ringPositions(
+		LobbyConfig.PERIMETER_INSET + StreetLampConfig.RING_INSET_EXTRA,
+		LobbyConfig.TREE_SPACING * StreetLampConfig.RING_SPACING_MULTIPLIER,
+		StreetLampConfig.PLACEMENT_JITTER,
+		lampAvoidPoints,
+		StreetLampConfig.AVOID_RADIUS
+	)
+	for _, position in ipairs(lampPositions) do
+		-- Deterministic per-position yaw jitter (same seeding convention as
+		-- the trees) so lamps get "slight variation in orientation" without
+		-- rerolling differently on every rebuild.
+		local rng = seededRandom(position)
+		local yaw = rng:NextNumber(-StreetLampConfig.ORIENTATION_JITTER_DEGREES, StreetLampConfig.ORIENTATION_JITTER_DEGREES)
+		StreetLamps.Build(position, yaw, lightsFolder)
 	end
 
 	local flowersFolder = Instance.new("Folder")
@@ -447,8 +390,6 @@ function Decorations.BuildAll(parent: Instance): Folder
 	for _, def in ipairs(LobbyConfig.BUILDINGS) do
 		createFlowerBed(def.position + Vector3.new(0, 0, def.size.Y / 2 + 2), flowersFolder)
 	end
-
-	createFloatingLogo(folder)
 
 	return folder
 end

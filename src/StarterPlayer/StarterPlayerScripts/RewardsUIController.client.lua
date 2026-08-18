@@ -203,22 +203,90 @@ UITheme.ApplyCorner(toastClaimButton)
 UITheme.ApplyButtonHoverEffect(toastClaimButton)
 toastClaimButton.Parent = toastFrame
 
+-- Hidden by default (Message 8 addition: "Claim Now" must not appear
+-- until the server confirms something is actually claimable). Hidden by
+-- BOTH Visible=false and off-screen position, so it takes up no UI space
+-- and can't intercept input while hidden.
+toastFrame.Visible = false
+
 local currentToastWinsRequired: number? = nil
 
-local function hideToast()
+local function showClaimToast(entry)
+	currentToastWinsRequired = entry.winsRequired
+	toastBody.Text = ("%d WINS\n%s"):format(entry.winsRequired, tostring(entry.label))
+	toastFrame.Visible = true
+
+	local showTween = TweenService:Create(
+		toastFrame,
+		TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Position = UDim2.new(0.5, -160, 0, 24) }
+	)
+	showTween:Play()
+end
+
+-- Hides the button completely - not a timer-based auto-dismiss. Per the
+-- Message 8 addition, this only ever gets called when the server confirms
+-- either the milestone was claimed or nothing is available anymore, never
+-- "N seconds elapsed" - a still-unclaimed reward must keep showing the
+-- button.
+local function hideClaimToastCompletely()
+	currentToastWinsRequired = nil
 	local tween = TweenService:Create(
 		toastFrame,
 		TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 		{ Position = UDim2.new(0.5, -160, 0, -130) }
 	)
 	tween:Play()
+	tween.Completed:Connect(function(playbackState: Enum.PlaybackState)
+		if playbackState == Enum.PlaybackState.Completed then
+			toastFrame.Visible = false
+		end
+	end)
 end
 
 -- ===== State =====
 
 local latestSnapshot: { wins: number, milestones: { any } }? = nil
 
-local function refreshRewardsPanel()
+-- Finds the earliest still-unclaimed Available milestone in a snapshot,
+-- if any - this is what decides whether the "Claim Now" button should be
+-- showing at all (Message 8 addition).
+local function findAvailableMilestone(snapshot)
+	if not snapshot then
+		return nil
+	end
+	for _, entry in ipairs(snapshot.milestones) do
+		if entry.status == "Available" then
+			return entry
+		end
+	end
+	return nil
+end
+
+-- Server-authoritative claim-button visibility: shows/hides the toast's
+-- "Claim Now" button purely based on what the server's own snapshot says
+-- is currently Available - never based on the client guessing, and never
+-- based on a timer. Called every time a snapshot is fetched (on load, on
+-- panel open, and after every claim attempt), so the button's visibility
+-- always reflects the player's actual current claimable state.
+local function refreshClaimButtonFromSnapshot(snapshot)
+	local available = findAvailableMilestone(snapshot)
+	if available then
+		if currentToastWinsRequired ~= available.winsRequired then
+			showClaimToast(available)
+		end
+	elseif currentToastWinsRequired ~= nil then
+		hideClaimToastCompletely()
+	end
+end
+
+-- Forward-declared so refreshRewardsPanel's inline claim handler (defined
+-- below) and requestSnapshot (defined further below) can reference each
+-- other regardless of definition order.
+local refreshRewardsPanel
+local requestSnapshot
+
+function refreshRewardsPanel()
 	local snapshot = latestSnapshot
 	if not snapshot then
 		return
@@ -317,19 +385,10 @@ local function refreshRewardsPanel()
 				local result = claimRewardMilestoneFunction:InvokeServer(entry.winsRequired)
 				claimButton.Active = true
 				if result and result.success then
-					if currentToastWinsRequired == entry.winsRequired then
-						hideToast()
-						currentToastWinsRequired = nil
-					end
-					-- Refetch so claimed state + progress bar reflect the server's
-					-- authoritative result rather than assuming success locally.
-					local ok, freshSnapshot = pcall(function()
-						return getRewardTrackSnapshotFunction:InvokeServer()
-					end)
-					if ok and freshSnapshot then
-						latestSnapshot = freshSnapshot
-						refreshRewardsPanel()
-					end
+					-- Refetch so claimed state + progress bar + the "Claim Now"
+					-- button all reflect the server's authoritative result rather
+					-- than assuming success locally.
+					requestSnapshot()
 				end
 			end)
 		else
@@ -375,15 +434,22 @@ local function refreshRewardsPanel()
 	end
 end
 
-local function requestSnapshot()
+function requestSnapshot()
 	local ok, snapshot = pcall(function()
 		return getRewardTrackSnapshotFunction:InvokeServer()
 	end)
 	if ok and snapshot then
 		latestSnapshot = snapshot
 		refreshRewardsPanel()
+		refreshClaimButtonFromSnapshot(snapshot)
 	end
 end
+
+-- Establish the "Claim Now" button's correct initial state as soon as this
+-- script loads (on join, or on a UI reload) - not just in reaction to a
+-- live unlock event. Without this, a player with an already-available (but
+-- not freshly-unlocked-this-session) reward would never see the button.
+requestSnapshot()
 
 -- ===== Open/close =====
 
@@ -428,22 +494,11 @@ rewardMilestoneUnlockedEvent.OnClientEvent:Connect(function(data)
 		return
 	end
 
-	currentToastWinsRequired = data.winsRequired
-	toastBody.Text = ("%d WINS\n%s"):format(data.winsRequired, tostring(data.label))
-
-	local showTween = TweenService:Create(
-		toastFrame,
-		TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-		{ Position = UDim2.new(0.5, -160, 0, 24) }
-	)
-	showTween:Play()
-
-	task.delay(6, function()
-		if currentToastWinsRequired == data.winsRequired then
-			hideToast()
-			currentToastWinsRequired = nil
-		end
-	end)
+	-- The push event tells us a milestone just unlocked - show it
+	-- immediately rather than waiting for the next snapshot poll. This
+	-- still goes through the same showClaimToast used by the state-driven
+	-- refresh, so there's only one code path that actually shows the button.
+	showClaimToast({ winsRequired = data.winsRequired, label = data.label })
 
 	-- If the Rewards panel happens to be open, refresh it so the newly
 	-- Available milestone shows up without needing to reopen the panel.
@@ -458,12 +513,16 @@ toastClaimButton.MouseButton1Click:Connect(function()
 	end
 
 	local winsRequired = currentToastWinsRequired
+	toastClaimButton.Active = false
 	local result = claimRewardMilestoneFunction:InvokeServer(winsRequired)
+	toastClaimButton.Active = true
 	if result and result.success then
-		hideToast()
-		currentToastWinsRequired = nil
+		-- Refetch rather than assume: this both hides the button if nothing
+		-- else is available, and correctly shows the NEXT available
+		-- milestone's toast instead if one exists.
+		requestSnapshot()
 		if rewardsOverlay.Visible then
-			requestSnapshot()
+			refreshRewardsPanel()
 		end
 	end
 end)

@@ -75,6 +75,10 @@ LobbyConfig.QUEUE_PORTAL_POSITION = Vector3.new(0, 0, 0)
 LobbyConfig.TREE_SPACING = 25
 LobbyConfig.PERIMETER_INSET = 12 -- distance from the lobby edge for the decoration ring
 
-LobbyConfig.LOGO_HEIGHT = 45
+-- Note: the old small floating logo that used LOGO_HEIGHT was removed
+-- during the sign cleanup pass (it duplicated LobbyBuilder/Sign.lua's
+-- landmark sign). That sign's own position/size now live in
+-- ReplicatedStorage/Modules/SignConfig.lua instead, since it's shared
+-- with the client-side bob animation, which LobbyConfig isn't.
 
 return LobbyConfig

@@ -6,6 +6,13 @@
 	who's currently online: Wins, XP, Questions Solved (correct answers),
 	Accuracy, and Fastest Answer.
 
+	Category definitions (id, ascending/descending, raw<->display value
+	mapping) now live in ServerScriptService/LeaderboardConfig.lua - the
+	single shared source of truth also used by LeaderboardDisplay and
+	LobbyBuilder/LeaderboardBoards.lua, so the five categories are only
+	defined once. This module just wraps each one with its actual
+	OrderedDataStore instance.
+
 	Write side: UpdateEntries(player, profile) is called by DataSystem at
 	the exact same sync points as the main profile save (autosave every
 	60s + on-leave) - piggybacking on that already-rate-limited cadence
@@ -19,22 +26,16 @@
 	Nothing else is exposed through this path beyond { name, value } pairs
 	per entry - no other profile data leaks through the leaderboard.
 
-	DataStore limitation this module works around: OrderedDataStore
-	values must be non-negative integers.
-		- Accuracy (0-100 with one decimal place) is stored as
-		  round(accuracy * 10) (e.g. 87.3% -> 873) and divided back by 10
-		  for display.
-		- Fastest Answer (fractional seconds) is stored as whole
-		  milliseconds and divided back by 1000 for display. Lower is
-		  better, so only this leaderboard is fetched ascending; the
-		  other four are fetched descending. Players with no recorded
-		  fastest answer yet (the -1 sentinel, see DataSystem) are
+	DataStore limitation this module works around (see LeaderboardConfig
+	for the actual per-category raw<->display conversions):
+		- Accuracy and Fastest Answer both need fractional values, but
+		  OrderedDataStore values must be non-negative integers, so both
+		  are stored scaled up (x10 and milliseconds respectively) and
+		  scaled back down for display.
+		- Fastest Answer is the only category fetched ascending (lower is
+		  better). Players with no recorded fastest answer yet are
 		  skipped entirely rather than written as an artificial "fastest
-		  of all".
-
-	ASSUMPTION (documented, not stopped for): "Questions solved" is read
-	as questions answered CORRECTLY (profile.statistics.correctAnswers),
-	not merely attempted.
+		  of all" - see LeaderboardConfig.
 ]]
 
 local DataStoreService = game:GetService("DataStoreService")
@@ -44,6 +45,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 local PersistenceRetry = require(ServerScriptService.PersistenceRetry)
+local LeaderboardConfig = require(ServerScriptService.LeaderboardConfig)
 
 local LeaderboardSystem = {}
 
@@ -54,12 +56,11 @@ export type LeaderboardEntry = {
 
 local STORE_PREFIX = "MathArena_Leaderboard_"
 local STORE_VERSION = "v1"
-local TOP_N = 10
 
 type CategoryInfo = {
 	store: OrderedDataStore,
-	ascending: boolean, -- true = lower raw value is better (only FastestAnswer)
-	toRawValue: (profile: any) -> number?, -- nil = skip writing this category for this profile
+	ascending: boolean,
+	toRawValue: (profile: any) -> number?,
 	toDisplayValue: (raw: number) -> number,
 }
 
@@ -72,60 +73,14 @@ local function buildCategories()
 	end
 	categoriesBuilt = true
 
-	CATEGORIES.Wins = {
-		store = DataStoreService:GetOrderedDataStore(STORE_PREFIX .. "Wins_" .. STORE_VERSION),
-		ascending = false,
-		toRawValue = function(profile)
-			return profile.wins
-		end,
-		toDisplayValue = function(raw)
-			return raw
-		end,
-	}
-	CATEGORIES.XP = {
-		store = DataStoreService:GetOrderedDataStore(STORE_PREFIX .. "XP_" .. STORE_VERSION),
-		ascending = false,
-		toRawValue = function(profile)
-			return profile.xp
-		end,
-		toDisplayValue = function(raw)
-			return raw
-		end,
-	}
-	CATEGORIES.QuestionsSolved = {
-		store = DataStoreService:GetOrderedDataStore(STORE_PREFIX .. "QuestionsSolved_" .. STORE_VERSION),
-		ascending = false,
-		toRawValue = function(profile)
-			return profile.statistics.correctAnswers
-		end,
-		toDisplayValue = function(raw)
-			return raw
-		end,
-	}
-	CATEGORIES.Accuracy = {
-		store = DataStoreService:GetOrderedDataStore(STORE_PREFIX .. "Accuracy_" .. STORE_VERSION),
-		ascending = false,
-		toRawValue = function(profile)
-			return math.floor(profile.statistics.accuracy * 10 + 0.5)
-		end,
-		toDisplayValue = function(raw)
-			return raw / 10
-		end,
-	}
-	CATEGORIES.FastestAnswer = {
-		store = DataStoreService:GetOrderedDataStore(STORE_PREFIX .. "FastestAnswer_" .. STORE_VERSION),
-		ascending = true,
-		toRawValue = function(profile)
-			local seconds = profile.statistics.fastestAnswerSeconds
-			if seconds < 0 then
-				return nil -- no recorded fastest answer yet - skip, don't write a fake "0"
-			end
-			return math.floor(seconds * 1000 + 0.5)
-		end,
-		toDisplayValue = function(raw)
-			return raw / 1000
-		end,
-	}
+	for _, category in ipairs(LeaderboardConfig.CATEGORIES) do
+		CATEGORIES[category.id] = {
+			store = DataStoreService:GetOrderedDataStore(STORE_PREFIX .. category.id .. "_" .. STORE_VERSION),
+			ascending = category.ascending,
+			toRawValue = category.toRawValue,
+			toDisplayValue = category.toDisplayValue,
+		}
+	end
 end
 
 --[[
@@ -153,11 +108,11 @@ function LeaderboardSystem.UpdateEntries(player: Player, profile: any)
 end
 
 --[[
-	Fetches the top TOP_N entries for `category`, resolving each entry's
-	current username. Returns an empty list (never errors out to the
-	caller) if the category is unknown or the DataStore call fails after
-	retries - the client-facing surface always gets a well-formed
-	(possibly empty) list.
+	Fetches the top LeaderboardConfig.TOP_LIMIT (100) entries for
+	`category`, resolving each entry's current username. Returns an empty
+	list (never errors out to the caller) if the category is unknown or
+	the DataStore call fails after retries - the client-facing surface
+	always gets a well-formed (possibly empty) list.
 ]]
 function LeaderboardSystem.GetTopEntries(category: string): { LeaderboardEntry }
 	local info = CATEGORIES[category]
@@ -166,7 +121,7 @@ function LeaderboardSystem.GetTopEntries(category: string): { LeaderboardEntry }
 	end
 
 	local ok, pagesOrError = PersistenceRetry.Attempt(function()
-		return info.store:GetSortedAsync(info.ascending, TOP_N)
+		return info.store:GetSortedAsync(info.ascending, LeaderboardConfig.TOP_LIMIT)
 	end)
 
 	if not ok then
