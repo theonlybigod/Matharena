@@ -39,4 +39,11 @@ RewardsConfig.PERFECT_GAME_BONUS_XP = 50
 RewardsConfig.FAST_ANSWER_BONUS_COINS = 10
 RewardsConfig.FAST_ANSWER_TIME_FRACTION = 0.4
 
+-- Practice Mode (solo, non-competitive): a SMALL XP trickle per correct
+-- answer, deliberately far below CORRECT_ANSWER_XP, and explicitly NO
+-- coins - per design, Practice must not be a viable way to farm currency
+-- or otherwise substitute for competitive play. Nothing awarded on an
+-- incorrect answer or timeout.
+RewardsConfig.PRACTICE_CORRECT_ANSWER_XP = 2
+
 return RewardsConfig

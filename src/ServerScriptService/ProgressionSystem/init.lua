@@ -343,6 +343,48 @@ function ProgressionSystem.RecordGameCompleted(player: Player, didWin: boolean)
 	ProgressionSystem.RefreshStatistics(player)
 end
 
+--[[
+	Records the outcome of a single PRACTICE question (entirely separate
+	from RecordQuestionAnswer/competitive statistics above - never touches
+	profile.statistics, profile.currentStreak, gamesPlayed, or wins).
+	`timeTakenSeconds` is optional (nil on a timeout). Average answer time
+	and fastest answer are both computed over CORRECT answers only, mirroring
+	the competitive stats' own convention.
+]]
+function ProgressionSystem.RecordPracticeQuestionAnswer(player: Player, isCorrect: boolean, timeTakenSeconds: number?)
+	local profile = DataSystem.GetProfile(player)
+	if not profile then
+		warn(
+			("[ProgressionSystem] RecordPracticeQuestionAnswer called for %s with no loaded profile."):format(player.Name)
+		)
+		return
+	end
+
+	local stats = profile.practiceStatistics
+	stats.questionsAnswered += 1
+
+	if isCorrect then
+		stats.correctAnswers += 1
+		stats.currentStreak += 1
+		stats.bestStreak = math.max(stats.bestStreak, stats.currentStreak)
+
+		if timeTakenSeconds then
+			if stats.fastestAnswerSeconds < 0 or timeTakenSeconds < stats.fastestAnswerSeconds then
+				stats.fastestAnswerSeconds = timeTakenSeconds
+			end
+			-- Incremental average over correct answers only.
+			stats.averageAnswerTimeSeconds += (timeTakenSeconds - stats.averageAnswerTimeSeconds) / stats.correctAnswers
+		end
+	else
+		stats.incorrectAnswers += 1
+		stats.currentStreak = 0
+	end
+
+	stats.accuracy = if stats.questionsAnswered > 0
+		then math.round((stats.correctAnswers / stats.questionsAnswered) * 1000) / 10
+		else 0
+end
+
 function ProgressionSystem.Init()
 	print("[ProgressionSystem] Initialized")
 end

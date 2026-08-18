@@ -1,19 +1,25 @@
 --[[
 	LobbyUIController.client.lua
 
-	Builds the lobby menu: Play, Shop, Stats, Settings, Daily Rewards
+	Builds the lobby menu: Play, Practice, Shop, Stats, Settings, Rewards
 	buttons, plus a Stats panel (backed by real ProgressionSystem/
-	DataSystem data from Message 4) and placeholder panels for
-	Settings/Daily Rewards.
+	DataSystem data from Message 4) and a placeholder panel for Settings.
 
-	Settings/Daily Rewards have no backing systems yet - clicking them
-	opens a "coming soon" panel. The Shop button's click handling now
-	belongs to ShopUIController.client.lua (Message 10) instead of this
-	file's placeholder modal - see that script. Button names are stable
-	(ShopButton, SettingsButton, DailyRewardsButton, ModalOverlay/
-	ModalPanel) so future settings/rewards messages can wire real
-	functionality into this same UI without replacing it, per Message 8's
-	pipeline instructions.
+	Settings has no backing system in THIS file yet - clicking it opens a
+	"coming soon" panel (note SettingsSystem/SettingsUIController exist
+	elsewhere and may already own this button - check before assuming
+	it's unwired). The Shop, Rewards, and Practice buttons' click handling
+	belongs to ShopUIController.client.lua, RewardsUIController.client.lua,
+	and PracticeUIController.client.lua respectively - this file only
+	creates the buttons and leaves a no-op connection, same handoff pattern
+	for all three. Button names are stable (ShopButton, SettingsButton,
+	RewardsButton, PracticeButton, ModalOverlay/ModalPanel) so future
+	messages can wire real functionality into this same UI without
+	replacing it.
+
+	RewardsButton was previously "DailyRewardsButton" showing a "Daily
+	Rewards" placeholder - replaced with a win-based Rewards track (NOT a
+	daily-login system); the old placeholder click handler is gone.
 
 	Visible while not committed to an active match (Lobby/Waiting); hidden
 	once the match locks in (Starting onward).
@@ -21,6 +27,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
@@ -35,8 +42,8 @@ local mainUI = playerGui:WaitForChild("MainUI")
 
 local buttonBar = Instance.new("Frame")
 buttonBar.Name = "LobbyButtonBar"
-buttonBar.Size = UDim2.fromOffset(580, 64)
-buttonBar.Position = UDim2.new(0.5, -290, 1, -84)
+buttonBar.Size = UDim2.fromOffset(700, 64)
+buttonBar.Position = UDim2.new(0.5, -350, 1, -84)
 buttonBar.BackgroundTransparency = 1
 buttonBar.Parent = mainUI
 
@@ -66,10 +73,11 @@ end
 local playButton = createButton("PlayButton", "Play", 1)
 playButton.BackgroundColor3 = UITheme.COLORS.Accent
 
-local shopButton = createButton("ShopButton", "Shop", 2)
-local statsButton = createButton("StatsButton", "Stats", 3)
-local settingsButton = createButton("SettingsButton", "Settings", 4)
-local dailyRewardsButton = createButton("DailyRewardsButton", "Daily", 5)
+local practiceButton = createButton("PracticeButton", "Practice", 2)
+local shopButton = createButton("ShopButton", "Shop", 3)
+local statsButton = createButton("StatsButton", "Stats", 4)
+local settingsButton = createButton("SettingsButton", "Settings", 5)
+local dailyRewardsButton = createButton("RewardsButton", "Rewards", 6)
 
 -- ===== Generic modal (reused by Shop/Settings/Daily Rewards/Stats) =====
 
@@ -148,6 +156,13 @@ shopButton.MouseButton1Click:Connect(function()
 	-- doesn't mistake ShopButton for being unwired.
 end)
 
+practiceButton.MouseButton1Click:Connect(function()
+	-- Intentionally not handled here - PracticeUIController.client.lua owns
+	-- this button's click handling (immediate manual Practice entry, with
+	-- a confirm step if the player is currently queued), same handoff
+	-- pattern as ShopButton above.
+end)
+
 settingsButton.MouseButton1Click:Connect(function()
 	-- Intentionally not handled here - SettingsUIController.client.lua
 	-- (Message 12) owns this button's click handling and opens the real
@@ -155,7 +170,9 @@ settingsButton.MouseButton1Click:Connect(function()
 end)
 
 dailyRewardsButton.MouseButton1Click:Connect(function()
-	openModal("Daily Rewards", "Daily rewards are coming soon! Come back each day for a bonus.")
+	-- Intentionally not handled here - RewardsUIController.client.lua owns
+	-- this button's click handling and opens the real win-based Rewards
+	-- track panel, same handoff pattern as ShopButton above.
 end)
 
 -- ===== Stats panel (real data, Message 4) =====
@@ -167,7 +184,7 @@ local function formatFastest(value: number): string
 	return ("%.1fs"):format(value)
 end
 
-statsButton.MouseButton1Click:Connect(function()
+local function openStatsModal()
 	local leaderstats = player:FindFirstChild("leaderstats")
 	local statistics = player:FindFirstChild("Statistics")
 	local lines = {}
@@ -201,6 +218,24 @@ statsButton.MouseButton1Click:Connect(function()
 	end
 
 	openModal("Stats", table.concat(lines, "\n"))
+end
+
+statsButton.MouseButton1Click:Connect(openStatsModal)
+
+-- ===== Statistics Terminal (in-world interaction, Message 15) =====
+-- Same open logic as the lobby StatsButton above.
+task.spawn(function()
+	local lobby = Workspace:WaitForChild("Lobby", 10)
+	local statsBuilding = lobby and lobby:WaitForChild("Buildings", 10):WaitForChild("StatisticsBuilding", 10)
+	local stand = statsBuilding and statsBuilding:FindFirstChild("StatisticsTerminalStand")
+	local prompt = stand and stand:FindFirstChild("StatisticsTerminalPrompt")
+	if prompt then
+		(prompt :: ProximityPrompt).Triggered:Connect(function(triggeringPlayer: Player)
+			if triggeringPlayer == player then
+				openStatsModal()
+			end
+		end)
+	end
 end)
 
 -- ===== Play button =====

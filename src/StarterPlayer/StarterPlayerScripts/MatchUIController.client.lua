@@ -22,7 +22,7 @@ local mainUI = playerGui:WaitForChild("MainUI")
 -- Queue status banner (top-center)
 local queueFrame = Instance.new("Frame")
 queueFrame.Name = "QueueStatus"
-queueFrame.Size = UDim2.fromOffset(340, 56)
+queueFrame.Size = UDim2.fromOffset(340, 92)
 queueFrame.Position = UDim2.new(0.5, -170, 0, 20)
 queueFrame.Visible = false
 UITheme.StylePanel(queueFrame, 0.25)
@@ -30,13 +30,30 @@ queueFrame.Parent = mainUI
 
 local queueLabel = Instance.new("TextLabel")
 queueLabel.Name = "QueueLabel"
-queueLabel.Size = UDim2.fromScale(1, 1)
+queueLabel.Size = UDim2.new(1, 0, 0, 56)
 queueLabel.BackgroundTransparency = 1
 queueLabel.TextColor3 = UITheme.COLORS.Text
 queueLabel.Font = Enum.Font.GothamBold
 queueLabel.TextScaled = true
 queueLabel.Text = ""
 queueLabel.Parent = queueFrame
+
+local cancelQueueButton = Instance.new("TextButton")
+cancelQueueButton.Name = "CancelQueueButton"
+cancelQueueButton.Size = UDim2.new(1, -16, 0, 28)
+cancelQueueButton.Position = UDim2.fromOffset(8, 58)
+cancelQueueButton.Font = Enum.Font.GothamBold
+cancelQueueButton.TextScaled = true
+cancelQueueButton.Text = "CANCEL"
+cancelQueueButton.TextColor3 = UITheme.COLORS.Text
+cancelQueueButton.BackgroundColor3 = UITheme.COLORS.Error
+UITheme.ApplyCorner(cancelQueueButton)
+UITheme.ApplyButtonHoverEffect(cancelQueueButton)
+cancelQueueButton.Parent = queueFrame
+
+cancelQueueButton.MouseButton1Click:Connect(function()
+	RemoteEvents.Get("RequestLeaveQueue"):FireServer()
+end)
 
 -- Intro countdown (big centered text, 3-2-1-GO / winner announcement)
 local introLabel = Instance.new("TextLabel")

@@ -63,6 +63,20 @@ export type Statistics = {
 	longestStreak: number,
 }
 
+-- Practice Mode's own statistics, tracked entirely separately from the
+-- competitive Statistics above - answering practice questions must never
+-- move gamesPlayed/gamesWon/questionsAnswered/etc. on the competitive side.
+export type PracticeStatistics = {
+	questionsAnswered: number,
+	correctAnswers: number,
+	incorrectAnswers: number,
+	accuracy: number, -- percentage, 0-100
+	fastestAnswerSeconds: number, -- -1 means "no answer recorded yet"
+	averageAnswerTimeSeconds: number,
+	currentStreak: number,
+	bestStreak: number,
+}
+
 export type Profile = {
 	wins: number,
 	coins: number,
@@ -75,6 +89,8 @@ export type Profile = {
 	ownedCosmetics: { [string]: boolean }, -- set of owned CosmeticsConfig item ids (Message 10)
 	equippedCosmetics: { [string]: string }, -- CosmeticsConfig category -> equipped item id
 	settings: { [string]: any }, -- generic/extensible; no Settings system exists yet to populate this
+	claimedRewardMilestones: { [string]: boolean }, -- win-based Rewards track: set of claimed winsRequired milestones, KEYED BY STRING (tostring(winsRequired)) since DataStore round-trips turn numeric table keys into strings anyway
+	practiceStatistics: PracticeStatistics,
 }
 
 local PROFILE_STORE_NAME = "MathArena_PlayerProfiles_v1"
@@ -116,6 +132,17 @@ local function createDefaultProfile(): Profile
 		ownedCosmetics = {},
 		equippedCosmetics = {},
 		settings = {},
+		claimedRewardMilestones = {},
+		practiceStatistics = {
+			questionsAnswered = 0,
+			correctAnswers = 0,
+			incorrectAnswers = 0,
+			accuracy = 0,
+			fastestAnswerSeconds = -1,
+			averageAnswerTimeSeconds = 0,
+			currentStreak = 0,
+			bestStreak = 0,
+		},
 	}
 end
 
@@ -129,9 +156,10 @@ local function reconcileWithDefaults(saved: { [string]: any }): Profile
 	local profile = createDefaultProfile()
 
 	for key, value in pairs(saved) do
-		if key == "statistics" and typeof(value) == "table" then
+		if (key == "statistics" or key == "practiceStatistics") and typeof(value) == "table" then
+			local target = if key == "statistics" then profile.statistics else profile.practiceStatistics
 			for statKey, statValue in pairs(value) do
-				(profile.statistics :: any)[statKey] = statValue
+				(target :: any)[statKey] = statValue
 			end
 		else
 			(profile :: any)[key] = value

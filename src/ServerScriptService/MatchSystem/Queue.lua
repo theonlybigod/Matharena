@@ -54,4 +54,21 @@ function Queue.Clear()
 	table.clear(memberSet)
 end
 
+--[[
+	Removes and returns up to `count` players from the FRONT of the queue
+	(FIFO - first queued, first served), leaving any remainder still
+	queued. Used by MatchSystem to cap a single match at MAX_PLAYERS
+	without silently dropping/losing overflow players - they simply stay
+	queued for the next match.
+]]
+function Queue.TakeUpTo(count: number): { Player }
+	local taken = {}
+	for _ = 1, math.min(count, #players) do
+		local player = table.remove(players, 1) :: Player
+		memberSet[player] = nil
+		table.insert(taken, player)
+	end
+	return taken
+end
+
 return Queue

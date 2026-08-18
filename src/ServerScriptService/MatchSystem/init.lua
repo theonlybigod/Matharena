@@ -13,6 +13,20 @@
 		  ProgressionSystem (Message 4) to award the win and record stats
 		- Player-leaving-mid-game handling (auto-win by forfeit)
 
+	SERVER vs MATCH: MAX_PLAYERS (12) caps a single MATCH's contestant
+	count - it is NOT a server player cap. The Roblox server can hold as
+	many players as normal; the Queue can hold any number of waiting
+	players too. A match launch only ever TAKES the first MAX_PLAYERS
+	queued players (FIFO, see Queue.TakeUpTo) - anyone beyond that stays
+	queued for the next match rather than being dropped or rejected.
+
+	Players CAN queue while a competitive match is already Playing/Winner/
+	Returning - they simply wait; the state machine only transitions to
+	Waiting/Starting once it's actually back in Lobby/Waiting (see
+	evaluateQueueForLaunch). EndMatch re-runs that same evaluation once it
+	returns to Lobby, so any overflow/leftover queued players immediately
+	start their own countdown without needing a fresh join event.
+
 	Only this module mutates match state. All RemoteEvents here are
 	one-way server -> client (QueueUpdated, MatchCountdownTick,
 	GameStateChanged, MatchWinner) except "RequestJoinQueue" (client ->
@@ -22,9 +36,8 @@
 	(GetMatchSnapshot) is a read-only query with no side effects, so
 	there's nothing for a client to abuse by calling it.
 
-	No elimination/question gameplay exists yet (later prompts). EndMatch()
-	and RemoveParticipant() are the public hooks that gameplay will call;
-	this module never fabricates a winner on its own.
+	EndMatch()/RemoveParticipant() are the public hooks CompetitionGameplay
+	calls; this module never fabricates a winner on its own.
 ]]
 
 local Players = game:GetService("Players")
@@ -38,6 +51,7 @@ local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 
 local ProgressionSystem = require(ServerScriptService.ProgressionSystem)
+local RewardTrackSystem = require(ServerScriptService.RewardTrackSystem)
 local RemoteThrottle = require(ServerScriptService.RemoteThrottle)
 
 local Queue = require(script.Queue)
@@ -48,7 +62,6 @@ local MatchSystem = {}
 local GameState = MatchConfig.GameState
 
 local state: string = GameState.Lobby
-local acceptingQueue = true
 local countdownGeneration = 0
 local currentCountdownSeconds: number? = nil
 
@@ -65,6 +78,7 @@ local gameStateChangedEvent = RemoteEvents.Get("GameStateChanged")
 local matchWinnerEvent = RemoteEvents.Get("MatchWinner")
 local getMatchSnapshotFunction = RemoteFunctions.Get("GetMatchSnapshot")
 local requestJoinQueueEvent = RemoteEvents.Get("RequestJoinQueue")
+local requestLeaveQueueEvent = RemoteEvents.Get("RequestLeaveQueue")
 
 local function getWaitingNames(): { string }
 	local names = {}
@@ -107,12 +121,12 @@ local function cancelCountdown()
 end
 
 local function beginTeleportAndIntro()
-	-- Freeze the roster the instant we commit to launching.
-	acceptingQueue = false
 	local myGeneration = countdownGeneration
 
-	local launchingPlayers = Queue.GetPlayers()
-	Queue.Clear()
+	-- FIFO-capped: only ever takes the first MAX_PLAYERS queued players,
+	-- no matter how many are actually waiting. Anyone beyond that stays in
+	-- Queue for the next match - never dropped, never force-included.
+	local launchingPlayers = Queue.TakeUpTo(MatchConfig.MAX_PLAYERS)
 	currentCountdownSeconds = nil
 	broadcastQueueUpdated()
 
@@ -180,42 +194,45 @@ local function revertToWaitingOrLobby()
 	setState(if Queue.Count() > 0 then GameState.Waiting else GameState.Lobby)
 end
 
+--[[
+	Re-checks whether the queue should now transition state and/or begin a
+	countdown. Only actually does anything while state is Lobby or Waiting -
+	it's always safe to call this after ANY queue change (a join, a
+	removal, or a match just ending) since it's a no-op whenever a
+	competitive match is currently forming/active. This is what lets
+	overflow players (beyond MAX_PLAYERS) and players who joined mid-match
+	automatically start their own countdown the moment it becomes possible,
+	without needing a fresh join event to trigger it.
+]]
+local function evaluateQueueForLaunch()
+	if state == GameState.Lobby and Queue.Count() > 0 then
+		setState(GameState.Waiting)
+	end
+
+	if (state == GameState.Lobby or state == GameState.Waiting) and Queue.Count() >= MatchConfig.MIN_PLAYERS then
+		beginCountdown()
+	end
+end
+
 -- ===== Portal / queue membership =====
 
 --[[
 	Shared queue-join validation, used by both the physical portal Touched
 	handler and the "RequestJoinQueue" RemoteEvent (the lobby Play button,
 	Message 8). Same rules either way - a button click gets no special
-	treatment over walking into the portal.
+	treatment over walking into the portal. Joining is allowed regardless
+	of current match state (SERVER vs MATCH: queueing during an active
+	match just means "waiting for the next one" - see module doc comment);
+	evaluateQueueForLaunch decides whether that actually starts anything
+	right now.
 ]]
 local function tryJoinQueue(player: Player)
-	if not acceptingQueue then
-		return
-	end
-
-	if state == GameState.Playing or state == GameState.Winner or state == GameState.Returning then
-		return -- roster locked for the current match
-	end
-
-	if Queue.Count() >= MatchConfig.MAX_PLAYERS then
-		return
-	end
-
 	if not Queue.Add(player) then
 		return -- already queued
 	end
 
-	if state == GameState.Lobby then
-		setState(GameState.Waiting)
-	end
-
 	broadcastQueueUpdated()
-
-	if state == GameState.Waiting and Queue.Count() >= MatchConfig.MIN_PLAYERS then
-		beginCountdown()
-	end
-	-- If already Starting and MAX_PLAYERS was just reached, runCountdown's
-	-- own loop notices on its next iteration (at most ~1 second later).
+	evaluateQueueForLaunch()
 end
 
 local function onPortalTouched(hit: BasePart)
@@ -233,6 +250,13 @@ local function onRequestJoinQueue(player: Player)
 		return
 	end
 	tryJoinQueue(player)
+end
+
+local function onRequestLeaveQueue(player: Player)
+	if not RemoteThrottle.Check(player, "RequestLeaveQueue", 1) then
+		return
+	end
+	MatchSystem.LeaveQueue(player)
 end
 
 local function connectPortals()
@@ -287,6 +311,7 @@ function MatchSystem.EndMatch(winner: Player?)
 			ProgressionSystem.AwardXP(player, RewardsConfig.WIN_XP)
 			ProgressionSystem.AwardCoins(player, RewardsConfig.WIN_COINS)
 			ProgressionSystem.AwardGems(player, RewardsConfig.WIN_GEMS)
+			RewardTrackSystem.CheckForNewlyUnlocked(player)
 		else
 			ProgressionSystem.AwardXP(player, RewardsConfig.PARTICIPATION_XP)
 			ProgressionSystem.AwardCoins(player, RewardsConfig.PARTICIPATION_COINS)
@@ -300,9 +325,12 @@ function MatchSystem.EndMatch(winner: Player?)
 
 	task.wait(MatchConfig.RETURNING_SECONDS)
 
-	acceptingQueue = true
 	setState(GameState.Lobby)
 	broadcastQueueUpdated()
+	-- Pick up any leftover/overflow players who were already queued during
+	-- this match (beyond MAX_PLAYERS, or who joined mid-match) - starts
+	-- their countdown immediately rather than waiting for a fresh join.
+	evaluateQueueForLaunch()
 end
 
 --[[
@@ -371,8 +399,48 @@ function MatchSystem.GetParticipants(): { Player }
 	return table.clone(participants)
 end
 
+function MatchSystem.IsParticipant(player: Player): boolean
+	return table.find(participants, player) ~= nil
+end
+
 function MatchSystem.GetPlatformForPlayer(player: Player): Model?
 	return platformAssignments[player]
+end
+
+--[[
+	Public wrapper around the same queue-join validation the Play button
+	and portal use (Practice Mode, solo-wait system). No special treatment
+	over any other entry point - same checks.
+]]
+function MatchSystem.TryJoinQueue(player: Player)
+	tryJoinQueue(player)
+end
+
+--[[
+	Removes `player` from the queue if present - used by both manual
+	Practice Mode entry (a queued player chooses to leave the queue and
+	practice instead, section 9) and the plain "Cancel Queue" button
+	(section 26). Mirrors HandlePlayerLeaving's queue-side logic but
+	without the "they disconnected" framing - the player is still in the
+	server, just no longer queued. Returns true if they were actually
+	removed from the queue.
+]]
+function MatchSystem.LeaveQueue(player: Player): boolean
+	if not Queue.Contains(player) then
+		return false
+	end
+
+	Queue.Remove(player)
+	if state == GameState.Starting and Queue.Count() < MatchConfig.MIN_PLAYERS then
+		revertToWaitingOrLobby()
+	else
+		broadcastQueueUpdated()
+		if state == GameState.Waiting and Queue.Count() == 0 then
+			setState(GameState.Lobby)
+		end
+	end
+
+	return true
 end
 
 --[[
@@ -399,6 +467,7 @@ end
 function MatchSystem.Init()
 	connectPortals()
 	requestJoinQueueEvent.OnServerEvent:Connect(onRequestJoinQueue)
+	requestLeaveQueueEvent.OnServerEvent:Connect(onRequestLeaveQueue)
 	print("[MatchSystem] Initialized")
 end
 

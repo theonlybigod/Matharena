@@ -25,6 +25,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local CosmeticsConfig = require(ReplicatedStorage.Modules.CosmeticsConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
@@ -313,6 +314,12 @@ local function updateDetailsPanel()
 		actionButton.Text = "Equip"
 		actionButton.BackgroundColor3 = UITheme.COLORS.Accent
 		secondaryActionButton.Visible = false
+	elseif item.rewardOnly then
+		-- Not purchasable - only earned via the Rewards track. Once granted
+		-- it hits the isOwned branch above and behaves like any other item.
+		detailsStatus.Text = "Earn this from the Rewards track"
+		actionButton.Visible = false
+		secondaryActionButton.Visible = false
 	else
 		detailsStatus.Text = ""
 		actionButton.Visible = true
@@ -386,6 +393,9 @@ local function createItemCard(item: CosmeticsConfig.CosmeticItem, order: number)
 	elseif owned[item.id] then
 		statusLabel.Text = "Owned"
 		statusLabel.TextColor3 = UITheme.COLORS.SubText
+	elseif item.rewardOnly then
+		statusLabel.Text = "Reward Only"
+		statusLabel.TextColor3 = UITheme.COLORS.Gem
 	else
 		statusLabel.Text = ""
 	end
@@ -513,18 +523,42 @@ local function requestSnapshot()
 	updateDetailsPanel()
 end
 
+local function openShopPanel()
+	shopOverlay.Visible = true
+	UITheme.PlayOpenTween(shopPanel)
+	refreshCurrencyDisplay()
+	requestSnapshot()
+end
+
 shopButton.MouseButton1Click:Connect(function()
-	local opening = not shopOverlay.Visible
-	shopOverlay.Visible = opening
-	if opening then
-		UITheme.PlayOpenTween(shopPanel)
-		refreshCurrencyDisplay()
-		requestSnapshot()
+	if shopOverlay.Visible then
+		shopOverlay.Visible = false
+	else
+		openShopPanel()
 	end
 end)
 
 closeButton.MouseButton1Click:Connect(function()
 	shopOverlay.Visible = false
+end)
+
+-- ===== Shop Terminal (in-world interaction, Message 15) =====
+-- Same open logic as the lobby ShopButton above - reuses this exact
+-- function rather than duplicating the shop system or building a second
+-- UI path. The terminal Part lives in Workspace.Lobby.Buildings.Shop
+-- (BuildingInteriors.lua); this just connects to its ProximityPrompt.
+task.spawn(function()
+	local lobby = Workspace:WaitForChild("Lobby", 10)
+	local shopBuilding = lobby and lobby:WaitForChild("Buildings", 10):WaitForChild("Shop", 10)
+	local stand = shopBuilding and shopBuilding:FindFirstChild("ShopTerminalStand")
+	local prompt = stand and stand:FindFirstChild("ShopTerminalPrompt")
+	if prompt then
+		(prompt :: ProximityPrompt).Triggered:Connect(function(triggeringPlayer: Player)
+			if triggeringPlayer == player then
+				openShopPanel()
+			end
+		end)
+	end
 end)
 
 inventoryUpdatedEvent.OnClientEvent:Connect(function(snapshot)

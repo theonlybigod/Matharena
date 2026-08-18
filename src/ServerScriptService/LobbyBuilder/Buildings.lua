@@ -2,8 +2,9 @@
 	Buildings.lua
 
 	Constructs the five named lobby buildings from LobbyConfig.BUILDINGS.
-	Each building is a Model containing a base volume, a neon roofline trim
-	band, and a sign facing the plaza (+Z direction, where spawns are).
+	Each building is now a genuinely walkable shell (BuildingInteriors) with
+	a neon roofline trim band, a doorway, interior furnishings/terminals,
+	and a sign facing the plaza (+Z direction, where spawns are).
 
 	LeaderboardHall (Message 11) gets a bigger, custom display instead of
 	the generic name-only sign: a SurfaceGui with a title plus 5 columns
@@ -21,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local LobbyConfig = require(script.Parent.LobbyConfig)
+local BuildingInteriors = require(script.Parent.BuildingInteriors)
 
 local Buildings = {}
 
@@ -80,7 +82,7 @@ local function addLeaderboardDisplay(basePart: BasePart)
 	titleLabel.Font = Enum.Font.GothamBlack
 	titleLabel.TextScaled = true
 	titleLabel.TextColor3 = LobbyConfig.NEON_COLOR
-	titleLabel.Text = "LEADERBOARD HALL"
+	titleLabel.Text = "LEADERBOARDS"
 	titleLabel.Parent = root
 
 	local categoriesRow = Instance.new("Frame")
@@ -139,14 +141,17 @@ local function buildOne(def, parent: Instance): Model
 	model.Name = def.name
 	model.Parent = parent
 
-	local base = PartUtils.CreatePart({
-		name = "Base",
-		size = Vector3.new(def.size.X, def.height, def.size.Y),
-		position = def.position + Vector3.new(0, def.height / 2, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(60, 65, 75),
-		parent = model,
-	})
+	-- Leaderboard Hall is no longer a walk-in building (Message 16) - it's
+	-- a freestanding screen structure with its own frame/plinth, so it
+	-- skips BuildShell/the shared TrimBand entirely.
+	if def.name == "LeaderboardHall" then
+		local base = BuildingInteriors.BuildLeaderboardScreen(def, model)
+		addLeaderboardDisplay(base)
+		model.PrimaryPart = base
+		return model
+	end
+
+	local base = BuildingInteriors.BuildShell(def, model)
 
 	PartUtils.CreatePart({
 		name = "TrimBand",
@@ -158,8 +163,18 @@ local function buildOne(def, parent: Instance): Model
 		parent = model,
 	})
 
-	if def.name == "LeaderboardHall" then
-		addLeaderboardDisplay(base)
+	if def.name == "Shop" then
+		addSign(base, def.displayName)
+		BuildingInteriors.FurnishShop(def, model)
+	elseif def.name == "DailyRewards" then
+		addSign(base, def.displayName)
+		BuildingInteriors.FurnishRewards(def, model)
+	elseif def.name == "StatisticsBuilding" then
+		addSign(base, def.displayName)
+		BuildingInteriors.FurnishStatistics(def, model)
+	elseif def.name == "TutorialBuilding" then
+		addSign(base, def.displayName)
+		BuildingInteriors.FurnishTutorial(def, model)
 	else
 		addSign(base, def.displayName)
 	end

@@ -68,6 +68,10 @@ function ShopSystem.PurchaseItem(player: Player, itemId: string): (boolean, stri
 		return false, "UnknownItem"
 	end
 
+	if item.rewardOnly then
+		return false, "RewardOnly"
+	end
+
 	local profile = DataSystem.GetProfile(player)
 	if not profile then
 		return false, "NoProfile"
@@ -142,6 +146,34 @@ function ShopSystem.UnequipCategory(player: Player, category: string): (boolean,
 	end
 
 	profile.equippedCosmetics[category] = nil
+	pushInventoryUpdated(player)
+	return true
+end
+
+--[[
+	Grants an owned cosmetic directly, bypassing currency entirely - for
+	server-only callers that have already validated the grant themselves
+	(currently just RewardTrackSystem). NOT reachable from any client
+	request; there is no remote wired to this. Once granted, the item
+	behaves exactly like a purchased one - same ownedCosmetics entry, same
+	equip/unequip/inventory/persistence path, no separate code elsewhere.
+]]
+function ShopSystem.GrantRewardItem(player: Player, itemId: string): (boolean, string?)
+	local item = CosmeticsConfig.GetItem(itemId)
+	if not item then
+		return false, "UnknownItem"
+	end
+
+	local profile = DataSystem.GetProfile(player)
+	if not profile then
+		return false, "NoProfile"
+	end
+
+	if profile.ownedCosmetics[itemId] then
+		return true -- already owned (e.g. re-granted defensively) - not an error
+	end
+
+	profile.ownedCosmetics[itemId] = true
 	pushInventoryUpdated(player)
 	return true
 end

@@ -44,6 +44,7 @@ export type CosmeticItem = {
 	currency: CurrencyType,
 	price: number,
 	previewColor: Color3, -- swatch shown in the shop UI in place of a real world effect (see SCOPE NOTE above)
+	rewardOnly: boolean?, -- true = not purchasable with currency; only ShopSystem.GrantRewardItem (RewardTrackSystem) can grant it
 }
 
 local CosmeticsConfig = {}
@@ -260,6 +261,39 @@ local ITEMS: { [string]: CosmeticItem } = {
 		currency = "Gems",
 		price = 6,
 		previewColor = Color3.fromRGB(120, 255, 170),
+	},
+
+	-- ===== Reward-track exclusives (win-based Rewards system) - not for sale,
+	-- only granted via RewardTrackSystem/ShopSystem.GrantRewardItem =====
+	title_math_champion = {
+		id = "title_math_champion",
+		category = "Title",
+		displayName = '"Math Champion"',
+		description = 'Shows the title "Math Champion" alongside your name. Earned at 50 competitive wins.',
+		currency = "Coins",
+		price = 0,
+		previewColor = Color3.fromRGB(255, 200, 60),
+		rewardOnly = true,
+	},
+	trail_champion = {
+		id = "trail_champion",
+		category = "Trail",
+		displayName = "Champion's Trail",
+		description = "An exclusive golden trail. Earned at 75 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		previewColor = Color3.fromRGB(255, 180, 40),
+		rewardOnly = true,
+	},
+	accessory_champion_crown = {
+		id = "accessory_champion_crown",
+		category = "Accessory",
+		displayName = "Champion's Crown",
+		description = "An exclusive crown accessory. Earned at 100 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		previewColor = Color3.fromRGB(255, 215, 60),
+		rewardOnly = true,
 	},
 }
 
