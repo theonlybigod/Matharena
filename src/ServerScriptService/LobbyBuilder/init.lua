@@ -26,6 +26,7 @@ local Decorations = require(script.Decorations)
 local SpawnsAndPortal = require(script.SpawnsAndPortal)
 local Floor = require(script.Floor)
 local LobbyLighting = require(script.LobbyLighting)
+local Sign = require(script.Sign)
 
 local LobbyBuilder = {}
 
@@ -56,6 +57,7 @@ function LobbyBuilder.Build(force: boolean?)
 	SpawnsAndPortal.BuildSpawns(lobby)
 	SpawnsAndPortal.BuildQueuePortal(lobby)
 	Decorations.BuildAll(lobby)
+	Sign.Build(lobby)
 
 	lobby:SetAttribute("MathArenaBuilt", true)
 	lobby:SetAttribute("MathArenaBuiltAt", DateTime.now().UnixTimestamp)
