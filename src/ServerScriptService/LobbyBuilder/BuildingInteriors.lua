@@ -233,6 +233,38 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		pointLight.Parent = light
 	end
 
+	-- Floor tile seam pattern (Message 18, section 4 "flooring patterns") -
+	-- a handful of thin recessed-look strips running the depth of the room,
+	-- shared by every building automatically since it lives in the shell
+	-- rather than each Furnish* function repeating it.
+	local tileSpacing = def.size.X / 4
+	for i = 1, 3 do
+		PartUtils.CreatePart({
+			name = "FloorSeam" .. i,
+			size = Vector3.new(0.15, 0.02, def.size.Y - 2),
+			position = basePos + Vector3.new(-halfX + tileSpacing * i, 0.51, 0),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(20, 22, 27),
+			canCollide = false,
+			parent = model,
+		})
+	end
+
+	-- Ceiling structural support beams (Message 18, section 4 "ceiling
+	-- details / structural supports") - simple recessed-look beams, again
+	-- shared automatically by every building via the shell.
+	for _, offsetZ in ipairs({ -halfZ * 0.6, 0, halfZ * 0.6 }) do
+		PartUtils.CreatePart({
+			name = "CeilingBeam",
+			size = Vector3.new(def.size.X - 1, 0.4, 0.6),
+			position = basePos + Vector3.new(0, def.height - 0.7, offsetZ),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(38, 41, 48),
+			canCollide = false,
+			parent = model,
+		})
+	end
+
 	return base
 end
 
@@ -296,34 +328,41 @@ end
 
 --[[
 	Shop: counter, a couple of floating cosmetic display plinths, the
-	angled storefront bays, wall shelves, and the Shop Terminal (opens the
-	existing Shop UI).
+	angled storefront bays, TWO tiers of wall shelving rows, and the Shop
+	Terminal (opens the existing Shop UI). Message 18, section 5 asks
+	specifically for "rows" (plural) of shelving along the walls, so this
+	adds a second, higher tier and a third position along each wall on top
+	of the single row Message 17 already had.
 ]]
 function BuildingInteriors.FurnishShop(def, model: Model)
 	local basePos = def.position
 
 	addShopIdentity(def, model)
 
-	-- Wall shelves along both side walls (clear of the center walkway).
+	-- Two tiers of wall shelving, three positions per wall, along both
+	-- side walls (clear of the center walkway) - reads as real store
+	-- shelving rows rather than a couple of floating props.
 	for _, side in ipairs({ -1, 1 }) do
-		for _, offsetZ in ipairs({ -6, 4 }) do
-			PartUtils.CreatePart({
-				name = "WallShelf",
-				size = Vector3.new(3.5, 0.3, 1.5),
-				position = basePos + Vector3.new(side * (def.size.X / 2 - 2.2), 3.2, offsetZ),
-				material = Enum.Material.Metal,
-				color = Color3.fromRGB(50, 53, 62),
-				parent = model,
-			})
-			PartUtils.CreatePart({
-				name = "ShelfItem",
-				size = Vector3.new(0.9, 0.9, 0.9),
-				position = basePos + Vector3.new(side * (def.size.X / 2 - 2.2), 3.8, offsetZ),
-				material = Enum.Material.Neon,
-				color = ACCENT_COLOR,
-				canCollide = false,
-				parent = model,
-			})
+		for _, shelfY in ipairs({ 3.2, 5.6 }) do
+			for _, offsetZ in ipairs({ -7, -1.5, 4 }) do
+				PartUtils.CreatePart({
+					name = "WallShelf",
+					size = Vector3.new(3.2, 0.25, 1.4),
+					position = basePos + Vector3.new(side * (def.size.X / 2 - 2.1), shelfY, offsetZ),
+					material = Enum.Material.Metal,
+					color = Color3.fromRGB(50, 53, 62),
+					parent = model,
+				})
+				PartUtils.CreatePart({
+					name = "ShelfItem",
+					size = Vector3.new(0.8, 0.8, 0.8),
+					position = basePos + Vector3.new(side * (def.size.X / 2 - 2.1), shelfY + 0.55, offsetZ),
+					material = Enum.Material.Neon,
+					color = ACCENT_COLOR,
+					canCollide = false,
+					parent = model,
+				})
+			end
 		end
 	end
 

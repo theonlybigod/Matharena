@@ -54,6 +54,20 @@ end
 	platform bases, and ring/halo decorations.
 
 	`thickness` is the vertical height of the disc, `diameter` is its width.
+
+	IMPORTANT: a Cylinder-shaped Part's native axis (where its circular caps
+	sit) is its LOCAL X-axis, not Z. This builds the part with thickness
+	already on the X-axis (Size = (thickness, diameter, diameter)) and then
+	rotates it 90 degrees around Z via CFrame (not Orientation) so X ends up
+	pointing straight up - a single, unambiguous transform. Setting
+	.Orientation as a second write after .CFrame (as this used to do,
+	through CreatePart's props.orientation path) is NOT equivalent for a
+	shaped Part and previously produced a disc lying on its side instead of
+	standing upright - e.g. a size-(2, 341.8, 341.8) LobbyGround ending up
+	341.8 studs TALL instead of 2 studs thick, which is exactly the kind of
+	corrupted, wildly-overlapping geometry that can make a scene render as
+	a washed-out mess. Always build the correct final CFrame directly
+	instead of layering Orientation on top of an already-set CFrame.
 ]]
 function PartUtils.CreateDisc(props: {
 	name: string?,
@@ -69,8 +83,7 @@ function PartUtils.CreateDisc(props: {
 	return PartUtils.CreatePart({
 		name = props.name,
 		size = Vector3.new(props.thickness, props.diameter, props.diameter),
-		orientation = Vector3.new(0, 0, 90),
-		position = props.position,
+		cframe = CFrame.new(props.position) * CFrame.Angles(0, 0, math.rad(90)),
 		material = props.material,
 		color = props.color,
 		canCollide = props.canCollide,

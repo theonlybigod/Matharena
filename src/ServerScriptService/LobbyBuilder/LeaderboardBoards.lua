@@ -160,25 +160,39 @@ end
 	arc, and parents it directly into `parent` (the Buildings folder) -
 	each board is a top-level sibling of Shop/DailyRewards/etc, named
 	category.boardName, not nested under a shared "hall" model.
+
+	`facingYawDegrees` (Message 18/19) rotates the WHOLE arc as a rigid
+	group to face any direction - 0 (the original default) faces north/+Z,
+	which made sense when this sat in the back building row; the arc has
+	since moved to its own dedicated region (LobbyConfig.LEADERBOARD_ANCHOR)
+	and is rotated so the group faces back toward the plaza from wherever
+	it currently sits, instead of facing uselessly out toward the boundary.
 ]]
-local function buildOneBoard(category, angleDegrees: number, arcCenter: Vector3, parent: Instance)
+local function buildOneBoard(category, angleDegrees: number, arcCenter: Vector3, parent: Instance, facingYawDegrees: number?)
+	local yaw = facingYawDegrees or 0
 	local angleRad = math.rad(angleDegrees)
 
 	-- Shallow concave bow: wide horizontal spread (ARC_SPREAD_RADIUS),
 	-- but only a small depth variation (ARC_DEPTH) so the flanking boards
 	-- don't push out past the lobby floor - see the module doc comment
-	-- in LeaderboardConfig.lua for why this isn't a true arc radius.
-	local boardPosition = arcCenter
-		+ Vector3.new(
-			LeaderboardConfig.ARC_SPREAD_RADIUS * math.sin(angleRad),
-			0,
-			-LeaderboardConfig.ARC_DEPTH * (1 - math.cos(angleRad))
-		)
+	-- in LeaderboardConfig.lua for why this isn't a true arc radius. This
+	-- local offset is computed in the arc's OWN frame (as if facing north)
+	-- and then rotated by the group's facing yaw, so the fan shape itself
+	-- never changes regardless of which way the whole group points.
+	local localOffset = Vector3.new(
+		LeaderboardConfig.ARC_SPREAD_RADIUS * math.sin(angleRad),
+		0,
+		-LeaderboardConfig.ARC_DEPTH * (1 - math.cos(angleRad))
+	)
+	local yawRotation = CFrame.Angles(0, math.rad(yaw), 0)
+	local boardPosition = arcCenter + (yawRotation * localOffset)
 
-	-- Faces generally toward +Z (the plaza), fanned inward toward the
-	-- arc's center so the five boards read as a deliberate curved
-	-- arrangement rather than five boards facing dead-ahead.
-	local baseCFrame = CFrame.new(boardPosition) * CFrame.Angles(0, math.rad(-angleDegrees), 0)
+	-- Faces generally toward +Z (the plaza) before the group yaw is
+	-- applied, fanned inward toward the arc's center so the five boards
+	-- read as a deliberate curved arrangement rather than five boards
+	-- facing dead-ahead; the group yaw then rotates that whole facing to
+	-- point wherever the arc actually needs to face.
+	local baseCFrame = CFrame.new(boardPosition) * CFrame.Angles(0, math.rad(-angleDegrees + yaw), 0)
 
 	local model = Instance.new("Model")
 	model.Name = category.boardName
@@ -281,8 +295,9 @@ end
 
 --[[
 	Builds all five boards, fanned across LeaderboardConfig.ARC_TOTAL_DEGREES
-	centered on `def.position` (the "LeaderboardHall" entry's position in
-	LobbyConfig.BUILDINGS - kept as the arc's anchor point/general region).
+	centered on `def.position` (LobbyConfig.LEADERBOARD_ANCHOR - its own
+	dedicated region, not a LobbyConfig.BUILDINGS entry). `def.facingYawDegrees`
+	is optional (defaults to 0/north-facing, the original behavior).
 ]]
 function LeaderboardBoards.BuildAll(def, parent: Instance)
 	local categories = LeaderboardConfig.CATEGORIES
@@ -293,7 +308,7 @@ function LeaderboardBoards.BuildAll(def, parent: Instance)
 
 	for i, category in ipairs(categories) do
 		local angleDegrees = startAngle + step * (i - 1)
-		buildOneBoard(category, angleDegrees, def.position, parent)
+		buildOneBoard(category, angleDegrees, def.position, parent, def.facingYawDegrees)
 	end
 end
 

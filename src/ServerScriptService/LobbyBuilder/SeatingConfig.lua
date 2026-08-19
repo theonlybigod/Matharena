@@ -27,6 +27,25 @@ local SeatingConfig = {}
 
 local SCALE = MapConfig.SCALE_FACTOR
 
+--[[
+	Looks up a building's def from LobbyConfig.BUILDINGS by stable NAME
+	rather than a numeric array index. Message 18 removed the
+	"LeaderboardHall" entry from that array entirely (the leaderboard has
+	its own dedicated LobbyConfig.LEADERBOARD_ANCHOR now) - anything that
+	previously indexed BUILDINGS[1..5] positionally would silently break
+	(or worse, silently point at the WRONG building) the moment the array's
+	length/order ever changes again. Name lookup can't drift out of sync
+	like that.
+]]
+local function findBuildingByName(name: string)
+	for _, def in ipairs(LobbyConfig.BUILDINGS) do
+		if def.name == name then
+			return def
+		end
+	end
+	error(("SeatingConfig: no LobbyConfig.BUILDINGS entry named %q"):format(name))
+end
+
 -- Zones anchored to the map's CENTER (portal plaza, walkway, social
 -- lounge, leaderboard viewing) scale uniformly with the map - this both
 -- moves them outward for the larger footprint AND increases the actual
@@ -174,24 +193,33 @@ SeatingConfig.ZONES = {
 		id = "BuildingFrontZone",
 		seatType = "SeatTypeC",
 		placements = {
-			{ position = LobbyConfig.BUILDINGS[1].position + Vector3.new(13, 0, 16.5), yawDegrees = 180 }, -- Shop
-			{ position = LobbyConfig.BUILDINGS[2].position + Vector3.new(8, 0, 14), yawDegrees = 180 }, -- DailyRewards
-			{ position = LobbyConfig.BUILDINGS[4].position + Vector3.new(-8, 0, 14), yawDegrees = 180 }, -- TutorialBuilding
-			{ position = LobbyConfig.BUILDINGS[5].position + Vector3.new(-13, 0, 11.5), yawDegrees = 180 }, -- StatisticsBuilding
+			{ position = findBuildingByName("Shop").position + Vector3.new(13, 0, 16.5), yawDegrees = 180 },
+			{ position = findBuildingByName("DailyRewards").position + Vector3.new(8, 0, 14), yawDegrees = 180 },
+			{ position = findBuildingByName("TutorialBuilding").position + Vector3.new(-8, 0, 14), yawDegrees = 180 },
+			{
+				position = findBuildingByName("StatisticsBuilding").position + Vector3.new(-13, 0, 11.5),
+				yawDegrees = 180,
+			},
 		},
 	},
 	-- Facing the leaderboard arc from a comfortable viewing distance -
 	-- the old single-screen design had benches here; the five-board
 	-- redesign didn't carry them forward, so this restores seating at
-	-- that point of interest. Offset from the (already-scaled) hall
-	-- position, itself scaled to keep pace with the leaderboard arc's own
-	-- radius (see LeaderboardConfig.lua).
+	-- that point of interest. Message 18: the leaderboard moved off the
+	-- building row entirely to its own dedicated region
+	-- (LobbyConfig.LEADERBOARD_ANCHOR). Message 19: the anchor moved again,
+	-- from the west side to the EAST side, and its facing flipped from
+	-- east-facing to WEST-facing (facingYawDegrees = -90) - so the offset
+	-- direction flips too: seats now sit WEST of the anchor (toward the
+	-- plaza, negative local X) rather than east, so they're still on the
+	-- boards' viewable side and face EAST (yawDegrees = -90) back toward
+	-- them instead of west.
 	{
 		id = "LeaderboardViewingZone",
 		seatType = "SeatTypeC",
 		placements = {
-			{ position = LobbyConfig.BUILDINGS[3].position + scaled(-16, 18), yawDegrees = 180 },
-			{ position = LobbyConfig.BUILDINGS[3].position + scaled(16, 18), yawDegrees = 180 },
+			{ position = LobbyConfig.LEADERBOARD_ANCHOR.position + scaled(-18, -16), yawDegrees = -90 },
+			{ position = LobbyConfig.LEADERBOARD_ANCHOR.position + scaled(-18, 16), yawDegrees = -90 },
 		},
 	},
 }

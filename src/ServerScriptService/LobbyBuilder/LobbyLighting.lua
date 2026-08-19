@@ -44,26 +44,64 @@ local LobbyLighting = {}
 	$properties, so (unlike Ambient/Brightness/Fog above) they can't be
 	mirrored into default.project.json's static Lighting node - they only
 	exist after this function has actually run at least once (Play mode,
-	or any Rebuild). FindFirstChild guards make this idempotent so calling
-	Apply() again (e.g. on a Rebuild) never creates duplicates.
+	or any Rebuild).
+
+	This actively deduplicates rather than just checking "does one exist":
+	if MORE THAN ONE BloomEffect (or ColorCorrectionEffect) is ever present
+	under Lighting - e.g. a stray manual Studio edit, or a leftover from an
+	older version of this code under a different name - every ENABLED one
+	stacks in the renderer simultaneously (this is exactly how the lobby
+	once went white/blown-out: two BloomEffects, "Bloom" and
+	"MatharenaBloom", coexisting). So this keeps exactly one of each
+	(renamed to the canonical "LobbyBloom"/"LobbyColorCorrection") and
+	destroys any others, every time it runs - safe to call on every server
+	start/Rebuild regardless of what Lighting already contains.
 ]]
 local function applyPostEffects()
-	local bloom = Lighting:FindFirstChildOfClass("BloomEffect") :: BloomEffect?
+	local blooms = Lighting:GetChildren()
+	local bloom: BloomEffect? = nil
+	for _, child in ipairs(blooms) do
+		if child:IsA("BloomEffect") then
+			if bloom then
+				warn(("[LobbyLighting] Removing duplicate BloomEffect %q - keeping %q."):format(child.Name, bloom.Name))
+				child:Destroy()
+			else
+				bloom = child
+			end
+		end
+	end
 	if not bloom then
 		bloom = Instance.new("BloomEffect")
-		bloom.Name = "LobbyBloom"
 		bloom.Parent = Lighting
 	end
+	bloom.Name = "LobbyBloom"
+	bloom.Enabled = true
 	bloom.Intensity = LightingConfig.BLOOM_INTENSITY
 	bloom.Threshold = LightingConfig.BLOOM_THRESHOLD
 	bloom.Size = LightingConfig.BLOOM_SIZE
 
-	local colorCorrection = Lighting:FindFirstChildOfClass("ColorCorrectionEffect") :: ColorCorrectionEffect?
+	local colorCorrection: ColorCorrectionEffect? = nil
+	for _, child in ipairs(Lighting:GetChildren()) do
+		if child:IsA("ColorCorrectionEffect") then
+			if colorCorrection then
+				warn(
+					("[LobbyLighting] Removing duplicate ColorCorrectionEffect %q - keeping %q."):format(
+						child.Name,
+						colorCorrection.Name
+					)
+				)
+				child:Destroy()
+			else
+				colorCorrection = child
+			end
+		end
+	end
 	if not colorCorrection then
 		colorCorrection = Instance.new("ColorCorrectionEffect")
-		colorCorrection.Name = "LobbyColorCorrection"
 		colorCorrection.Parent = Lighting
 	end
+	colorCorrection.Name = "LobbyColorCorrection"
+	colorCorrection.Enabled = true
 	colorCorrection.Contrast = LightingConfig.COLOR_CORRECTION_CONTRAST
 	colorCorrection.Saturation = LightingConfig.COLOR_CORRECTION_SATURATION
 	colorCorrection.TintColor = LightingConfig.COLOR_CORRECTION_TINT_COLOR

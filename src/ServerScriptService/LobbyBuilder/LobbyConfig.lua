@@ -58,42 +58,65 @@ LobbyConfig.SPAWN_POSITIONS = {
 	scaled(30, 90),
 }
 
+-- Message 18 recomposition: the leaderboard no longer occupies the
+-- center slot of the back row (it moved to the previously-empty west
+-- side - see LEADERBOARD_ANCHOR below), so the remaining 4 buildings are
+-- spread wider across the back arc instead of clustering around a 5th
+-- slot that no longer exists - genuinely more space between them, not
+-- just a uniform scale-up of the old positions.
 LobbyConfig.BUILDINGS = {
 	{
 		name = "Shop",
 		displayName = "Shop",
 		size = Vector2.new(30, 25),
-		position = scaled(-70, -40),
+		position = scaled(-78, -42),
 		height = 20,
 	},
 	{
 		name = "DailyRewards",
 		displayName = "Daily Rewards",
 		size = Vector2.new(20, 20),
-		position = scaled(-40, -70),
+		position = scaled(-38, -72),
 		height = 16,
-	},
-	{
-		name = "LeaderboardHall",
-		displayName = "Leaderboard Hall",
-		size = Vector2.new(40, 18),
-		position = scaled(0, -80),
-		height = 18,
 	},
 	{
 		name = "TutorialBuilding",
 		displayName = "Tutorial Building",
 		size = Vector2.new(20, 20),
-		position = scaled(40, -70),
+		position = scaled(38, -72),
 		height = 16,
 	},
 	{
 		name = "StatisticsBuilding",
 		displayName = "Statistics Building",
 		size = Vector2.new(30, 15),
-		position = scaled(70, -40),
+		position = scaled(78, -42),
 		height = 14,
 	},
+}
+
+-- Message 18: dedicated leaderboard region, relocated from the middle of
+-- the back building row to its own dedicated region. Not a
+-- LobbyConfig.BUILDINGS entry anymore (nothing here builds a walk-in
+-- structure or occupies the building row); LeaderboardBoards.BuildAll
+-- reads this directly.
+--
+-- Message 19: moved from the WEST side (same side as Shop/DailyRewards)
+-- to the EAST side - "the side opposite to the shops" - and re-tuned
+-- into a genuine circular/surrounding arc (see LeaderboardConfig.lua's
+-- ARC_DEPTH) rather than a shallow bow, with bigger boards. Facing yaw
+-- of -90 degrees turns the whole 5-board arc to face WEST, back toward
+-- the plaza/map center (verified: Roblox's CFrame.Angles Y-rotation
+-- takes a part's local +Z/"Back" face toward world (sin(yaw), cos(yaw)) -
+-- -90 gives exactly (-1,0,0), pure west). anchor_z is deliberately well
+-- forward of the back-building row's own Z (-42/-72) so the arc's
+-- closest extreme board still keeps ~55 studs clearance from
+-- StatisticsBuilding - verified via Python before applying (max map-edge
+-- reach ~145 studs vs 172 available, ~27-stud buffer; ~16-stud minimum
+-- clearance between adjacent boards given their new larger size).
+LobbyConfig.LEADERBOARD_ANCHOR = {
+	position = scaled(58, 20),
+	facingYawDegrees = -90,
 }
 
 LobbyConfig.QUEUE_PORTAL_SIZE = Vector2.new(12, 12)

@@ -25,9 +25,15 @@ local MapConfig = {}
 MapConfig.SIDES = 30
 
 -- The old lobby was a 220x220 square (half = 110, both dimensions equal).
--- +50% in both length and width -> a 330x330 flat-to-flat footprint.
+-- Message 2: +50% in both length and width -> 330x330 flat-to-flat.
+-- Message 18: bumped again to +70% total ("noticeably larger... less
+-- crowded") - this alone only grows the overall footprint; the actual
+-- "recompose intelligently" work (moving the leaderboard off the back
+-- row into the previously-empty west side, widening building spacing
+-- now that it has that row to itself) happens in LobbyConfig.lua's
+-- individual position data, not by scaling alone.
 MapConfig.OLD_LOBBY_SIZE = 220
-MapConfig.SCALE_FACTOR = 1.5
+MapConfig.SCALE_FACTOR = 1.7
 MapConfig.BOUNDARY_APOTHEM = (MapConfig.OLD_LOBBY_SIZE * MapConfig.SCALE_FACTOR) / 2 -- 165
 
 -- circumradius = apothem / cos(pi / sides) - the exact relationship for a
@@ -71,5 +77,15 @@ function MapConfig.GetVertex(index: number, radius: number?): Vector3
 	local angle = (2 * math.pi / MapConfig.SIDES) * index + (math.pi / MapConfig.SIDES)
 	return Vector3.new(r * math.sin(angle), 0, r * math.cos(angle))
 end
+
+--[[
+	Invisible boundary wall height/vertical placement (Message 18, section
+	3). Tall enough that no normal jump can clear it, and extends well
+	below the ground so no physics jitter/edge case can let a player clip
+	under it at the seam - see Floor.lua's buildInvisibleBoundaryWalls.
+]]
+MapConfig.INVISIBLE_WALL_HEIGHT = 80
+MapConfig.INVISIBLE_WALL_BELOW_GROUND = 20
+MapConfig.INVISIBLE_WALL_OUTSET = 3 -- studs beyond CIRCUMRADIUS, so it never visually clips the decorative boundary curb
 
 return MapConfig

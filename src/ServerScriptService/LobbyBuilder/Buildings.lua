@@ -1,19 +1,19 @@
 --[[
 	Buildings.lua
 
-	Constructs the five named lobby buildings from LobbyConfig.BUILDINGS.
+	Constructs the four named lobby buildings from LobbyConfig.BUILDINGS.
 	Each building is a genuinely walkable shell (BuildingInteriors) with a
 	neon roofline trim band, a doorway, interior furnishings/terminals,
 	and a sign facing the plaza (+Z direction, where spawns are).
 
-	LEADERBOARD REDESIGN (separated boards): the "LeaderboardHall" entry
-	in LobbyConfig.BUILDINGS no longer builds a single walk-in building or
-	a single big combined display screen. It now only anchors the
-	position/region for LeaderboardBoards.BuildAll, which builds five
-	separate, independently-named boards (WinsLeaderboard,
-	XPLeaderboard, QuestionsSolvedLeaderboard, AccuracyLeaderboard,
-	FastestAnswerLeaderboard) fanned across an arc in that same region -
-	see LobbyBuilder/LeaderboardBoards.lua. This file never touches a
+	LEADERBOARD REDESIGN + RELOCATION (Message 18): the leaderboard is no
+	longer a LobbyConfig.BUILDINGS entry at all - it has its own dedicated
+	region, LobbyConfig.LEADERBOARD_ANCHOR, on the map's west side (moved
+	out of the back building row to "the currently empty side of the
+	map"). LeaderboardBoards.BuildAll builds five separate, independently-
+	named boards (WinsLeaderboard, XPLeaderboard, QuestionsSolvedLeaderboard,
+	AccuracyLeaderboard, FastestAnswerLeaderboard) fanned across an arc
+	there, facing back toward the plaza. This file never touches a
 	DataStore itself; LeaderboardDisplay (ServerScriptService) finds the
 	five boards by their stable names and fills in live values.
 ]]
@@ -42,16 +42,7 @@ local function addSign(basePart: BasePart, text: string)
 	label.Parent = gui
 end
 
-local function buildOne(def, parent: Instance): Model?
-	-- LeaderboardHall no longer builds a single Model of its own (walk-in
-	-- building OR one big screen) - it builds five separate, independently
-	-- named board Models directly into `parent`, and returns nil since
-	-- there's no single "the building" instance to hand back.
-	if def.name == "LeaderboardHall" then
-		LeaderboardBoards.BuildAll(def, parent)
-		return nil
-	end
-
+local function buildOne(def, parent: Instance): Model
 	local model = Instance.new("Model")
 	model.Name = def.name
 	model.Parent = parent
@@ -96,6 +87,11 @@ function Buildings.BuildAll(parent: Instance): Folder
 	for _, def in ipairs(LobbyConfig.BUILDINGS) do
 		buildOne(def, folder)
 	end
+
+	-- Message 18: leaderboard region relocated out of the building row
+	-- entirely - built from its own dedicated anchor/config, not a
+	-- LobbyConfig.BUILDINGS entry.
+	LeaderboardBoards.BuildAll(LobbyConfig.LEADERBOARD_ANCHOR, folder)
 
 	return folder
 end

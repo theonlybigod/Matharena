@@ -94,6 +94,50 @@ local function buildBoundarySegment(index: number, parent: Instance)
 end
 
 --[[
+	Builds one INVISIBLE containment wall segment between polygon vertices
+	`index` and `index + 1`, at MapConfig.INVISIBLE_WALL_OUTSET studs beyond
+	CIRCUMRADIUS - Message 18, section 3. Reuses the exact same
+	MapConfig.GetVertex angular math as the visible decorative curb
+	(buildBoundarySegment above), just at a slightly larger radius, so the
+	30 segments can never leave a gap at a vertex seam regardless of any
+	other tuning. Tall (extends well above normal jump height) and deep
+	(extends well below the ground) so players can't clear it by jumping
+	or clip under it via physics jitter - a single ring of 30 large
+	anchored, invisible, collidable parts rather than hundreds of small
+	ones (Message 18, section 8 performance guidance).
+]]
+local function buildInvisibleBoundarySegment(index: number, parent: Instance)
+	local outsetRadius = MapConfig.CIRCUMRADIUS + MapConfig.INVISIBLE_WALL_OUTSET
+	local v1 = MapConfig.GetVertex(index, outsetRadius)
+	local v2 = MapConfig.GetVertex((index + 1) % MapConfig.SIDES, outsetRadius)
+	local midpoint = (v1 + v2) / 2
+	local direction = v2 - v1
+	-- Slightly over-length each segment so adjacent segments overlap a
+	-- little at the vertex seam (polygon edges get closer together at a
+	-- larger radius than at CIRCUMRADIUS itself is a non-issue here since
+	-- we use the SAME angular vertices merely pushed outward radially -
+	-- this still leaves a small angular gap at each seam without the
+	-- overlap margin, since GetVertex's direction changes between edges).
+	local length = direction.Magnitude + 4
+	local yaw = math.atan2(direction.X, direction.Z)
+
+	local wallHeight = MapConfig.INVISIBLE_WALL_HEIGHT
+	local wallBottomY = -MapConfig.INVISIBLE_WALL_BELOW_GROUND
+	local wallCenterY = wallBottomY + wallHeight / 2
+
+	PartUtils.CreatePart({
+		name = "InvisibleWall" .. index,
+		size = Vector3.new(2, wallHeight, length),
+		cframe = CFrame.new(midpoint + Vector3.new(0, wallCenterY, 0)) * CFrame.Angles(0, yaw, 0),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(255, 255, 255),
+		transparency = 1,
+		canCollide = true,
+		parent = parent,
+	})
+end
+
+--[[
 	Builds a thin ring OUTLINE (not a filled disc) approximated by
 	`segmentCount` short straight neon bars around a circle of `radius` -
 	reused for both ground-design rings, at whatever segment density looks
@@ -210,6 +254,18 @@ function Floor.Build(lobby: Instance)
 	boundaryFolder.Parent = lobby
 	for i = 0, MapConfig.SIDES - 1 do
 		buildBoundarySegment(i, boundaryFolder)
+	end
+
+	-- Invisible containment boundary (Message 18, section 3) - a separate
+	-- folder from the decorative curb above, since this one is purely
+	-- functional (collision only, never rendered) rather than a visual
+	-- landmark. Sits just outside the decorative curb so it never visually
+	-- clips through it.
+	local invisibleBoundaryFolder = Instance.new("Folder")
+	invisibleBoundaryFolder.Name = "InvisibleBoundary"
+	invisibleBoundaryFolder.Parent = lobby
+	for i = 0, MapConfig.SIDES - 1 do
+		buildInvisibleBoundarySegment(i, invisibleBoundaryFolder)
 	end
 
 	buildGroundDesign(lobby)

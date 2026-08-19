@@ -55,18 +55,28 @@ LeaderboardConfig.ROW_HEIGHT_PIXELS = 60
 LeaderboardConfig.GUI_CANVAS_SIZE = Vector2.new(500, 700)
 LeaderboardConfig.TITLE_HEIGHT_PIXELS = 80
 
--- Semicircle arc layout (5 boards within the existing leaderboard
--- region). ARC_SPREAD_RADIUS fans the boards out sideways; ARC_DEPTH is
--- deliberately shallow (not a true geometric semicircle radius) so the
--- boards stay comfortably inside the lobby floor rather than pushing the
--- center board out past the back wall. Both scaled by MapConfig's map-
--- scale factor for the +50% larger footprint.
-LeaderboardConfig.ARC_TOTAL_DEGREES = 120
-LeaderboardConfig.ARC_SPREAD_RADIUS = 36 * MapConfig.SCALE_FACTOR
-LeaderboardConfig.ARC_DEPTH = 8 * MapConfig.SCALE_FACTOR
+-- Circular/surrounding arc layout (Message 19 revision - previously a
+-- shallow, mostly-flat bow). ARC_SPREAD_RADIUS fans the boards out
+-- sideways; ARC_DEPTH is now a substantial fraction of that spread
+-- (0.55x, not the old ~0.22x) so the five boards genuinely curve around
+-- an implied viewing point in front of them rather than reading as five
+-- flat screens in a line - "partially surrounding the viewing area" per
+-- the design brief. Both scaled by MapConfig's map-scale factor. All
+-- three numbers (plus ARC_TOTAL_DEGREES and LobbyConfig.LEADERBOARD_ANCHOR)
+-- were verified together via a Python position/clearance check before
+-- being applied - see LobbyConfig.lua's LEADERBOARD_ANCHOR comment for
+-- the actual resulting margins against the map boundary and
+-- StatisticsBuilding.
+LeaderboardConfig.ARC_TOTAL_DEGREES = 130
+LeaderboardConfig.ARC_SPREAD_RADIUS = 34 * MapConfig.SCALE_FACTOR
+LeaderboardConfig.ARC_DEPTH_FACTOR = 0.55
+LeaderboardConfig.ARC_DEPTH = LeaderboardConfig.ARC_SPREAD_RADIUS * LeaderboardConfig.ARC_DEPTH_FACTOR
 
-LeaderboardConfig.BOARD_WIDTH = 13
-LeaderboardConfig.BOARD_HEIGHT = 15
+-- Message 19: "increase the physical size... major landmarks" - up from
+-- 13x15. Re-verified (see above) that this larger size still leaves
+-- ~16 studs of clearance between adjacent boards along the arc.
+LeaderboardConfig.BOARD_WIDTH = 17
+LeaderboardConfig.BOARD_HEIGHT = 19
 
 -- Podium colors, shared by both the physical board (rank badge fill) and
 -- the client-side glow accent script.
