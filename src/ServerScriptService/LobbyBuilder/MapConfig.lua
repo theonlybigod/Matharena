@@ -88,4 +88,28 @@ MapConfig.INVISIBLE_WALL_HEIGHT = 80
 MapConfig.INVISIBLE_WALL_BELOW_GROUND = 20
 MapConfig.INVISIBLE_WALL_OUTSET = 3 -- studs beyond CIRCUMRADIUS, so it never visually clips the decorative boundary curb
 
+--[[
+	Message 22, section 1 ("Floor - align the design with the code"): the
+	lobby floor was manually raised directly in Studio, outside the source
+	pipeline - by the time this was investigated, that manual change had
+	been overwritten by an unrelated rebuild (Studio Edit-mode changes that
+	aren't saved don't survive another rebuild touching the same objects),
+	so there was nothing left to measure and reverse-engineer an exact
+	prior height from. Per instruction, a reasonable permanent raised
+	height was chosen instead of leaving the floor at its old Y=0 baseline.
+
+	Rather than hand-editing dozens of scattered Y-coordinate literals
+	across Buildings.lua/Decorations.lua/SpawnsAndPortal.lua/
+	LeaderboardBoards.lua/Sign.lua (every one of which still assumes "the
+	ground is at Y=0" internally, and reasonably so - that's simpler to
+	reason about than every module separately knowing the map's global
+	elevation), LobbyBuilder.Build() applies THIS single constant as one
+	bulk vertical translation to every part already built at the end of
+	the build sequence. This is the actual "reconcile design with code"
+	fix: the raise is now an explicit, single-source-of-truth, source-
+	controlled number instead of a Studio-only edit that the pipeline had
+	no way to reproduce.
+]]
+MapConfig.GROUND_ELEVATION = 4
+
 return MapConfig

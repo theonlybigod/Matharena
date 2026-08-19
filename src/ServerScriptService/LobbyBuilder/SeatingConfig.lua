@@ -188,38 +188,35 @@ SeatingConfig.ZONES = {
 	-- gets its own zone below since it's no longer a walk-in building).
 	-- Offsets are fixed/unscaled - they're relative to each building's own
 	-- (unscaled) footprint size - added onto that building's already-scaled
-	-- LobbyConfig position.
+	-- LobbyConfig position. Message 20: re-derived from each building's new,
+	-- much larger half-width/half-depth (offset = halfWidth-2, halfDepth+4)
+	-- rather than reusing the old fixed numbers, which would have sat
+	-- awkwardly close to (or inside) the bigger entrances.
 	{
 		id = "BuildingFrontZone",
 		seatType = "SeatTypeC",
 		placements = {
-			{ position = findBuildingByName("Shop").position + Vector3.new(13, 0, 16.5), yawDegrees = 180 },
-			{ position = findBuildingByName("DailyRewards").position + Vector3.new(8, 0, 14), yawDegrees = 180 },
-			{ position = findBuildingByName("TutorialBuilding").position + Vector3.new(-8, 0, 14), yawDegrees = 180 },
+			{ position = findBuildingByName("Shop").position + Vector3.new(16, 0, 19), yawDegrees = 180 },
+			{ position = findBuildingByName("DailyRewards").position + Vector3.new(11, 0, 17), yawDegrees = 180 },
+			{ position = findBuildingByName("TutorialBuilding").position + Vector3.new(-11, 0, 17), yawDegrees = 180 },
 			{
-				position = findBuildingByName("StatisticsBuilding").position + Vector3.new(-13, 0, 11.5),
+				position = findBuildingByName("StatisticsBuilding").position + Vector3.new(-16, 0, 13.5),
 				yawDegrees = 180,
 			},
 		},
 	},
-	-- Facing the leaderboard arc from a comfortable viewing distance -
-	-- the old single-screen design had benches here; the five-board
-	-- redesign didn't carry them forward, so this restores seating at
-	-- that point of interest. Message 18: the leaderboard moved off the
-	-- building row entirely to its own dedicated region
-	-- (LobbyConfig.LEADERBOARD_ANCHOR). Message 19: the anchor moved again,
-	-- from the west side to the EAST side, and its facing flipped from
-	-- east-facing to WEST-facing (facingYawDegrees = -90) - so the offset
-	-- direction flips too: seats now sit WEST of the anchor (toward the
-	-- plaza, negative local X) rather than east, so they're still on the
-	-- boards' viewable side and face EAST (yawDegrees = -90) back toward
-	-- them instead of west.
+	-- Facing the leaderboard arc from a comfortable viewing distance.
+	-- Message 20: the arc moved to the NORTH side (+Z), facing SOUTH
+	-- (facingYawDegrees = 180 in LEADERBOARD_ANCHOR) - so these seats sit
+	-- SOUTH of the anchor (toward the plaza/map center, negative local Z)
+	-- and face NORTH (yawDegrees = 0) back up at the boards, the mirror
+	-- image of the previous east-side/west-facing arrangement.
 	{
 		id = "LeaderboardViewingZone",
 		seatType = "SeatTypeC",
 		placements = {
-			{ position = LobbyConfig.LEADERBOARD_ANCHOR.position + scaled(-18, -16), yawDegrees = -90 },
-			{ position = LobbyConfig.LEADERBOARD_ANCHOR.position + scaled(-18, 16), yawDegrees = -90 },
+			{ position = LobbyConfig.LEADERBOARD_ANCHOR.position + scaled(18, -20), yawDegrees = 0 },
+			{ position = LobbyConfig.LEADERBOARD_ANCHOR.position + scaled(-18, -20), yawDegrees = 0 },
 		},
 	},
 }

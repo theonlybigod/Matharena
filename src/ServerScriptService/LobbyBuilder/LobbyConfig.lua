@@ -58,40 +58,46 @@ LobbyConfig.SPAWN_POSITIONS = {
 	scaled(30, 90),
 }
 
--- Message 18 recomposition: the leaderboard no longer occupies the
--- center slot of the back row (it moved to the previously-empty west
--- side - see LEADERBOARD_ANCHOR below), so the remaining 4 buildings are
--- spread wider across the back arc instead of clustering around a 5th
--- slot that no longer exists - genuinely more space between them, not
--- just a uniform scale-up of the old positions.
+-- Message 20 major expansion: buildings grew substantially (roughly
+-- 1.2-1.3x each footprint dimension, +5-6 studs of height) - "the
+-- interiors should have enough space to feel like actual locations", not
+-- a small decoration pass. Repositioned (not just resized in place) to
+-- keep genuine clearance between the now-bigger buildings: Shop/
+-- StatisticsBuilding sit further out and shallower (closer to the
+-- portal), DailyRewards/TutorialBuilding sit further back and more
+-- inward, forming a gentle fan rather than a straight row - verified via
+-- Python before applying: ~44 studs of clearance between adjacent
+-- buildings (was down to single digits when simply scaled up in place),
+-- and every building's furthest corner stays within ~165 studs of the
+-- map center (safely inside the ~172-stud usable radius).
 LobbyConfig.BUILDINGS = {
 	{
 		name = "Shop",
 		displayName = "Shop",
-		size = Vector2.new(30, 25),
-		position = scaled(-78, -42),
-		height = 20,
+		size = Vector2.new(36, 30),
+		position = scaled(-68, -20),
+		height = 26,
 	},
 	{
 		name = "DailyRewards",
 		displayName = "Daily Rewards",
-		size = Vector2.new(20, 20),
-		position = scaled(-38, -72),
-		height = 16,
+		size = Vector2.new(26, 26),
+		position = scaled(-26, -68),
+		height = 21,
 	},
 	{
 		name = "TutorialBuilding",
 		displayName = "Tutorial Building",
-		size = Vector2.new(20, 20),
-		position = scaled(38, -72),
-		height = 16,
+		size = Vector2.new(26, 26),
+		position = scaled(26, -68),
+		height = 21,
 	},
 	{
 		name = "StatisticsBuilding",
 		displayName = "Statistics Building",
-		size = Vector2.new(30, 15),
-		position = scaled(78, -42),
-		height = 14,
+		size = Vector2.new(36, 19),
+		position = scaled(68, -20),
+		height = 19,
 	},
 }
 
@@ -101,22 +107,26 @@ LobbyConfig.BUILDINGS = {
 -- structure or occupies the building row); LeaderboardBoards.BuildAll
 -- reads this directly.
 --
--- Message 19: moved from the WEST side (same side as Shop/DailyRewards)
--- to the EAST side - "the side opposite to the shops" - and re-tuned
--- into a genuine circular/surrounding arc (see LeaderboardConfig.lua's
--- ARC_DEPTH) rather than a shallow bow, with bigger boards. Facing yaw
--- of -90 degrees turns the whole 5-board arc to face WEST, back toward
--- the plaza/map center (verified: Roblox's CFrame.Angles Y-rotation
--- takes a part's local +Z/"Back" face toward world (sin(yaw), cos(yaw)) -
--- -90 gives exactly (-1,0,0), pure west). anchor_z is deliberately well
--- forward of the back-building row's own Z (-42/-72) so the arc's
--- closest extreme board still keeps ~55 studs clearance from
--- StatisticsBuilding - verified via Python before applying (max map-edge
--- reach ~145 studs vs 172 available, ~27-stud buffer; ~16-stud minimum
--- clearance between adjacent boards given their new larger size).
+-- Message 20: moved to the NORTH side (+Z, the spawn/entrance side) per
+-- explicit direction, facing back toward the map center.
+--
+-- Message 21: pushed much closer to the boundary (per explicit "~5-stud
+-- buffer from the map edge" direction, measured from each board's actual
+-- physical corner, not its center) and re-tuned for the bigger boards
+-- (LeaderboardConfig.BOARD_WIDTH/HEIGHT). facingYawDegrees = 180 still
+-- only drives the POSITION math (fanning the boards' centers into the
+-- arc shape) - each board's actual ORIENTATION is now computed
+-- separately in LeaderboardBoards.lua as a direct look-at toward
+-- LeaderboardConfig.VIEW_FOCAL_POINT, which is what actually fixes the
+-- two end boards being hard to see (see that module's comment).
+-- Verified via Python before applying: every board corner stays within
+-- 174.5 studs of center (boundary sits at 187, so a genuine ~7.5-stud
+-- buffer - "approximately 5 studs"), every adjacent pair keeps 5+ studs
+-- of clearance (no overlap), and the whole arc keeps ~7.9 studs of
+-- clearance from the nearest spawn point.
 LobbyConfig.LEADERBOARD_ANCHOR = {
-	position = scaled(58, 20),
-	facingYawDegrees = -90,
+	position = scaled(0, 93),
+	facingYawDegrees = 180,
 }
 
 LobbyConfig.QUEUE_PORTAL_SIZE = Vector2.new(12, 12)

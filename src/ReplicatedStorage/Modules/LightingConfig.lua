@@ -105,15 +105,24 @@ LightingConfig.DUSK_CLOCK_TIME = 19.25
 -- clearly readable in open areas between fixtures - "do not compensate
 -- for poor global visibility by making every street lamp excessively
 -- bright" means this has to carry that weight itself.
-LightingConfig.AMBIENT_COLOR = Color3.fromRGB(66, 73, 94)
-LightingConfig.OUTDOOR_AMBIENT_COLOR = Color3.fromRGB(66, 73, 94)
-LightingConfig.DUSK_BRIGHTNESS = 1.75 -- was 1.6 (and 2 before the calmer-neon pass) - nudged back up specifically for baseline dusk visibility, while staying well short of daytime levels
+--
+-- Message 22, section 2 ("make the entire map lighter... bright, welcoming,
+-- easy to see"): pushed meaningfully brighter across all three
+-- independent levers (Ambient color, Brightness, Exposure) rather than
+-- just one, since each affects a different part of the render (fill
+-- color, direct light, midtone lift respectively) - a real, noticeable
+-- jump without any single value doing all the work alone (which would
+-- risk washing out the color identity). Saturation/contrast in
+-- ColorCorrection below are eased further too, for the same reason.
+LightingConfig.AMBIENT_COLOR = Color3.fromRGB(110, 118, 145)
+LightingConfig.OUTDOOR_AMBIENT_COLOR = Color3.fromRGB(110, 118, 145)
+LightingConfig.DUSK_BRIGHTNESS = 2.6 -- was 1.75
 
 -- Exposure: a small positive compensation so midtones/shadows lift
 -- slightly without raising Brightness (which affects direct light) or
 -- Ambient (which affects fill color) - a third, independent lever for
 -- "clearly playable" without changing the dusk color mood.
-LightingConfig.EXPOSURE_COMPENSATION = 0.15
+LightingConfig.EXPOSURE_COMPENSATION = 0.4 -- was 0.15
 
 LightingConfig.FOG_COLOR = Color3.fromRGB(34, 38, 52) -- close to Ambient, so fog reads as atmospheric haze, not a mismatched color
 LightingConfig.FOG_END = 650 -- generous falloff distance - "subtle atmospheric depth without heavy fog obscuring distant objects"
@@ -126,18 +135,22 @@ LightingConfig.BLOOM_SIZE = 20
 
 -- ColorCorrection: a small contrast/saturation ease so the scene reads as
 -- "calm/polished" rather than punchy - subtle enough to not flatten the
--- palette above.
-LightingConfig.COLOR_CORRECTION_CONTRAST = -0.05
-LightingConfig.COLOR_CORRECTION_SATURATION = -0.05
+-- palette above. Message 22: eased slightly further to complement the
+-- brighter Ambient/Brightness/Exposure above without looking washed out.
+LightingConfig.COLOR_CORRECTION_CONTRAST = -0.08
+LightingConfig.COLOR_CORRECTION_SATURATION = -0.03
 LightingConfig.COLOR_CORRECTION_TINT_COLOR = Color3.fromRGB(245, 248, 255) -- a hair cool, reinforcing the blue identity
 
 -- Reference brightness/range for the smaller decorative PointLights
 -- scattered around the lobby (building beacons, ceiling lights, etc.) -
 -- "avoid strong lighting hotspots directly around individual neon
 -- objects" means these stay modest; local fixtures should lean on this
--- shared reference rather than each picking its own number.
-LightingConfig.ACCENT_LIGHT_BRIGHTNESS = 1.2
-LightingConfig.ACCENT_LIGHT_RANGE = 18
+-- shared reference rather than each picking its own number. Message 22:
+-- nudged up alongside the global boost so building interiors specifically
+-- (which rely heavily on these fixtures, having no windows to the dusk
+-- sky) don't feel comparatively darker than the now-brighter outdoors.
+LightingConfig.ACCENT_LIGHT_BRIGHTNESS = 1.6
+LightingConfig.ACCENT_LIGHT_RANGE = 20
 
 -- Corner fill lights (see Decorations.lua): small supplemental
 -- PointLights at the four corners of the square lobby floor, specifically

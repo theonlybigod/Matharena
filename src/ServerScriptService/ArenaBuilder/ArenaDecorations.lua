@@ -18,15 +18,27 @@ local ArenaDecorations = {}
 -- Approximates a glowing ring outline using many short neon segments
 -- placed and rotated around a circle (no true annulus primitive exists
 -- without a mesh asset).
+--
+-- Message 21 fix (section 6): positioned with a genuine, deliberate gap
+-- above the arena floor (ArenaConfig.FLOOR_RING_HEIGHT_ABOVE_FLOOR) -
+-- previously these sat at Y=0.05 with a 0.1-stud thickness, putting their
+-- BOTTOM face at exactly Y=0, precisely coincident with the floor's top
+-- face. That's a textbook z-fighting setup (the same bug class already
+-- found and fixed once before in the lobby's ground/trim), which is what
+-- caused the "visual inconsistency/glitching" on the arena floor. The
+-- floor itself was always a single Marble-material disc - the fix here
+-- is purely the gap, not a material change.
 local function buildRingSegments(radius: number, segments: number, parent: Instance)
+	local segmentThickness = 0.1
+	local centerY = ArenaConfig.FLOOR_RING_HEIGHT_ABOVE_FLOOR + segmentThickness / 2
 	for i = 1, segments do
 		local angle = (i - 1) / segments * math.pi * 2
-		local position = Vector3.new(math.sin(angle) * radius, 0.05, math.cos(angle) * radius)
+		local position = Vector3.new(math.sin(angle) * radius, centerY, math.cos(angle) * radius)
 		local segmentLength = (2 * math.pi * radius / segments) * 0.7
 
 		PartUtils.CreatePart({
 			name = "RingSegment" .. i,
-			size = Vector3.new(0.6, 0.1, segmentLength),
+			size = Vector3.new(0.6, segmentThickness, segmentLength),
 			cframe = CFrame.new(position) * CFrame.Angles(0, angle, 0),
 			material = Enum.Material.Neon,
 			color = ArenaConfig.NEON_COLOR,

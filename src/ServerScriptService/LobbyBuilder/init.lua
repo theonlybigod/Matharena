@@ -21,6 +21,7 @@
 
 local Workspace = game:GetService("Workspace")
 
+local MapConfig = require(script.MapConfig)
 local Buildings = require(script.Buildings)
 local Decorations = require(script.Decorations)
 local SpawnsAndPortal = require(script.SpawnsAndPortal)
@@ -29,6 +30,30 @@ local LobbyLighting = require(script.LobbyLighting)
 local Sign = require(script.Sign)
 
 local LobbyBuilder = {}
+
+--[[
+	Message 22, section 1: applies MapConfig.GROUND_ELEVATION as a single
+	bulk vertical translation to every BasePart already built under
+	`lobby`, run once at the end of Build(). Every construction module
+	(Floor/Buildings/Decorations/SpawnsAndPortal/Sign/LeaderboardBoards)
+	still builds everything assuming the ground sits at its own local Y=0 -
+	this is what actually raises the whole finished lobby afterward, rather
+	than threading a global elevation offset through every module's
+	internal math. Shifting .Position (not re-deriving each CFrame) leaves
+	every part's existing rotation untouched - a pure vertical translation.
+]]
+local function applyGroundElevation(lobby: Instance)
+	if MapConfig.GROUND_ELEVATION == 0 then
+		return
+	end
+
+	local offset = Vector3.new(0, MapConfig.GROUND_ELEVATION, 0)
+	for _, descendant in ipairs(lobby:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Position += offset
+		end
+	end
+end
 
 function LobbyBuilder.Build(force: boolean?)
 	local lobby = Workspace:WaitForChild("Lobby")
@@ -58,6 +83,8 @@ function LobbyBuilder.Build(force: boolean?)
 	SpawnsAndPortal.BuildQueuePortal(lobby)
 	Decorations.BuildAll(lobby)
 	Sign.Build(lobby)
+
+	applyGroundElevation(lobby)
 
 	lobby:SetAttribute("MathArenaBuilt", true)
 	lobby:SetAttribute("MathArenaBuiltAt", DateTime.now().UnixTimestamp)

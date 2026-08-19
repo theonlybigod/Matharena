@@ -161,12 +161,26 @@ end
 	each board is a top-level sibling of Shop/DailyRewards/etc, named
 	category.boardName, not nested under a shared "hall" model.
 
-	`facingYawDegrees` (Message 18/19) rotates the WHOLE arc as a rigid
-	group to face any direction - 0 (the original default) faces north/+Z,
-	which made sense when this sat in the back building row; the arc has
-	since moved to its own dedicated region (LobbyConfig.LEADERBOARD_ANCHOR)
-	and is rotated so the group faces back toward the plaza from wherever
-	it currently sits, instead of facing uselessly out toward the boundary.
+	`facingYawDegrees` (Message 18/19/20) rotates the arc's POSITION shape
+	as a rigid group so its center can sit anywhere on the map - 0 (the
+	original default) faces north/+Z. This only affects where the board
+	CENTERS end up, though; each board's actual facing direction (Message
+	21) is computed separately below via an exact look-at toward
+	LeaderboardConfig.VIEW_FOCAL_POINT, not derived from this yaw at all.
+
+	Message 21 fix (section 2, "the end two leaderboards are not properly
+	visible"): the PREVIOUS orientation formula rotated each board by
+	(-angleDegrees + yaw) - a reasonable-looking approximation that fans
+	each board inward by an amount proportional to its position along the
+	arc, assuming that produces a curve converging on the viewing area.
+	It doesn't, in general - measured with the actual arc/anchor geometry,
+	the two end boards ended up facing about 32 degrees off from the real
+	viewing area near the map's center, while the middle boards were only
+	off by a few degrees, which is exactly the "end boards aren't visible"
+	symptom. The actual fix is to stop approximating and directly aim each
+	board's face at one explicit point - correct by construction for every
+	board, including the two ends, regardless of how the arc is
+	repositioned/resized in the future.
 ]]
 local function buildOneBoard(category, angleDegrees: number, arcCenter: Vector3, parent: Instance, facingYawDegrees: number?)
 	local yaw = facingYawDegrees or 0
@@ -187,12 +201,13 @@ local function buildOneBoard(category, angleDegrees: number, arcCenter: Vector3,
 	local yawRotation = CFrame.Angles(0, math.rad(yaw), 0)
 	local boardPosition = arcCenter + (yawRotation * localOffset)
 
-	-- Faces generally toward +Z (the plaza) before the group yaw is
-	-- applied, fanned inward toward the arc's center so the five boards
-	-- read as a deliberate curved arrangement rather than five boards
-	-- facing dead-ahead; the group yaw then rotates that whole facing to
-	-- point wherever the arc actually needs to face.
-	local baseCFrame = CFrame.new(boardPosition) * CFrame.Angles(0, math.rad(-angleDegrees + yaw), 0)
+	-- Orientation: aim this board's Back face (where the SurfaceGui and
+	-- the neon frame both live) directly at the shared focal point, so
+	-- every board - including the two ends - genuinely faces the viewing
+	-- area rather than an approximation of it.
+	local toFocal = LeaderboardConfig.VIEW_FOCAL_POINT - boardPosition
+	local facingYaw = math.atan2(toFocal.X, toFocal.Z)
+	local baseCFrame = CFrame.new(boardPosition) * CFrame.Angles(0, facingYaw, 0)
 
 	local model = Instance.new("Model")
 	model.Name = category.boardName

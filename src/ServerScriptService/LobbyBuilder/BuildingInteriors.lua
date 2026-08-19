@@ -36,7 +36,8 @@ local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 local BuildingInteriors = {}
 
 local WALL_THICKNESS = 1
-local DOOR_WIDTH = 8
+local MIN_DOOR_WIDTH = 8
+local MAX_DOOR_WIDTH = 14
 
 local INTERIOR_WALL_COLOR = Color3.fromRGB(40, 43, 50)
 local INTERIOR_FLOOR_COLOR = Color3.fromRGB(30, 32, 38)
@@ -54,6 +55,10 @@ local GLASS_COLOR = Color3.fromRGB(120, 200, 255)
 function BuildingInteriors.BuildShell(def, model: Model): BasePart
 	local halfX = def.size.X / 2
 	local halfZ = def.size.Y / 2
+	-- Message 20: doorway scales with the building's own width (was a flat
+	-- 8 studs regardless of size) - an 8-stud door reads as tiny against a
+	-- 61-stud-wide exterior now that buildings are much bigger.
+	local DOOR_WIDTH = math.clamp(def.size.X * 0.22, MIN_DOOR_WIDTH, MAX_DOOR_WIDTH)
 	local doorHeight = math.min(10, def.height - 4)
 	local headerHeight = def.height - doorHeight
 	local doorHalfWidth = DOOR_WIDTH / 2
@@ -101,8 +106,13 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		})
 
 		local windowHeight = math.min(5, def.height - 6)
-		local windowWidth = math.min(6, def.size.Y * 0.3)
-		for _, offsetZ in ipairs({ -def.size.Y / 4, def.size.Y / 4 }) do
+		local windowWidth = math.min(6, def.size.Y * 0.22)
+		-- Message 20: a third window pair for the now much-deeper side
+		-- walls - two windows looked sparse spread across 30+ studs of depth.
+		local windowOffsets = if def.size.Y > 24
+			then { -def.size.Y / 3, 0, def.size.Y / 3 }
+			else { -def.size.Y / 4, def.size.Y / 4 }
+		for _, offsetZ in ipairs(windowOffsets) do
 			PartUtils.CreatePart({
 				name = "WindowFrame",
 				size = Vector3.new(0.3, windowHeight + 0.6, windowWidth + 0.6),
@@ -327,28 +337,32 @@ local function addShopIdentity(def, model: Model)
 end
 
 --[[
-	Shop: counter, a couple of floating cosmetic display plinths, the
-	angled storefront bays, TWO tiers of wall shelving rows, and the Shop
-	Terminal (opens the existing Shop UI). Message 18, section 5 asks
-	specifically for "rows" (plural) of shelving along the walls, so this
-	adds a second, higher tier and a third position along each wall on top
-	of the single row Message 17 already had.
+	Shop: a clear front-to-back store layout using the building's full,
+	now much larger floor (Message 20 - "the biggest interior treatment"):
+		entrance foyer -> two freestanding aisle islands (with wall shelving
+		flanking both sides) -> a cosmetic showcase row -> the counter and
+		terminal against the back wall.
+	Every row/aisle leaves a clear walkway - the center aisle (|x|<4) runs
+	straight from the door to the terminal, and the side walkways (between
+	the wall shelves and the freestanding islands) stay clear too.
 ]]
 function BuildingInteriors.FurnishShop(def, model: Model)
 	local basePos = def.position
+	local halfX = def.size.X / 2
+	local halfZ = def.size.Y / 2
 
 	addShopIdentity(def, model)
 
-	-- Two tiers of wall shelving, three positions per wall, along both
-	-- side walls (clear of the center walkway) - reads as real store
-	-- shelving rows rather than a couple of floating props.
+	-- Two tiers of wall shelving along both side walls, spanning the full
+	-- depth of the room now that there's much more of it to use.
+	local wallShelfOffsets = { -halfZ + 4, -halfZ / 3, halfZ / 3 - 2, halfZ - 5 }
 	for _, side in ipairs({ -1, 1 }) do
 		for _, shelfY in ipairs({ 3.2, 5.6 }) do
-			for _, offsetZ in ipairs({ -7, -1.5, 4 }) do
+			for _, offsetZ in ipairs(wallShelfOffsets) do
 				PartUtils.CreatePart({
 					name = "WallShelf",
 					size = Vector3.new(3.2, 0.25, 1.4),
-					position = basePos + Vector3.new(side * (def.size.X / 2 - 2.1), shelfY, offsetZ),
+					position = basePos + Vector3.new(side * (halfX - 2.1), shelfY, offsetZ),
 					material = Enum.Material.Metal,
 					color = Color3.fromRGB(50, 53, 62),
 					parent = model,
@@ -356,7 +370,7 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 				PartUtils.CreatePart({
 					name = "ShelfItem",
 					size = Vector3.new(0.8, 0.8, 0.8),
-					position = basePos + Vector3.new(side * (def.size.X / 2 - 2.1), shelfY + 0.55, offsetZ),
+					position = basePos + Vector3.new(side * (halfX - 2.1), shelfY + 0.55, offsetZ),
 					material = Enum.Material.Neon,
 					color = ACCENT_COLOR,
 					canCollide = false,
@@ -366,7 +380,38 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		end
 	end
 
-	-- Floor accent stripe leading from the doorway to the counter.
+	-- Two freestanding, double-sided aisle islands in the middle third of
+	-- the room - the actual "browse between rows" store experience the
+	-- wall shelving alone can't provide. Positioned well clear of both the
+	-- center walkway (|x|<4) and the side walkways (between the island and
+	-- the wall shelves).
+	for _, aisleX in ipairs({ -halfX * 0.4, halfX * 0.4 }) do
+		PartUtils.CreatePart({
+			name = "AisleIsland",
+			size = Vector3.new(2.2, 4, halfZ * 0.7),
+			position = basePos + Vector3.new(aisleX, 2, halfZ * 0.05),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(48, 51, 60),
+			parent = model,
+		})
+		for _, itemOffsetZ in ipairs({ -halfZ * 0.25, 0, halfZ * 0.25 }) do
+			for _, faceX in ipairs({ -1, 1 }) do
+				PartUtils.CreatePart({
+					name = "AisleItem",
+					size = Vector3.new(0.9, 0.9, 0.9),
+					position = basePos
+						+ Vector3.new(aisleX + faceX * 1.5, 4.2, itemOffsetZ + halfZ * 0.05),
+					material = Enum.Material.Neon,
+					color = ACCENT_COLOR,
+					canCollide = false,
+					parent = model,
+				})
+			end
+		end
+	end
+
+	-- Floor accent stripe leading from the doorway straight down the
+	-- center aisle to the counter.
 	PartUtils.CreatePart({
 		name = "FloorAccent",
 		size = Vector3.new(2, 0.05, def.size.Y - 8),
@@ -378,20 +423,13 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		parent = model,
 	})
 
-	PartUtils.CreatePart({
-		name = "Counter",
-		size = Vector3.new(10, 3.5, 2.5),
-		position = basePos + Vector3.new(0, 1.75, -def.size.Y / 2 + 4),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(50, 53, 62),
-		parent = model,
-	})
-
-	for _, x in ipairs({ -8, 8 }) do
+	-- Cosmetic showcase row, just in front of the counter - the "look but
+	-- don't buy yet" zone between the aisles and checkout.
+	for _, x in ipairs({ -halfX * 0.35, 0, halfX * 0.35 }) do
 		PartUtils.CreatePart({
 			name = "DisplayPlinth",
 			size = Vector3.new(2, 3, 2),
-			position = basePos + Vector3.new(x, 1.5, 2),
+			position = basePos + Vector3.new(x, 1.5, -halfZ * 0.35),
 			material = Enum.Material.Metal,
 			color = Color3.fromRGB(45, 48, 56),
 			parent = model,
@@ -399,7 +437,7 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		PartUtils.CreatePart({
 			name = "DisplayItem",
 			size = Vector3.new(1.2, 1.2, 1.2),
-			position = basePos + Vector3.new(x, 3.6, 2),
+			position = basePos + Vector3.new(x, 3.6, -halfZ * 0.35),
 			material = Enum.Material.Neon,
 			color = ACCENT_COLOR,
 			canCollide = false,
@@ -407,7 +445,18 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		})
 	end
 
-	terminal(model, basePos + Vector3.new(0, 0, -def.size.Y / 2 + 6.5), "ShopTerminalPrompt", "Open Shop", "Shop")
+	-- Counter + terminal against the back wall - the store's clear "end
+	-- point".
+	PartUtils.CreatePart({
+		name = "Counter",
+		size = Vector3.new(math.min(14, def.size.X - 8), 3.5, 2.5),
+		position = basePos + Vector3.new(0, 1.75, -halfZ + 4),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(50, 53, 62),
+		parent = model,
+	})
+
+	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 7.5), "ShopTerminalPrompt", "Open Shop", "Shop")
 end
 
 --[[
@@ -454,23 +503,27 @@ local function addRewardsIdentity(def, model: Model)
 end
 
 --[[
-	Daily Rewards: the stepped trophy tower, a big progression wall panel,
-	side-wall milestone screens, and the Rewards Terminal (opens the
-	existing win-based Rewards UI).
+	Daily Rewards: the stepped trophy tower outside, and inside - a clear
+	"hall of milestones" using the building's larger floor (Message 20):
+	entrance -> a center row of milestone pedestals players walk past ->
+	the progression wall + Rewards Terminal against the back wall. Side-
+	wall milestone screens flank the whole walk.
 ]]
 function BuildingInteriors.FurnishRewards(def, model: Model)
 	local basePos = def.position
+	local halfX = def.size.X / 2
+	local halfZ = def.size.Y / 2
 
 	addRewardsIdentity(def, model)
 
 	-- Side-wall milestone screens - small floating panels suggesting
-	-- individual reward tiers, flanking the main progression wall.
+	-- individual reward tiers, flanking the walk from door to terminal.
 	for _, side in ipairs({ -1, 1 }) do
-		for i, offsetZ in ipairs({ -4, 3 }) do
+		for i, offsetZ in ipairs({ halfZ - 6, 0, -halfZ + 8 }) do
 			PartUtils.CreatePart({
 				name = "MilestonePanel" .. i,
-				size = Vector3.new(0.2, 2.2, 2.2),
-				position = basePos + Vector3.new(side * (def.size.X / 2 - 0.3), 5, offsetZ),
+				size = Vector3.new(0.2, 2.4, 2.4),
+				position = basePos + Vector3.new(side * (halfX - 0.3), 5, offsetZ),
 				material = Enum.Material.Neon,
 				color = ACCENT_COLOR,
 				transparency = 0.2,
@@ -480,23 +533,41 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 		end
 	end
 
+	-- Center row of milestone pedestals - the actual "hall" walk-through,
+	-- filling the room's middle rather than leaving it empty between the
+	-- door and the back wall. Spaced to leave clear side walkways.
+	for i, offsetZ in ipairs({ halfZ * 0.45, 0, -halfZ * 0.45 }) do
+		PartUtils.CreatePart({
+			name = "MilestonePedestal" .. i,
+			size = Vector3.new(3, 2.5, 3),
+			position = basePos + Vector3.new(0, 1.25, offsetZ),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(48, 51, 60),
+			parent = model,
+		})
+		PartUtils.CreatePart({
+			name = "MilestoneTrophy" .. i,
+			size = Vector3.new(1.4, 1.4, 1.4),
+			position = basePos + Vector3.new(0, 3.2, offsetZ),
+			material = Enum.Material.Neon,
+			color = if i == 2 then Color3.fromRGB(255, 215, 0) else ACCENT_COLOR,
+			shape = Enum.PartType.Ball,
+			canCollide = false,
+			parent = model,
+		})
+	end
+
 	PartUtils.CreatePart({
 		name = "ProgressionWall",
 		size = Vector3.new(def.size.X - 6, def.height - 8, 0.3),
-		position = basePos + Vector3.new(0, def.height / 2, -def.size.Y / 2 + 1),
+		position = basePos + Vector3.new(0, def.height / 2, -halfZ + 1),
 		material = Enum.Material.Neon,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
 	})
 
-	terminal(
-		model,
-		basePos + Vector3.new(0, 0, def.size.Y / 2 - 5),
-		"RewardsTerminalPrompt",
-		"Open Rewards",
-		"Rewards"
-	)
+	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 5), "RewardsTerminalPrompt", "Open Rewards", "Rewards")
 end
 
 --[[
@@ -551,22 +622,26 @@ local function addStatisticsIdentity(def, model: Model)
 end
 
 --[[
-	Statistics Building: the data spire, a stat-screen wall, side monitor
-	screens, a chair at the terminal, and the Statistics Terminal (opens
-	the existing Stats modal).
+	Statistics Building: the data spire outside, and inside - a data
+	"reading room" (Message 20): entrance -> a center row of player-
+	statistics terminal stations with simple bench seating -> the big
+	stat-screen wall + Statistics Terminal against the back wall. Side
+	monitor screens flank the room.
 ]]
 function BuildingInteriors.FurnishStatistics(def, model: Model)
 	local basePos = def.position
+	local halfX = def.size.X / 2
+	local halfZ = def.size.Y / 2
 
 	addStatisticsIdentity(def, model)
 
-	-- Side monitor screens along both walls (clear of the center walkway).
+	-- Side monitor screens along both walls, spanning the room's depth.
 	for _, side in ipairs({ -1, 1 }) do
-		for _, offsetZ in ipairs({ -3, 3 }) do
+		for _, offsetZ in ipairs({ halfZ - 4, 0, -halfZ + 5 }) do
 			PartUtils.CreatePart({
 				name = "MonitorStand",
 				size = Vector3.new(0.4, 2.5, 1.6),
-				position = basePos + Vector3.new(side * (def.size.X / 2 - 1.5), 2.5, offsetZ),
+				position = basePos + Vector3.new(side * (halfX - 1.5), 2.5, offsetZ),
 				material = Enum.Material.Metal,
 				color = Color3.fromRGB(45, 48, 56),
 				parent = model,
@@ -574,7 +649,7 @@ function BuildingInteriors.FurnishStatistics(def, model: Model)
 			PartUtils.CreatePart({
 				name = "MonitorScreen",
 				size = Vector3.new(0.15, 1.6, 1.2),
-				position = basePos + Vector3.new(side * (def.size.X / 2 - 1.25), 2.9, offsetZ),
+				position = basePos + Vector3.new(side * (halfX - 1.25), 2.9, offsetZ),
 				material = Enum.Material.Neon,
 				color = ACCENT_COLOR,
 				canCollide = false,
@@ -583,23 +658,48 @@ function BuildingInteriors.FurnishStatistics(def, model: Model)
 		end
 	end
 
+	-- Center row of player-data terminal stations with a bench each, so
+	-- the room's middle reads as a place to actually sit and review your
+	-- own stats, not empty floor between the door and the back wall.
+	for _, offsetZ in ipairs({ halfZ * 0.4, -halfZ * 0.15 }) do
+		PartUtils.CreatePart({
+			name = "DataStation",
+			size = Vector3.new(3, 2.8, 1.4),
+			position = basePos + Vector3.new(0, 1.4, offsetZ),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(48, 51, 60),
+			parent = model,
+		})
+		PartUtils.CreatePart({
+			name = "DataStationScreen",
+			size = Vector3.new(2.2, 1.3, 0.15),
+			position = basePos + Vector3.new(0, 2.9, offsetZ - 0.6),
+			material = Enum.Material.Neon,
+			color = ACCENT_COLOR,
+			canCollide = false,
+			parent = model,
+		})
+		PartUtils.CreatePart({
+			name = "DataStationBench",
+			size = Vector3.new(2.6, 1, 1.2),
+			position = basePos + Vector3.new(0, 0.6, offsetZ + 1.6),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(45, 48, 56),
+			parent = model,
+		})
+	end
+
 	PartUtils.CreatePart({
 		name = "StatScreen",
 		size = Vector3.new(def.size.X - 8, def.height - 6, 0.3),
-		position = basePos + Vector3.new(0, def.height / 2, -def.size.Y / 2 + 1),
+		position = basePos + Vector3.new(0, def.height / 2, -halfZ + 1),
 		material = Enum.Material.Neon,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
 	})
 
-	terminal(
-		model,
-		basePos + Vector3.new(0, 0, def.size.Y / 2 - 5),
-		"StatisticsTerminalPrompt",
-		"View Statistics",
-		"Statistics"
-	)
+	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 5), "StatisticsTerminalPrompt", "View Statistics", "Statistics")
 end
 
 --[[
@@ -651,21 +751,70 @@ local function addTutorialIdentity(def, model: Model)
 end
 
 --[[
-	Tutorial Building: the rounded turret, a welcome desk, a couple of
-	seating chairs, wall info-panels, and the Tutorial Terminal (opens
-	TutorialUIController).
+	Tutorial Building: the rounded turret outside, and inside - a genuine
+	front-to-back learning path (Message 20, section 7 - "the player should
+	naturally move from one tutorial area to another"): welcome desk near
+	the door -> an example question station in the middle, flanked by
+	seating -> the Tutorial Terminal against the back wall, framed by wall
+	info-panels.
 ]]
 function BuildingInteriors.FurnishTutorial(def, model: Model)
 	local basePos = def.position
+	local halfX = def.size.X / 2
+	local halfZ = def.size.Y / 2
 
 	addTutorialIdentity(def, model)
 
-	-- Wall info-panels flanking the room (clear of the center walkway).
+	-- Welcome desk just inside the entrance - the first thing a new player
+	-- reaches.
+	PartUtils.CreatePart({
+		name = "WelcomeDesk",
+		size = Vector3.new(8, 3, 2),
+		position = basePos + Vector3.new(0, 1.5, halfZ - 4),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(50, 53, 62),
+		parent = model,
+	})
+	PartUtils.CreatePart({
+		name = "WelcomeSign",
+		size = Vector3.new(6, 1.4, 0.15),
+		position = basePos + Vector3.new(0, 3.6, halfZ - 4),
+		material = Enum.Material.Neon,
+		color = ACCENT_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+
+	-- Example question station in the middle of the room - a floating
+	-- "12 x 8 = ?"-style demo screen with a bench on each side, the room's
+	-- clear second stop on the learning path.
+	PartUtils.CreatePart({
+		name = "ExampleQuestionScreen",
+		size = Vector3.new(6, 3, 0.2),
+		position = basePos + Vector3.new(0, 3.2, 1),
+		material = Enum.Material.Neon,
+		color = ACCENT_COLOR,
+		transparency = 0.1,
+		canCollide = false,
+		parent = model,
+	})
+	for _, x in ipairs({ -4, 4 }) do
+		PartUtils.CreatePart({
+			name = "Chair",
+			size = Vector3.new(1.5, 1.5, 1.5),
+			position = basePos + Vector3.new(x, 0.75, 4),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(55, 58, 66),
+			parent = model,
+		})
+	end
+
+	-- Wall info-panels flanking the final stretch toward the terminal.
 	for _, side in ipairs({ -1, 1 }) do
 		PartUtils.CreatePart({
 			name = "InfoPanel",
 			size = Vector3.new(0.2, 3, 4),
-			position = basePos + Vector3.new(side * (def.size.X / 2 - 0.3), 4, -2),
+			position = basePos + Vector3.new(side * (halfX - 0.3), 4, -halfZ * 0.4),
 			material = Enum.Material.Neon,
 			color = ACCENT_COLOR,
 			transparency = 0.25,
@@ -674,34 +823,7 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 		})
 	end
 
-	-- A couple of simple seating chairs near the welcome desk.
-	for _, x in ipairs({ -3, 3 }) do
-		PartUtils.CreatePart({
-			name = "Chair",
-			size = Vector3.new(1.5, 1.5, 1.5),
-			position = basePos + Vector3.new(x, 0.75, -def.size.Y / 2 + 6),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(55, 58, 66),
-			parent = model,
-		})
-	end
-
-	PartUtils.CreatePart({
-		name = "WelcomeDesk",
-		size = Vector3.new(8, 3, 2),
-		position = basePos + Vector3.new(0, 1.5, -def.size.Y / 2 + 3),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(50, 53, 62),
-		parent = model,
-	})
-
-	terminal(
-		model,
-		basePos + Vector3.new(0, 0, def.size.Y / 2 - 5),
-		"TutorialTerminalPrompt",
-		"Learn How to Play",
-		"Tutorial"
-	)
+	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 5), "TutorialTerminalPrompt", "Learn How to Play", "Tutorial")
 end
 
 return BuildingInteriors

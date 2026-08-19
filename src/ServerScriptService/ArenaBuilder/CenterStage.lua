@@ -98,12 +98,20 @@ local function buildQuestionScreen(parent: Instance, stageTopY: number): BasePar
 	return screen
 end
 
+--[[
+	Message 21 fix (section 6): same z-fighting pattern as the arena
+	floor's ring segments (see ArenaDecorations.lua) - this marker
+	previously sat with its bottom face at EXACTLY stageTopY, coincident
+	with the stage disc's top face. Uses the same deliberate gap constant
+	so both fixes stay consistent.
+]]
 local function buildWinnerArea(parent: Instance, stageTopY: number): BasePart
+	local thickness = 0.3
 	local marker = PartUtils.CreateDisc({
 		name = "WinnerArea",
 		diameter = ArenaConfig.WINNER_AREA_DIAMETER,
-		thickness = 0.3,
-		position = Vector3.new(0, stageTopY + 0.15, 0),
+		thickness = thickness,
+		position = Vector3.new(0, stageTopY + ArenaConfig.FLOOR_RING_HEIGHT_ABOVE_FLOOR + thickness / 2, 0),
 		material = Enum.Material.Neon,
 		color = ArenaConfig.NEON_COLOR,
 		canCollide = false,

@@ -55,28 +55,35 @@ LeaderboardConfig.ROW_HEIGHT_PIXELS = 60
 LeaderboardConfig.GUI_CANVAS_SIZE = Vector2.new(500, 700)
 LeaderboardConfig.TITLE_HEIGHT_PIXELS = 80
 
--- Circular/surrounding arc layout (Message 19 revision - previously a
--- shallow, mostly-flat bow). ARC_SPREAD_RADIUS fans the boards out
--- sideways; ARC_DEPTH is now a substantial fraction of that spread
--- (0.55x, not the old ~0.22x) so the five boards genuinely curve around
--- an implied viewing point in front of them rather than reading as five
--- flat screens in a line - "partially surrounding the viewing area" per
--- the design brief. Both scaled by MapConfig's map-scale factor. All
--- three numbers (plus ARC_TOTAL_DEGREES and LobbyConfig.LEADERBOARD_ANCHOR)
--- were verified together via a Python position/clearance check before
--- being applied - see LobbyConfig.lua's LEADERBOARD_ANCHOR comment for
--- the actual resulting margins against the map boundary and
--- StatisticsBuilding.
-LeaderboardConfig.ARC_TOTAL_DEGREES = 130
+-- Circular/surrounding arc layout. ARC_SPREAD_RADIUS fans the boards out
+-- sideways; ARC_DEPTH is a substantial fraction of that spread so the
+-- boards genuinely curve around a shared viewing point in front of them.
+-- Both scaled by MapConfig's map-scale factor.
+--
+-- Message 21: pushed close to the map boundary (~5-stud buffer, per
+-- explicit direction - see LobbyConfig.lua's LEADERBOARD_ANCHOR comment
+-- for the exact verified margins) and boards made noticeably bigger
+-- (BOARD_WIDTH/HEIGHT below). VIEW_FOCAL_POINT is new: each board is now
+-- oriented to aim DIRECTLY at this point (LeaderboardBoards.lua computes
+-- the exact look-at angle per board) instead of the previous "-angle +
+-- groupYaw" approximation, which is what caused the two end boards to be
+-- angled noticeably off from the actual viewing area (measured ~32
+-- degrees off-target) even though the math looked reasonable in
+-- isolation - aiming every board at one explicit point is correct by
+-- construction, for the end boards exactly as much as the center one.
+LeaderboardConfig.ARC_TOTAL_DEGREES = 100
 LeaderboardConfig.ARC_SPREAD_RADIUS = 34 * MapConfig.SCALE_FACTOR
-LeaderboardConfig.ARC_DEPTH_FACTOR = 0.55
+LeaderboardConfig.ARC_DEPTH_FACTOR = 0.5
 LeaderboardConfig.ARC_DEPTH = LeaderboardConfig.ARC_SPREAD_RADIUS * LeaderboardConfig.ARC_DEPTH_FACTOR
+LeaderboardConfig.VIEW_FOCAL_POINT = Vector3.new(0, 0, 0) -- the map's true center/plaza - "the central viewing area"
 
--- Message 19: "increase the physical size... major landmarks" - up from
--- 13x15. Re-verified (see above) that this larger size still leaves
--- ~16 studs of clearance between adjacent boards along the arc.
-LeaderboardConfig.BOARD_WIDTH = 17
-LeaderboardConfig.BOARD_HEIGHT = 19
+-- Large standalone futuristic displays - "major landmarks", not small
+-- information panels. Message 21: bumped again (17x19 -> 22x24) per
+-- explicit "make the leaderboards bigger" direction; re-verified via
+-- Python that this larger size still leaves 5+ studs of clearance
+-- between every adjacent pair along the arc (see LEADERBOARD_ANCHOR).
+LeaderboardConfig.BOARD_WIDTH = 22
+LeaderboardConfig.BOARD_HEIGHT = 24
 
 -- Podium colors, shared by both the physical board (rank badge fill) and
 -- the client-side glow accent script.
