@@ -19,9 +19,25 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Config = require(ReplicatedStorage.Modules.Config)
+local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
+local LobbyConfig = require(script.Parent.LobbyConfig)
+local MapConfig = require(script.Parent.MapConfig)
 
 local SeatingConfig = {}
+
+local SCALE = MapConfig.SCALE_FACTOR
+
+-- Zones anchored to the map's CENTER (portal plaza, walkway, social
+-- lounge, leaderboard viewing) scale uniformly with the map - this both
+-- moves them outward for the larger footprint AND increases the actual
+-- spacing between them proportionally ("spread seating into comfortable
+-- social areas"). Zones anchored to a BUILDING (BuildingFrontZone) instead
+-- add a fixed, unscaled offset to that building's own (already-scaled)
+-- LobbyConfig position, since the offset is relative to the building's
+-- footprint size, which isn't being resized - see LobbyConfig.lua.
+local function scaled(x: number, z: number): Vector3
+	return Vector3.new(x * SCALE, 0, z * SCALE)
+end
 
 SeatingConfig.ROOT_ATTRIBUTE = "LobbySeating" -- set on the top-level seating Folder
 SeatingConfig.DECORATIVE_ATTRIBUTE = "Decorative" -- set on every seat model (true) - it's dressing, not an interactive object
@@ -49,7 +65,7 @@ SeatingConfig.SEAT_TYPES = {
 		supportStyle = "Legs",
 		seatMaterial = Enum.Material.SmoothPlastic,
 		seatColor = Color3.fromRGB(235, 235, 240),
-		accentColor = Config.BRAND_NEON_COLOR,
+		accentColor = LightingConfig.DECORATIVE,
 	},
 	-- "Lounge Chair": single-seat width, armrests, a single centered
 	-- pedestal block support, a warmer material - the social-lounge seat.
@@ -74,7 +90,7 @@ SeatingConfig.SEAT_TYPES = {
 		supportStyle = "Block",
 		seatMaterial = Enum.Material.Metal,
 		seatColor = Color3.fromRGB(45, 48, 56),
-		accentColor = Config.BRAND_NEON_COLOR,
+		accentColor = LightingConfig.DECORATIVE,
 	},
 	-- "Portal Stool": low, round, backless - deliberately unobtrusive so
 	-- it never blocks sightlines to the queue portal or the floating
@@ -87,7 +103,7 @@ SeatingConfig.SEAT_TYPES = {
 		supportStyle = "PedestalPost",
 		seatMaterial = Enum.Material.SmoothPlastic,
 		seatColor = Color3.fromRGB(230, 230, 235),
-		accentColor = Config.BRAND_NEON_COLOR,
+		accentColor = LightingConfig.DECORATIVE,
 	},
 }
 
@@ -115,10 +131,10 @@ SeatingConfig.ZONES = {
 		id = "PortalPlazaZone",
 		seatType = "SeatTypeD",
 		placements = {
-			{ position = Vector3.new(9, 0, 9), yawDegrees = 45 },
-			{ position = Vector3.new(-9, 0, 9), yawDegrees = -45 },
-			{ position = Vector3.new(9, 0, -9), yawDegrees = 135 },
-			{ position = Vector3.new(-9, 0, -9), yawDegrees = -135 },
+			{ position = scaled(9, 9), yawDegrees = 45 },
+			{ position = scaled(-9, 9), yawDegrees = -45 },
+			{ position = scaled(9, -9), yawDegrees = 135 },
+			{ position = scaled(-9, -9), yawDegrees = -135 },
 		},
 	},
 	-- Two pairs flanking the main spawn-to-portal walkway, facing inward
@@ -128,10 +144,10 @@ SeatingConfig.ZONES = {
 		id = "WalkwayZone",
 		seatType = "SeatTypeA",
 		placements = {
-			{ position = Vector3.new(24, 0, 62), yawDegrees = -90 },
-			{ position = Vector3.new(-24, 0, 62), yawDegrees = 90 },
-			{ position = Vector3.new(24, 0, 40), yawDegrees = -90 },
-			{ position = Vector3.new(-24, 0, 40), yawDegrees = 90 },
+			{ position = scaled(24, 62), yawDegrees = -90 },
+			{ position = scaled(-24, 62), yawDegrees = 90 },
+			{ position = scaled(24, 40), yawDegrees = -90 },
+			{ position = scaled(-24, 40), yawDegrees = 90 },
 		},
 	},
 	-- A small open "lounge" cluster off to one side, chairs angled
@@ -141,36 +157,41 @@ SeatingConfig.ZONES = {
 		id = "SocialLoungeZone",
 		seatType = "SeatTypeB",
 		placements = {
-			{ position = Vector3.new(50, 0, 25), yawDegrees = 200 },
-			{ position = Vector3.new(60, 0, 32), yawDegrees = 250 },
-			{ position = Vector3.new(60, 0, 15), yawDegrees = 160 },
-			{ position = Vector3.new(50, 0, 5), yawDegrees = 110 },
+			{ position = scaled(50, 25), yawDegrees = 200 },
+			{ position = scaled(60, 32), yawDegrees = 250 },
+			{ position = scaled(60, 15), yawDegrees = 160 },
+			{ position = scaled(50, 5), yawDegrees = 110 },
 		},
 	},
 	-- One booth seat to the side of each remaining walk-in building's
 	-- entrance, facing back toward the doorway - present without
 	-- blocking it (LeaderboardHall is intentionally excluded here; it
 	-- gets its own zone below since it's no longer a walk-in building).
+	-- Offsets are fixed/unscaled - they're relative to each building's own
+	-- (unscaled) footprint size - added onto that building's already-scaled
+	-- LobbyConfig position.
 	{
 		id = "BuildingFrontZone",
 		seatType = "SeatTypeC",
 		placements = {
-			{ position = Vector3.new(-70 + 13, 0, -40 + 12.5 + 4), yawDegrees = 180 }, -- Shop
-			{ position = Vector3.new(-40 + 8, 0, -70 + 10 + 4), yawDegrees = 180 }, -- DailyRewards
-			{ position = Vector3.new(40 - 8, 0, -70 + 10 + 4), yawDegrees = 180 }, -- TutorialBuilding
-			{ position = Vector3.new(70 - 13, 0, -40 + 7.5 + 4), yawDegrees = 180 }, -- StatisticsBuilding
+			{ position = LobbyConfig.BUILDINGS[1].position + Vector3.new(13, 0, 16.5), yawDegrees = 180 }, -- Shop
+			{ position = LobbyConfig.BUILDINGS[2].position + Vector3.new(8, 0, 14), yawDegrees = 180 }, -- DailyRewards
+			{ position = LobbyConfig.BUILDINGS[4].position + Vector3.new(-8, 0, 14), yawDegrees = 180 }, -- TutorialBuilding
+			{ position = LobbyConfig.BUILDINGS[5].position + Vector3.new(-13, 0, 11.5), yawDegrees = 180 }, -- StatisticsBuilding
 		},
 	},
 	-- Facing the leaderboard arc from a comfortable viewing distance -
 	-- the old single-screen design had benches here; the five-board
 	-- redesign didn't carry them forward, so this restores seating at
-	-- that point of interest.
+	-- that point of interest. Offset from the (already-scaled) hall
+	-- position, itself scaled to keep pace with the leaderboard arc's own
+	-- radius (see LeaderboardConfig.lua).
 	{
 		id = "LeaderboardViewingZone",
 		seatType = "SeatTypeC",
 		placements = {
-			{ position = Vector3.new(-16, 0, -62), yawDegrees = 180 },
-			{ position = Vector3.new(16, 0, -62), yawDegrees = 180 },
+			{ position = LobbyConfig.BUILDINGS[3].position + scaled(-16, 18), yawDegrees = 180 },
+			{ position = LobbyConfig.BUILDINGS[3].position + scaled(16, 18), yawDegrees = 180 },
 		},
 	},
 }

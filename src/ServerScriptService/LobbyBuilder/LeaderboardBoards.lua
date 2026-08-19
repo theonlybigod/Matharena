@@ -36,6 +36,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
+local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 local LeaderboardConfig = require(ServerScriptService.LeaderboardConfig)
 
 local LeaderboardBoards = {}
@@ -268,8 +269,8 @@ local function buildOneBoard(category, angleDegrees: number, arcCenter: Vector3,
 
 	local glow = Instance.new("PointLight")
 	glow.Color = category.accentColor
-	glow.Range = 20
-	glow.Brightness = 1.5
+	glow.Range = LightingConfig.ACCENT_LIGHT_RANGE
+	glow.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS * 0.9 -- calmer-lighting pass: five of these sit close together along the arc, so kept a touch below the shared reference
 	glow.Parent = panel
 
 	buildDisplay(panel, category)

@@ -31,6 +31,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local LobbyConfig = require(script.Parent.LobbyConfig)
+local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 
 local BuildingInteriors = {}
 
@@ -227,8 +228,8 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		})
 		local pointLight = Instance.new("PointLight")
 		pointLight.Color = Color3.fromRGB(220, 230, 255)
-		pointLight.Range = 20
-		pointLight.Brightness = 1.5
+		pointLight.Range = LightingConfig.ACCENT_LIGHT_RANGE
+		pointLight.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS
 		pointLight.Parent = light
 	end
 
@@ -505,8 +506,8 @@ local function addStatisticsIdentity(def, model: Model)
 	})
 	local light = Instance.new("PointLight")
 	light.Color = ACCENT_COLOR
-	light.Range = 24
-	light.Brightness = 2
+	light.Range = LightingConfig.ACCENT_LIGHT_RANGE
+	light.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS
 	light.Parent = beacon
 end
 
@@ -605,8 +606,8 @@ local function addTutorialIdentity(def, model: Model)
 	})
 	local light = Instance.new("PointLight")
 	light.Color = ACCENT_COLOR
-	light.Range = 20
-	light.Brightness = 2
+	light.Range = LightingConfig.ACCENT_LIGHT_RANGE
+	light.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS
 	light.Parent = beacon
 end
 

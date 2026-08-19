@@ -16,7 +16,7 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Config = require(ReplicatedStorage.Modules.Config)
+local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 
 local StreetLampConfig = {}
 
@@ -43,25 +43,29 @@ StreetLampConfig.HEAD_SIZE = Vector3.new(2.2, 1.1, 1.4)
 StreetLampConfig.BULB_SIZE = 0.9
 
 StreetLampConfig.METAL_COLOR = Color3.fromRGB(55, 58, 66)
-StreetLampConfig.ACCENT_COLOR = Config.BRAND_NEON_COLOR -- brand blue, used only for small trim accents
+StreetLampConfig.ACCENT_COLOR = LightingConfig.STREET_LAMP_ACCENT -- small trim/ring accents only
 -- Soft, slightly cool white-blue - a believable "modern LED streetlamp"
 -- glow, deliberately distinct from the saturated brand-blue neon trims
 -- so the light itself doesn't read as a decorative neon sphere.
-StreetLampConfig.GLOW_COLOR = Color3.fromRGB(210, 225, 255)
+StreetLampConfig.GLOW_COLOR = LightingConfig.STREET_LAMP_GLOW
 
 -- Kept modest on purpose - "soft illumination", not an oversized glow
 -- that would wash out or compete with the floating sign/leaderboards.
-StreetLampConfig.LIGHT_RANGE = 16
-StreetLampConfig.LIGHT_BRIGHTNESS = 1.3
+-- Calmer-lighting pass: dimmer than the shared ACCENT_LIGHT reference
+-- (not just equal to it) since a lamp's glow is meant to be the softest
+-- light source in the lobby, not on par with building/landmark beacons.
+StreetLampConfig.LIGHT_RANGE = LightingConfig.ACCENT_LIGHT_RANGE
+StreetLampConfig.LIGHT_BRIGHTNESS = LightingConfig.ACCENT_LIGHT_BRIGHTNESS * 0.85
 
--- Placement. Reuses the same ring-based layout as trees/benches (see
--- Decorations.lua) at its own inset/spacing, with a small jitter and
+-- Placement. Reuses the same radial ring-based layout as trees (see
+-- Decorations.lua) at its own radius/spacing, with a small jitter and
 -- orientation variation so lamps don't read as a rigid grid, while
 -- staying close enough to the walkway ring to read as "along the paths".
-StreetLampConfig.RING_INSET_EXTRA = 10 -- added to LobbyConfig.PERIMETER_INSET
 StreetLampConfig.RING_SPACING_MULTIPLIER = 2 -- multiplies LobbyConfig.TREE_SPACING
-StreetLampConfig.PLACEMENT_JITTER = 3 -- studs; smaller than trees' jitter so lamps stay near the path
+StreetLampConfig.PLACEMENT_JITTER = 4.5 -- studs; smaller than trees' jitter so lamps stay near the path (scaled up from 3 for the larger map)
 StreetLampConfig.ORIENTATION_JITTER_DEGREES = 20 -- random yaw variation per lamp
-StreetLampConfig.AVOID_RADIUS = 10 -- studs kept clear around spawns/buildings/portal/benches/sign
+-- Map-scale refinement: scaled up from 10 ("give street lamps appropriate
+-- spacing" on the larger map).
+StreetLampConfig.AVOID_RADIUS = 15 -- studs kept clear around spawns/buildings/portal/seating/sign
 
 return StreetLampConfig

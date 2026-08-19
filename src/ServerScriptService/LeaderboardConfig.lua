@@ -29,7 +29,9 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Config = require(ReplicatedStorage.Modules.Config)
+local MapConfig = require(ServerScriptService.LobbyBuilder.MapConfig)
 
 local LeaderboardConfig = {}
 
@@ -57,10 +59,11 @@ LeaderboardConfig.TITLE_HEIGHT_PIXELS = 80
 -- region). ARC_SPREAD_RADIUS fans the boards out sideways; ARC_DEPTH is
 -- deliberately shallow (not a true geometric semicircle radius) so the
 -- boards stay comfortably inside the lobby floor rather than pushing the
--- center board out past the back wall.
+-- center board out past the back wall. Both scaled by MapConfig's map-
+-- scale factor for the +50% larger footprint.
 LeaderboardConfig.ARC_TOTAL_DEGREES = 120
-LeaderboardConfig.ARC_SPREAD_RADIUS = 36
-LeaderboardConfig.ARC_DEPTH = 8
+LeaderboardConfig.ARC_SPREAD_RADIUS = 36 * MapConfig.SCALE_FACTOR
+LeaderboardConfig.ARC_DEPTH = 8 * MapConfig.SCALE_FACTOR
 
 LeaderboardConfig.BOARD_WIDTH = 13
 LeaderboardConfig.BOARD_HEIGHT = 15

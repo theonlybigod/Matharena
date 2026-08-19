@@ -39,6 +39,20 @@
         "$className": "Folder",
         "$ignoreUnknownInstances": true
       }
+    },
+
+    "Lighting": {
+      "$className": "Lighting",
+      "$ignoreUnknownInstances": true,
+      "$properties": {
+        "Ambient": [66, 73, 94],
+        "OutdoorAmbient": [66, 73, 94],
+        "Brightness": 1.75,
+        "ClockTime": 19.25,
+        "ExposureCompensation": 0.15,
+        "FogColor": [34, 38, 52],
+        "FogEnd": 650
+      }
     }
   }
 }

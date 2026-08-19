@@ -1,8 +1,32 @@
 --[[
 	Floor.lua
 
-	Builds the lobby floor slab and its neon perimeter trim, from
-	source-controlled dimensions in LobbyConfig.
+	Builds the lobby's ground: a single authoritative ground slab
+	(LobbyGround), a 30-sided boundary (LobbyBoundary) tracing the exact
+	polygon MapConfig defines, a restrained ground design (GroundDesign -
+	two concentric rings, radial spokes, and a center medallion), and a
+	MapCenter marker at the origin.
+
+	Ground-flicker bug fix (Message 2 refinement): the previous version of
+	this file built four long neon trim strips whose BOTTOM face sat at
+	EXACTLY the same Y coordinate as the floor slab's TOP face (verified
+	directly in Studio: both at Y=0.0, zero gap) - two different-material
+	surfaces occupying the identical plane along a 220-stud edge, which is
+	a textbook z-fighting/flicker setup. The actual root cause was this
+	coincident geometry, not a material or lighting setting, so every
+	ground-level decorative surface below (boundary, rings, spokes,
+	medallion) is deliberately given a small but consistent GROUND_EPSILON
+	gap above the slab's top - imperceptible visually, but never
+	numerically coincident with another surface.
+
+	30-sided boundary + ~50% larger footprint (Message 2 refinement): the
+	old ground was a flat 220x220 square. It's now a single round slab
+	(so the map doesn't read as "a square with corners" from above) sized
+	to fully cover a regular 30-gon whose flat-to-flat width is 330 studs
+	(220 * 1.5) - see MapConfig.lua for the exact math. The 30-gon itself
+	is traced by LobbyBoundary, 30 individual edge segments built from
+	MapConfig.GetVertex, so the boundary's vertices/edges are always
+	mathematically exact regardless of any other tuning.
 
 	Split out from LobbyBuilder/init.lua (previously a local `buildFloor`
 	function) so the exact same code path can be reused by:
@@ -18,47 +42,179 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
+local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 local LobbyConfig = require(script.Parent.LobbyConfig)
+local MapConfig = require(script.Parent.MapConfig)
 
 local Floor = {}
 
-function Floor.Build(lobby: Instance)
+local FLOOR_THICKNESS = LobbyConfig.FLOOR_THICKNESS
+local FLOOR_TOP_Y = 0 -- the slab's top surface always sits at world Y=0, matching every other placement module's assumption
+local GROUND_EPSILON = 0.15 -- deliberate, consistent, nonzero gap for every ground-level decorative surface - see the module doc comment above for why
+
+local function groundY(riseAbove: number?)
+	return FLOOR_TOP_Y + GROUND_EPSILON + (riseAbove or 0)
+end
+
+--[[
+	Builds one boundary edge segment between polygon vertices `index` and
+	`index + 1`, oriented via the exact yaw between them - a raised neon
+	curb (not a flat decal) so the 30-sided shape reads clearly even from
+	ground level, not just from above.
+]]
+local function buildBoundarySegment(index: number, parent: Instance)
+	local v1 = MapConfig.GetVertex(index)
+	local v2 = MapConfig.GetVertex((index + 1) % MapConfig.SIDES)
+	local midpoint = (v1 + v2) / 2
+	local direction = (v2 - v1)
+	local length = direction.Magnitude
+	local yaw = math.atan2(direction.X, direction.Z)
+
+	local curbHeight = 1.4
+	local curbThickness = 1.0
+
 	PartUtils.CreatePart({
-		name = "Floor",
-		size = Vector3.new(LobbyConfig.LOBBY_SIZE, LobbyConfig.FLOOR_THICKNESS, LobbyConfig.LOBBY_SIZE),
-		position = Vector3.new(0, -LobbyConfig.FLOOR_THICKNESS / 2, 0),
+		name = "BoundarySegment" .. index,
+		size = Vector3.new(curbThickness, curbHeight, length),
+		cframe = CFrame.new(midpoint + Vector3.new(0, curbHeight / 2, 0)) * CFrame.Angles(0, yaw, 0),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(48, 51, 60),
+		canCollide = true,
+		parent = parent,
+	})
+	PartUtils.CreatePart({
+		name = "BoundaryTrim" .. index,
+		size = Vector3.new(curbThickness + 0.2, 0.25, length),
+		cframe = CFrame.new(midpoint + Vector3.new(0, curbHeight + 0.15, 0)) * CFrame.Angles(0, yaw, 0),
+		material = Enum.Material.Neon,
+		color = LightingConfig.GROUND_PATH,
+		canCollide = false,
+		parent = parent,
+	})
+end
+
+--[[
+	Builds a thin ring OUTLINE (not a filled disc) approximated by
+	`segmentCount` short straight neon bars around a circle of `radius` -
+	reused for both ground-design rings, at whatever segment density looks
+	smooth enough for that ring's size.
+]]
+local function buildRing(radius: number, segmentCount: number, color: Color3, parent: Instance, name: string)
+	local ring = Instance.new("Folder")
+	ring.Name = name
+	ring.Parent = parent
+
+	for i = 0, segmentCount - 1 do
+		local angleStep = (2 * math.pi) / segmentCount
+		local a1 = angleStep * i
+		local a2 = angleStep * (i + 1)
+		local p1 = Vector3.new(radius * math.sin(a1), 0, radius * math.cos(a1))
+		local p2 = Vector3.new(radius * math.sin(a2), 0, radius * math.cos(a2))
+		local midpoint = (p1 + p2) / 2
+		local direction = p2 - p1
+		local yaw = math.atan2(direction.X, direction.Z)
+
+		PartUtils.CreatePart({
+			name = "RingSegment" .. i,
+			size = Vector3.new(0.3, 0.15, direction.Magnitude),
+			cframe = CFrame.new(midpoint + Vector3.new(0, groundY(), 0)) * CFrame.Angles(0, yaw, 0),
+			material = Enum.Material.Neon,
+			color = color,
+			canCollide = false,
+			parent = ring,
+		})
+	end
+end
+
+--[[
+	Ground design (Message 2 refinement): kept deliberately restrained -
+	"relatively simple and polished... should support the environment
+	rather than compete with the buildings, signage, seating, or
+	lighting". Two concentric ring outlines, 10 radial spokes at every
+	3rd boundary vertex angle (reusing MapConfig.GetVertex so the spokes
+	stay in perfect angular agreement with the boundary), and a small
+	center medallion reinforcing the floating sign/queue portal as the
+	map's focal point.
+]]
+local function buildGroundDesign(parent: Instance)
+	local groundDesign = Instance.new("Folder")
+	groundDesign.Name = "GroundDesign"
+	groundDesign:SetAttribute(MapConfig.GROUND_DESIGN_ATTRIBUTE, true)
+	groundDesign.Parent = parent
+
+	-- Center medallion: a small accent ring right around the queue portal.
+	buildRing(14, 16, LightingConfig.CENTRAL_FEATURE, groundDesign, "CenterMedallion")
+
+	-- A subtler mid-radius ring, roughly halfway out.
+	buildRing(90, 32, LightingConfig.DECORATIVE, groundDesign, "MidRing")
+
+	-- Radial spokes: every 3rd polygon vertex (30 / 3 = 10 spokes), from
+	-- just outside the medallion out to just inside the usable radius.
+	local spokesFolder = Instance.new("Folder")
+	spokesFolder.Name = "Spokes"
+	spokesFolder.Parent = groundDesign
+
+	for i = 0, MapConfig.SIDES - 1, 3 do
+		local direction = MapConfig.GetVertex(i, 1) -- unit direction toward vertex i
+		local innerPoint = direction * 16
+		local outerPoint = direction * (MapConfig.USABLE_RADIUS - 5)
+		local midpoint = (innerPoint + outerPoint) / 2
+		local length = (outerPoint - innerPoint).Magnitude
+		local yaw = math.atan2(direction.X, direction.Z)
+
+		PartUtils.CreatePart({
+			name = "Spoke" .. i,
+			size = Vector3.new(0.25, 0.15, length),
+			cframe = CFrame.new(midpoint + Vector3.new(0, groundY(), 0)) * CFrame.Angles(0, yaw, 0),
+			material = Enum.Material.Neon,
+			color = LightingConfig.DECORATIVE,
+			canCollide = false,
+			parent = spokesFolder,
+		})
+	end
+end
+
+function Floor.Build(lobby: Instance)
+	-- Single authoritative ground surface: one round slab, sized to fully
+	-- cover the 30-gon (extends slightly past the boundary's own vertices
+	-- so there's no gap visible at the points), not a square.
+	local groundDiameter = 2 * (MapConfig.CIRCUMRADIUS + 5)
+	local ground = PartUtils.CreateDisc({
+		name = "LobbyGround",
+		diameter = groundDiameter,
+		thickness = FLOOR_THICKNESS,
+		position = Vector3.new(0, -FLOOR_THICKNESS / 2, 0),
 		material = Enum.Material.Concrete,
 		color = LobbyConfig.FLOOR_COLOR,
 		parent = lobby,
 	})
+	ground:SetAttribute(MapConfig.GROUND_ATTRIBUTE, true)
 
-	local trimFolder = Instance.new("Folder")
-	trimFolder.Name = "FloorTrim"
-	trimFolder.Parent = lobby
+	-- MapCenter marker - an invisible anchor at the exact origin, for any
+	-- system that wants a reliable "center of the map" reference without
+	-- hardcoding Vector3.new(0,0,0) itself.
+	local mapCenter = PartUtils.CreatePart({
+		name = "MapCenter",
+		size = Vector3.new(1, 1, 1),
+		position = Vector3.new(0, 0.5, 0),
+		transparency = 1,
+		canCollide = false,
+		parent = lobby,
+	})
+	mapCenter:SetAttribute(MapConfig.CENTER_ATTRIBUTE, true)
 
-	local half = LobbyConfig.LOBBY_SIZE / 2
-	local trimThickness = 1
-
-	local edges = {
-		{ size = Vector3.new(LobbyConfig.LOBBY_SIZE, 0.2, trimThickness), position = Vector3.new(0, 0.1, half - trimThickness / 2) },
-		{ size = Vector3.new(LobbyConfig.LOBBY_SIZE, 0.2, trimThickness), position = Vector3.new(0, 0.1, -half + trimThickness / 2) },
-		{ size = Vector3.new(trimThickness, 0.2, LobbyConfig.LOBBY_SIZE), position = Vector3.new(half - trimThickness / 2, 0.1, 0) },
-		{ size = Vector3.new(trimThickness, 0.2, LobbyConfig.LOBBY_SIZE), position = Vector3.new(-half + trimThickness / 2, 0.1, 0) },
-	}
-
-	for i, edge in ipairs(edges) do
-		PartUtils.CreatePart({
-			name = "TrimEdge" .. i,
-			size = edge.size,
-			position = edge.position,
-			material = Enum.Material.Neon,
-			color = LobbyConfig.NEON_COLOR,
-			canCollide = false,
-			parent = trimFolder,
-		})
+	-- 30-sided boundary, mathematically exact from MapConfig.GetVertex.
+	local boundaryFolder = Instance.new("Folder")
+	boundaryFolder.Name = "LobbyBoundary"
+	boundaryFolder:SetAttribute(MapConfig.BOUNDARY_ATTRIBUTE, true)
+	boundaryFolder.Parent = lobby
+	for i = 0, MapConfig.SIDES - 1 do
+		buildBoundarySegment(i, boundaryFolder)
 	end
 
-	return trimFolder
+	buildGroundDesign(lobby)
+
+	return ground
 end
 
 return Floor

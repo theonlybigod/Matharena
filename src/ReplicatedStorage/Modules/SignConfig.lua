@@ -16,7 +16,7 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Config = require(ReplicatedStorage.Modules.Config)
+local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 
 local SignConfig = {}
 
@@ -55,10 +55,12 @@ SignConfig.TEXT_SHIMMER_COLORS = {
 
 -- The glow lives in the text's own outline plus a soft light/particle
 -- accent - not in a background panel, so there's no border/frame reading
--- as a "box" around the word.
-SignConfig.GLOW_COLOR = Config.BRAND_NEON_COLOR
+-- as a "box" around the word. Uses the palette's CENTRAL_FEATURE shade -
+-- the sign is one of the two "hero" landmarks (with the queue portal)
+-- meant to read as the map's focal point, per the calmer-lighting pass.
+SignConfig.GLOW_COLOR = LightingConfig.CENTRAL_FEATURE
 SignConfig.TEXT_STROKE_TRANSPARENCY = 0.15 -- stronger than a plain outline - this IS the sign's glow
-SignConfig.GLOW_BRIGHTNESS = 4
+SignConfig.GLOW_BRIGHTNESS = 3 -- calmer-lighting pass: was 4 - still the brightest single light in the lobby (it's the map's focal landmark), but pulled back from an excessive hotspot
 SignConfig.GLOW_RANGE = 60
 SignConfig.PARTICLE_RATE = 4 -- restrained; a soft accent, not a distraction from the text
 

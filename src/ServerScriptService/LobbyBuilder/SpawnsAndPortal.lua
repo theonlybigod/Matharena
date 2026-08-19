@@ -16,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local LobbyConfig = require(script.Parent.LobbyConfig)
+local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 
 local SpawnsAndPortal = {}
 
@@ -49,7 +50,7 @@ function SpawnsAndPortal.BuildQueuePortal(parent: Instance): Model
 		size = Vector3.new(LobbyConfig.QUEUE_PORTAL_SIZE.X, 0.4, LobbyConfig.QUEUE_PORTAL_SIZE.Y),
 		position = LobbyConfig.QUEUE_PORTAL_POSITION + Vector3.new(0, 0.2, 0),
 		material = Enum.Material.Neon,
-		color = LobbyConfig.NEON_COLOR,
+		color = LightingConfig.CENTRAL_FEATURE,
 		canCollide = false,
 		parent = model,
 	})
