@@ -39,11 +39,15 @@ local playerGui = player:WaitForChild("PlayerGui")
 local mainUI = playerGui:WaitForChild("MainUI")
 
 -- ===== Button bar =====
+-- Message 26 ("make the whole interface 100x better"): bigger, icon-
+-- driven premium nav buttons (UITheme.CreateNavButton) instead of plain
+-- flat text buttons - each one gets a glyph, a label, and a glowing
+-- underline accent that brightens on hover.
 
 local buttonBar = Instance.new("Frame")
 buttonBar.Name = "LobbyButtonBar"
-buttonBar.Size = UDim2.fromOffset(700, 64)
-buttonBar.Position = UDim2.new(0.5, -350, 1, -84)
+buttonBar.Size = UDim2.fromOffset(760, 92)
+buttonBar.Position = UDim2.new(0.5, -380, 1, -112)
 buttonBar.BackgroundTransparency = 1
 buttonBar.Parent = mainUI
 
@@ -52,56 +56,56 @@ barLayout.SortOrder = Enum.SortOrder.LayoutOrder
 barLayout.FillDirection = Enum.FillDirection.Horizontal
 barLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 barLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-barLayout.Padding = UDim.new(0, 12)
+barLayout.Padding = UDim.new(0, 14)
 barLayout.Parent = buttonBar
 
-local function createButton(name: string, text: string, order: number): TextButton
-	local button = Instance.new("TextButton")
-	button.Name = name
+local function createButton(name: string, icon: string, text: string, order: number): TextButton
+	local button = UITheme.CreateNavButton(name, icon, text)
 	button.LayoutOrder = order
-	button.Size = UDim2.fromOffset(104, 56)
-	button.Font = Enum.Font.GothamBold
-	button.TextScaled = true
-	button.Text = text
-	button.TextColor3 = UITheme.COLORS.Text
-	UITheme.StylePanel(button, 0)
-	UITheme.ApplyButtonHoverEffect(button)
+	button.Size = UDim2.fromOffset(112, 84)
 	button.Parent = buttonBar
 	return button
 end
 
-local playButton = createButton("PlayButton", "Play", 1)
-playButton.BackgroundColor3 = UITheme.COLORS.Accent
+local playButton = createButton("PlayButton", "\u{25B6}", "Play", 1)
+local playButtonStroke = playButton:FindFirstChildOfClass("UIStroke")
+if playButtonStroke then
+	playButtonStroke.Color = UITheme.COLORS.Accent
+	playButtonStroke.Transparency = 0.1
+end
 
-local practiceButton = createButton("PracticeButton", "Practice", 2)
-local shopButton = createButton("ShopButton", "Shop", 3)
-local statsButton = createButton("StatsButton", "Stats", 4)
-local settingsButton = createButton("SettingsButton", "Settings", 5)
-local dailyRewardsButton = createButton("RewardsButton", "Rewards", 6)
+local practiceButton = createButton("PracticeButton", "\u{1F4DD}", "Practice", 2)
+local shopButton = createButton("ShopButton", "\u{1F6D2}", "Shop", 3)
+local statsButton = createButton("StatsButton", "\u{1F4CA}", "Stats", 4)
+local settingsButton = createButton("SettingsButton", "\u{2699}", "Settings", 5)
+local dailyRewardsButton = createButton("RewardsButton", "\u{1F3C6}", "Rewards", 6)
 
--- ===== Generic modal (reused by Shop/Settings/Daily Rewards/Stats) =====
+-- ===== Generic modal (reused by Settings/Stats) =====
+-- Message 26: upgraded to the premium panel style (gradient + glowing
+-- border), larger, with a proper title bar/divider instead of a plain
+-- flat rectangle.
 
 local modalOverlay = Instance.new("Frame")
 modalOverlay.Name = "ModalOverlay"
 modalOverlay.Size = UDim2.fromScale(1, 1)
 modalOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
-modalOverlay.BackgroundTransparency = 0.5
+modalOverlay.BackgroundTransparency = 0.45
 modalOverlay.Visible = false
 modalOverlay.ZIndex = 10
 modalOverlay.Parent = mainUI
 
 local modalPanel = Instance.new("Frame")
 modalPanel.Name = "ModalPanel"
-modalPanel.Size = UDim2.fromOffset(440, 340)
-modalPanel.Position = UDim2.new(0.5, -220, 0.5, -170)
+modalPanel.Size = UDim2.fromOffset(480, 380)
+modalPanel.Position = UDim2.new(0.5, -240, 0.5, -190)
 modalPanel.ZIndex = 11
-UITheme.StylePanel(modalPanel, 0.05)
+UITheme.StylePremiumPanel(modalPanel, 0.05)
 modalPanel.Parent = modalOverlay
 
 local modalTitle = Instance.new("TextLabel")
 modalTitle.Name = "ModalTitle"
-modalTitle.Size = UDim2.new(1, -20, 0, 40)
-modalTitle.Position = UDim2.fromOffset(10, 10)
+modalTitle.Size = UDim2.new(1, -28, 0, 44)
+modalTitle.Position = UDim2.fromOffset(14, 14)
 modalTitle.BackgroundTransparency = 1
 modalTitle.Font = Enum.Font.GothamBlack
 modalTitle.TextScaled = true
@@ -110,10 +114,20 @@ modalTitle.TextColor3 = UITheme.COLORS.Accent
 modalTitle.ZIndex = 12
 modalTitle.Parent = modalPanel
 
+local modalDivider = Instance.new("Frame")
+modalDivider.Name = "Divider"
+modalDivider.Size = UDim2.new(1, -28, 0, 2)
+modalDivider.Position = UDim2.fromOffset(14, 60)
+modalDivider.BackgroundColor3 = UITheme.COLORS.Accent
+modalDivider.BackgroundTransparency = 0.7
+modalDivider.BorderSizePixel = 0
+modalDivider.ZIndex = 12
+modalDivider.Parent = modalPanel
+
 local modalBody = Instance.new("TextLabel")
 modalBody.Name = "ModalBody"
-modalBody.Size = UDim2.new(1, -20, 1, -100)
-modalBody.Position = UDim2.fromOffset(10, 56)
+modalBody.Size = UDim2.new(1, -28, 1, -130)
+modalBody.Position = UDim2.fromOffset(14, 76)
 modalBody.BackgroundTransparency = 1
 modalBody.Font = Enum.Font.Gotham
 modalBody.TextSize = 18
@@ -126,8 +140,8 @@ modalBody.Parent = modalPanel
 
 local closeButton = Instance.new("TextButton")
 closeButton.Name = "CloseButton"
-closeButton.Size = UDim2.fromOffset(100, 36)
-closeButton.Position = UDim2.new(1, -110, 1, -46)
+closeButton.Size = UDim2.fromOffset(110, 40)
+closeButton.Position = UDim2.new(1, -124, 1, -54)
 closeButton.Font = Enum.Font.GothamBold
 closeButton.TextScaled = true
 closeButton.Text = "Close"

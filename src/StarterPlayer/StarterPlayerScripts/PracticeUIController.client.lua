@@ -1,21 +1,29 @@
 --[[
 	PracticeUIController.client.lua
 
-	Solo-wait countdown + Practice Mode UI/camera. Purely presentational -
-	the server (PracticeSystem) decides everything (when practice starts,
-	question correctness, timing); this script only displays what it's
-	told and forwards the local player's answer/leave request.
+	Practice Mode entry point + camera - the Practice button/confirm-modal
+	flow in the lobby, and the camera focus onto the practicer's platform.
+	Purely presentational - the server (PracticeSystem) decides everything
+	(question correctness, timing); this script only forwards the local
+	player's practice-entry/leave requests and moves the camera.
 
-	Reuses the existing Match/Competition visual language (UITheme) rather
-	than inventing a new style, and the existing competition camera-focus
-	pattern (see CompetitionUIController) for "smoothly move the camera to
-	the active platform".
+	Practice Mode is manual-only: it starts ONLY when the player presses
+	the Practice button - there is no automatic countdown/entry of any
+	kind, and no "Practice Mode starts in..." banner.
+
+	The actual question/timer/answer-input/exit UI all live on the arena's
+	giant central screen now (ArenaScreenController.client.lua), the exact
+	same surface competitive matches use - this script previously ALSO
+	built its own separate popup with the question/timer/answer box/exit
+	button, which meant a practicing player saw two competing places to
+	read the question and type an answer at once. That popup has been
+	removed entirely, not just hidden, so there's exactly one gameplay
+	surface during Practice Mode too.
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
@@ -26,12 +34,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local mainUI = playerGui:WaitForChild("MainUI")
 local camera = Workspace.CurrentCamera
 
-local soloWaitUpdateEvent = RemoteEvents.Get("SoloWaitUpdate")
 local practiceStateChangedEvent = RemoteEvents.Get("PracticeStateChanged")
-local practiceQuestionStartedEvent = RemoteEvents.Get("PracticeQuestionStarted")
-local practiceQuestionResolvedEvent = RemoteEvents.Get("PracticeQuestionResolved")
-local leavePracticeModeEvent = RemoteEvents.Get("LeavePracticeMode")
-local practiceSubmitAnswerEvent = RemoteEvents.Get("PracticeSubmitAnswer")
 local requestManualPracticeEvent = RemoteEvents.Get("RequestManualPractice")
 local queueUpdatedEvent = RemoteEvents.Get("QueueUpdated")
 
@@ -39,239 +42,12 @@ local lobbyButtonBar = mainUI:WaitForChild("LobbyButtonBar")
 local practiceButton = lobbyButtonBar:WaitForChild("PracticeButton") :: TextButton
 
 -- Tracked purely so clicking Practice while queued can show a confirm
--- step instead of silently pulling the player out (section 9) - updated
--- from the same QueueUpdated broadcast MatchSystem already sends.
+-- step instead of silently pulling the player out - updated from the
+-- same QueueUpdated broadcast MatchSystem already sends.
 local amIQueued = false
 queueUpdatedEvent.OnClientEvent:Connect(function(payload)
 	amIQueued = payload and payload.waitingNames and table.find(payload.waitingNames, player.Name) ~= nil
 end)
-
--- ===== Solo-wait banner =====
-
-local soloWaitFrame = Instance.new("Frame")
-soloWaitFrame.Name = "SoloWaitBanner"
-soloWaitFrame.Size = UDim2.fromOffset(360, 110)
-soloWaitFrame.Position = UDim2.new(0.5, -180, 0, 24)
-soloWaitFrame.Visible = false
-UITheme.StylePanel(soloWaitFrame, 0.1)
-soloWaitFrame.Parent = mainUI
-
-local soloWaitTitle = Instance.new("TextLabel")
-soloWaitTitle.Name = "Title"
-soloWaitTitle.Size = UDim2.new(1, -16, 0, 26)
-soloWaitTitle.Position = UDim2.fromOffset(8, 8)
-soloWaitTitle.BackgroundTransparency = 1
-soloWaitTitle.Font = Enum.Font.GothamBold
-soloWaitTitle.TextScaled = true
-soloWaitTitle.TextColor3 = UITheme.COLORS.Accent
-soloWaitTitle.Text = "WAITING FOR PLAYERS"
-soloWaitTitle.Parent = soloWaitFrame
-
-local soloWaitCount = Instance.new("TextLabel")
-soloWaitCount.Name = "Count"
-soloWaitCount.Size = UDim2.new(1, -16, 0, 22)
-soloWaitCount.Position = UDim2.fromOffset(8, 36)
-soloWaitCount.BackgroundTransparency = 1
-soloWaitCount.Font = Enum.Font.Gotham
-soloWaitCount.TextScaled = true
-soloWaitCount.TextColor3 = UITheme.COLORS.SubText
-soloWaitCount.Text = "1 / 2 PLAYERS"
-soloWaitCount.Parent = soloWaitFrame
-
-local soloWaitCountdown = Instance.new("TextLabel")
-soloWaitCountdown.Name = "Countdown"
-soloWaitCountdown.Size = UDim2.new(1, -16, 0, 34)
-soloWaitCountdown.Position = UDim2.fromOffset(8, 64)
-soloWaitCountdown.BackgroundTransparency = 1
-soloWaitCountdown.Font = Enum.Font.GothamBlack
-soloWaitCountdown.TextScaled = true
-soloWaitCountdown.TextColor3 = UITheme.COLORS.Gold
-soloWaitCountdown.Text = ""
-soloWaitCountdown.Parent = soloWaitFrame
-
-soloWaitUpdateEvent.OnClientEvent:Connect(function(secondsRemaining: number?)
-	if secondsRemaining == nil then
-		soloWaitFrame.Visible = false
-		return
-	end
-	soloWaitFrame.Visible = true
-	soloWaitCountdown.Text = ("Practice Mode starts in: %d"):format(secondsRemaining)
-end)
-
--- ===== Practice HUD =====
-
-local practiceFrame = Instance.new("Frame")
-practiceFrame.Name = "PracticeHUD"
-practiceFrame.Size = UDim2.fromOffset(420, 260)
-practiceFrame.Position = UDim2.new(0.5, -210, 0, 16)
-practiceFrame.Visible = false
-UITheme.StylePanel(practiceFrame, 0.1)
-practiceFrame.Parent = mainUI
-
-local practiceTitle = Instance.new("TextLabel")
-practiceTitle.Name = "Title"
-practiceTitle.Size = UDim2.new(1, -16, 0, 28)
-practiceTitle.Position = UDim2.fromOffset(8, 8)
-practiceTitle.BackgroundTransparency = 1
-practiceTitle.Font = Enum.Font.GothamBlack
-practiceTitle.TextScaled = true
-practiceTitle.TextColor3 = UITheme.COLORS.Accent
-practiceTitle.Text = "PRACTICE MODE"
-practiceTitle.Parent = practiceFrame
-
-local questionNumberLabel = Instance.new("TextLabel")
-questionNumberLabel.Name = "QuestionNumber"
-questionNumberLabel.Size = UDim2.new(1, -16, 0, 20)
-questionNumberLabel.Position = UDim2.fromOffset(8, 38)
-questionNumberLabel.BackgroundTransparency = 1
-questionNumberLabel.Font = Enum.Font.Gotham
-questionNumberLabel.TextScaled = true
-questionNumberLabel.TextColor3 = UITheme.COLORS.SubText
-questionNumberLabel.Text = ""
-questionNumberLabel.Parent = practiceFrame
-
-local questionTextLabel = Instance.new("TextLabel")
-questionTextLabel.Name = "QuestionText"
-questionTextLabel.Size = UDim2.new(1, -16, 0, 50)
-questionTextLabel.Position = UDim2.fromOffset(8, 60)
-questionTextLabel.BackgroundTransparency = 1
-questionTextLabel.Font = Enum.Font.GothamBlack
-questionTextLabel.TextScaled = true
-questionTextLabel.TextColor3 = UITheme.COLORS.Text
-questionTextLabel.Text = ""
-questionTextLabel.Parent = practiceFrame
-
-local timerLabel = Instance.new("TextLabel")
-timerLabel.Name = "Timer"
-timerLabel.Size = UDim2.new(1, -16, 0, 30)
-timerLabel.Position = UDim2.fromOffset(8, 112)
-timerLabel.BackgroundTransparency = 1
-timerLabel.Font = Enum.Font.GothamBold
-timerLabel.TextScaled = true
-timerLabel.TextColor3 = UITheme.COLORS.Gold
-timerLabel.Text = ""
-timerLabel.Parent = practiceFrame
-
-local statsLabel = Instance.new("TextLabel")
-statsLabel.Name = "Stats"
-statsLabel.Size = UDim2.new(1, -16, 0, 44)
-statsLabel.Position = UDim2.fromOffset(8, 146)
-statsLabel.BackgroundTransparency = 1
-statsLabel.Font = Enum.Font.Gotham
-statsLabel.TextSize = 15
-statsLabel.TextXAlignment = Enum.TextXAlignment.Left
-statsLabel.TextWrapped = true
-statsLabel.TextColor3 = UITheme.COLORS.SubText
-statsLabel.Text = ""
-statsLabel.Parent = practiceFrame
-
-local practiceAnswerBox = Instance.new("TextBox")
-practiceAnswerBox.Name = "AnswerBox"
-practiceAnswerBox.Size = UDim2.fromOffset(160, 36)
-practiceAnswerBox.Position = UDim2.fromOffset(8, 196)
-practiceAnswerBox.Font = Enum.Font.Gotham
-practiceAnswerBox.TextScaled = true
-practiceAnswerBox.PlaceholderText = "Your answer"
-practiceAnswerBox.TextColor3 = Color3.fromRGB(20, 20, 25)
-practiceAnswerBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-practiceAnswerBox.ClearTextOnFocus = false
-UITheme.ApplyCorner(practiceAnswerBox)
-practiceAnswerBox.Parent = practiceFrame
-
-local practiceSubmitButton = Instance.new("TextButton")
-practiceSubmitButton.Name = "SubmitButton"
-practiceSubmitButton.Size = UDim2.fromOffset(110, 36)
-practiceSubmitButton.Position = UDim2.fromOffset(176, 196)
-practiceSubmitButton.Font = Enum.Font.GothamBold
-practiceSubmitButton.TextScaled = true
-practiceSubmitButton.Text = "Submit"
-practiceSubmitButton.TextColor3 = UITheme.COLORS.Text
-practiceSubmitButton.BackgroundColor3 = UITheme.COLORS.Accent
-UITheme.ApplyCorner(practiceSubmitButton)
-UITheme.ApplyButtonHoverEffect(practiceSubmitButton)
-practiceSubmitButton.Parent = practiceFrame
-
-local leavePracticeButton = Instance.new("TextButton")
-leavePracticeButton.Name = "LeavePracticeButton"
-leavePracticeButton.Size = UDim2.fromOffset(180, 36)
-leavePracticeButton.Position = UDim2.fromOffset(8, 216)
-leavePracticeButton.Font = Enum.Font.GothamBold
-leavePracticeButton.TextScaled = true
-leavePracticeButton.Text = "LEAVE PRACTICE"
-leavePracticeButton.TextColor3 = UITheme.COLORS.Text
-leavePracticeButton.BackgroundColor3 = UITheme.COLORS.Error
-leavePracticeButton.ZIndex = 2
-UITheme.ApplyCorner(leavePracticeButton)
-UITheme.ApplyButtonHoverEffect(leavePracticeButton)
-leavePracticeButton.Parent = practiceFrame
-
--- Position the answer row above the Leave button once both exist.
-leavePracticeButton.Position = UDim2.fromOffset(8, 216)
-practiceAnswerBox.Position = UDim2.fromOffset(8, 176)
-practiceSubmitButton.Position = UDim2.fromOffset(176, 176)
-leavePracticeButton.Size = UDim2.fromOffset(160, 32)
-
-local function submitPracticeAnswer()
-	if practiceAnswerBox.Text == "" then
-		return
-	end
-	practiceSubmitAnswerEvent:FireServer(practiceAnswerBox.Text)
-	practiceAnswerBox.Text = ""
-end
-
-practiceSubmitButton.MouseButton1Click:Connect(submitPracticeAnswer)
-practiceAnswerBox.FocusLost:Connect(function(enterPressed)
-	if enterPressed then
-		submitPracticeAnswer()
-	end
-end)
-
-leavePracticeButton.MouseButton1Click:Connect(function()
-	leavePracticeModeEvent:FireServer()
-end)
-
-local function formatStats(stats): string
-	if not stats then
-		return ""
-	end
-	return ("Correct: %d   Incorrect: %d   Accuracy: %d%%   Streak: %d"):format(
-		stats.correctAnswers,
-		stats.incorrectAnswers,
-		math.floor(stats.accuracy + 0.5),
-		stats.currentStreak
-	)
-end
-
--- ===== Local countdown (visual only; server enforces the real timeout) =====
-
-local countdownConnection: RBXScriptConnection? = nil
-local countdownDeadlineClock: number? = nil
-
-local function stopCountdown()
-	if countdownConnection then
-		countdownConnection:Disconnect()
-		countdownConnection = nil
-	end
-	countdownDeadlineClock = nil
-end
-
-local function startCountdown(seconds: number)
-	stopCountdown()
-	countdownDeadlineClock = os.clock() + seconds
-
-	countdownConnection = RunService.RenderStepped:Connect(function()
-		if not countdownDeadlineClock then
-			return
-		end
-		local remaining = math.max(0, countdownDeadlineClock - os.clock())
-		timerLabel.Text = ("TIME: %.1f"):format(remaining)
-		-- Visually urgent in the final 3 seconds.
-		timerLabel.TextColor3 = if remaining <= 3 then UITheme.COLORS.Error else UITheme.COLORS.Gold
-		if remaining <= 0 then
-			stopCountdown()
-		end
-	end)
-end
 
 -- ===== Camera (reuses the same focus-on-platform approach as competitive) =====
 
@@ -420,46 +196,11 @@ end)
 
 practiceStateChangedEvent.OnClientEvent:Connect(function(data)
 	if not data or not data.active then
-		practiceFrame.Visible = false
-		stopCountdown()
 		releaseCameraControl()
 		setLobbyMenuVisible(true)
 		return
 	end
 
 	setLobbyMenuVisible(false)
-	practiceFrame.Visible = true
-	UITheme.PlayOpenTween(practiceFrame)
-	statsLabel.Text = ""
 	focusCameraOnPlatform(data.platformIndex)
-end)
-
-practiceQuestionStartedEvent.OnClientEvent:Connect(function(payload)
-	if not payload then
-		return
-	end
-	questionNumberLabel.Text = "Question " .. tostring(payload.questionNumber)
-	questionTextLabel.Text = payload.questionText
-	practiceAnswerBox.Text = ""
-	startCountdown(payload.timerSeconds)
-end)
-
-practiceQuestionResolvedEvent.OnClientEvent:Connect(function(payload)
-	if not payload then
-		return
-	end
-	stopCountdown()
-
-	if payload.correct then
-		timerLabel.TextColor3 = UITheme.GetSuccessColor()
-		timerLabel.Text = "Correct!"
-	elseif payload.timedOut then
-		timerLabel.TextColor3 = UITheme.COLORS.Gold
-		timerLabel.Text = ("Time's up! Answer: %s"):format(tostring(payload.correctAnswer))
-	else
-		timerLabel.TextColor3 = UITheme.GetErrorColor()
-		timerLabel.Text = ("Wrong! Answer: %s"):format(tostring(payload.correctAnswer))
-	end
-
-	statsLabel.Text = formatStats(payload.stats)
 end)

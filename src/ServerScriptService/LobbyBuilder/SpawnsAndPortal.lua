@@ -25,12 +25,17 @@ function SpawnsAndPortal.BuildSpawns(parent: Instance): Folder
 	folder.Name = "Spawns"
 	folder.Parent = parent
 
-	for i, position in ipairs(LobbyConfig.SPAWN_POSITIONS) do
+	-- Message 23: each spawn is individually rotated to face the
+	-- leaderboard arc (LobbyConfig.SPAWN_POSITIONS carries a per-spawn
+	-- facingYawDegrees now, not just a bare position) - see that field's
+	-- comment in LobbyConfig.lua for why a single shared rotation isn't
+	-- enough (the four spawns are at different angles from the arc).
+	for i, spawn in ipairs(LobbyConfig.SPAWN_POSITIONS) do
 		PartUtils.CreatePart({
 			className = "SpawnLocation",
 			name = "Spawn" .. i,
 			size = Vector3.new(LobbyConfig.SPAWN_SIZE.X, 1, LobbyConfig.SPAWN_SIZE.Y),
-			position = position,
+			cframe = CFrame.new(spawn.position) * CFrame.Angles(0, math.rad(spawn.facingYawDegrees), 0),
 			material = Enum.Material.Concrete,
 			color = LobbyConfig.FLOOR_COLOR,
 			parent = folder,

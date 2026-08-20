@@ -68,7 +68,7 @@ shopPanel.Name = "ShopPanel"
 shopPanel.Size = UDim2.fromOffset(720, 480)
 shopPanel.Position = UDim2.new(0.5, -360, 0.5, -240)
 shopPanel.ZIndex = 21
-UITheme.StylePanel(shopPanel, 0.05)
+UITheme.StylePremiumPanel(shopPanel, 0.05)
 shopPanel.Parent = shopOverlay
 
 -- Title bar
@@ -166,7 +166,7 @@ local detailsPanel = Instance.new("Frame")
 detailsPanel.Name = "DetailsPanel"
 detailsPanel.Size = UDim2.fromOffset(220, 360)
 detailsPanel.Position = UDim2.fromOffset(472, 96)
-UITheme.StylePanel(detailsPanel, 0.15)
+UITheme.StylePremiumPanel(detailsPanel, 0.1)
 detailsPanel.ZIndex = 22
 detailsPanel.Parent = shopPanel
 

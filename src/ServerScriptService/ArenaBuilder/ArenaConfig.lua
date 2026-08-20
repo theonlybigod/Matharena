@@ -55,9 +55,12 @@ ArenaConfig.PLATFORM_ALIVE_COLOR = Color3.fromRGB(50, 55, 65) -- Base color whil
 ArenaConfig.CENTER_STAGE_DIAMETER = 26
 ArenaConfig.CENTER_STAGE_HEIGHT = 1.5
 
--- Message 21: "huge game-show-style question display" - up from 40x20.
-ArenaConfig.QUESTION_SCREEN_SIZE = Vector2.new(64, 32) -- width x height
-ArenaConfig.QUESTION_SCREEN_HEIGHT_ABOVE_STAGE = 19 -- studs above the stage surface
+-- Message 22, section 5: "much bigger" again - up from 64x32 (verified
+-- via Python that 80 studs wide still leaves a comfortable ~30-stud gap
+-- to the nearest contestant platform, given PLATFORM_SPACING/
+-- PLATFORM_COUNT below put the platform ring at radius ~69.5).
+ArenaConfig.QUESTION_SCREEN_SIZE = Vector2.new(80, 40) -- width x height
+ArenaConfig.QUESTION_SCREEN_HEIGHT_ABOVE_STAGE = 21 -- studs above the stage surface
 
 ArenaConfig.WINNER_AREA_DIAMETER = 10
 

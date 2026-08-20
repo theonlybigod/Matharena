@@ -33,12 +33,16 @@ SignConfig.SIGN_NAME = "MatharenaSign"
 -- so no lobby structure can obscure the sign from anywhere in the plaza.
 SignConfig.POSITION = Vector3.new(0, 85, 0)
 
--- Invisible frame the text/light/particles attach to, in studs. Sized
--- larger and with a less-wide aspect ratio than the original (was
--- 56x16, a 3.5:1 wide-and-flat box) specifically so TextScaled has more
--- vertical room to work with - the same word reads noticeably taller
--- without getting any wider or distorted.
-SignConfig.PANEL_SIZE = Vector3.new(68, 28, 2)
+-- Invisible frame the text/light/particles attach to, in studs. Message
+-- 23: grown further (68x28 -> 100x42, roughly 1.5x) per explicit "make
+-- the text bigger significantly" direction - since TitleLabel below uses
+-- TextScaled (always fills the panel), growing the panel IS how the
+-- lettering itself gets bigger. Verified the sign's bottom edge (POSITION.Y
+-- - PANEL_SIZE.Y/2 = 64, or 68 once the +4 ground-elevation bulk
+-- translation is applied) still clears the tallest building (Shop, ~32
+-- studs including roofline trim and the ground raise) with a comfortable
+-- margin.
+SignConfig.PANEL_SIZE = Vector3.new(100, 42, 2)
 
 SignConfig.TEXT = "MATHARENA"
 SignConfig.TEXT_COLOR = Color3.fromRGB(255, 255, 255)
@@ -53,6 +57,31 @@ SignConfig.TEXT_SHIMMER_COLORS = {
 	Color3.fromRGB(210, 235, 255),
 }
 
+-- Small subtitle beneath the main word, in a lighter/smaller weight -
+-- "significantly more impressive/polished" without adding visual clutter
+-- to the main title or making it harder to recognize at a glance.
+SignConfig.SUBTITLE_TEXT = "COMPETITIVE MATH ARENA"
+SignConfig.SUBTITLE_HEIGHT_FRACTION = 0.16 -- fraction of PANEL_SIZE.Y reserved for the subtitle strip
+
+-- Holographic ring (a flattened, mostly-transparent Cylinder disc)
+-- floating just behind the text, slowly rotating (client-side, see
+-- MatharenaSignController.client.lua) - the single biggest "10x cooler"
+-- lever for cheap: one extra part, no per-frame server cost, reads
+-- immediately as "futuristic hologram" rather than "floating word".
+SignConfig.RING_DIAMETER = 56
+SignConfig.RING_THICKNESS = 0.6
+SignConfig.RING_ROTATION_PERIOD_SECONDS = 14
+
+-- Upward energy beams connecting the sign down toward the ground/portal
+-- area below it - reinforces "this is a deliberate floating installation",
+-- not just text that happens to hover. Kept at a radius clear of the
+-- queue portal's own footprint (QueuePortal is a 12x12 structure at the
+-- same X/Z origin) so the beams read as surrounding it, not clipping
+-- through its pillars.
+SignConfig.BEAM_COUNT = 4
+SignConfig.BEAM_RADIUS = 15
+SignConfig.BEAM_THICKNESS = 0.5
+
 -- The glow lives in the text's own outline plus a soft light/particle
 -- accent - not in a background panel, so there's no border/frame reading
 -- as a "box" around the word. Uses the palette's CENTRAL_FEATURE shade -
@@ -60,9 +89,15 @@ SignConfig.TEXT_SHIMMER_COLORS = {
 -- meant to read as the map's focal point, per the calmer-lighting pass.
 SignConfig.GLOW_COLOR = LightingConfig.CENTRAL_FEATURE
 SignConfig.TEXT_STROKE_TRANSPARENCY = 0.15 -- stronger than a plain outline - this IS the sign's glow
-SignConfig.GLOW_BRIGHTNESS = 3 -- calmer-lighting pass: was 4 - still the brightest single light in the lobby (it's the map's focal landmark), but pulled back from an excessive hotspot
-SignConfig.GLOW_RANGE = 60
-SignConfig.PARTICLE_RATE = 4 -- restrained; a soft accent, not a distraction from the text
+-- "10x cooler" pass: brightness/range/particle rate all nudged up from
+-- the calmer-lighting pass's values, since the sign is now a genuinely
+-- bigger, more elaborate installation (ring + beams + subtitle) that can
+-- carry a slightly stronger glow without looking like a hotspot - still
+-- restrained relative to a full-brightness neon sign, and still just one
+-- PointLight + one ParticleEmitter, so the performance cost is unchanged.
+SignConfig.GLOW_BRIGHTNESS = 4
+SignConfig.GLOW_RANGE = 70
+SignConfig.PARTICLE_RATE = 6
 
 -- Floating/bobbing motion. Purely visual, so it's driven client-side (see
 -- MatharenaSignController.client.lua) rather than tweening the real

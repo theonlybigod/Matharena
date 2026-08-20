@@ -76,10 +76,17 @@ SeatingConfig.SEAT_TYPES = {
 	-- "Classic Bench", refined: two thin leg supports, a modest backrest,
 	-- no armrests, a thin neon underglow strip along the base. The
 	-- general-purpose walkway seat.
+	-- Message 26 ("make all the benches/seats/stools way bigger"): every
+	-- seat type below is roughly 1.6-1.8x its previous dimensions - a real,
+	-- noticeable jump, not a token bump. Seating.lua's builder functions
+	-- already derive every other measurement (leg height, backrest
+	-- proportions, trim placement) from seatSize/backrestHeight, so scaling
+	-- these numbers up scales the whole seat consistently without needing
+	-- to touch the builder functions themselves.
 	SeatTypeA = {
 		id = "SeatTypeA",
-		seatSize = Vector3.new(4.5, 0.4, 1.6),
-		backrestHeight = 1.5,
+		seatSize = Vector3.new(7.5, 0.6, 2.7),
+		backrestHeight = 2.5,
 		hasArmrests = false,
 		supportStyle = "Legs",
 		seatMaterial = Enum.Material.SmoothPlastic,
@@ -90,8 +97,8 @@ SeatingConfig.SEAT_TYPES = {
 	-- pedestal block support, a warmer material - the social-lounge seat.
 	SeatTypeB = {
 		id = "SeatTypeB",
-		seatSize = Vector3.new(2.6, 0.4, 2.2),
-		backrestHeight = 1.9,
+		seatSize = Vector3.new(4.3, 0.6, 3.6),
+		backrestHeight = 3.1,
 		hasArmrests = true,
 		supportStyle = "PedestalBlock",
 		seatMaterial = Enum.Material.SmoothPlastic,
@@ -103,8 +110,8 @@ SeatingConfig.SEAT_TYPES = {
 	-- building-entrance / points-of-interest seat.
 	SeatTypeC = {
 		id = "SeatTypeC",
-		seatSize = Vector3.new(3.4, 0.4, 1.8),
-		backrestHeight = 3,
+		seatSize = Vector3.new(5.6, 0.6, 3.0),
+		backrestHeight = 4.8,
 		hasArmrests = false,
 		supportStyle = "Block",
 		seatMaterial = Enum.Material.Metal,
@@ -116,7 +123,7 @@ SeatingConfig.SEAT_TYPES = {
 	-- sign directly overhead.
 	SeatTypeD = {
 		id = "SeatTypeD",
-		seatSize = Vector3.new(1.8, 0.35, 1.8), -- diameter x thickness x diameter (round seat)
+		seatSize = Vector3.new(3.0, 0.55, 3.0), -- diameter x thickness x diameter (round seat)
 		backrestHeight = nil,
 		hasArmrests = false,
 		supportStyle = "PedestalPost",

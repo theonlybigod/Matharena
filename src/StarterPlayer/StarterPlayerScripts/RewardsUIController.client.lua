@@ -61,7 +61,7 @@ rewardsPanel.Name = "RewardsPanel"
 rewardsPanel.Size = UDim2.fromOffset(520, 520)
 rewardsPanel.Position = UDim2.new(0.5, -260, 0.5, -260)
 rewardsPanel.ZIndex = 21
-UITheme.StylePanel(rewardsPanel, 0.05)
+UITheme.StylePremiumPanel(rewardsPanel, 0.05)
 rewardsPanel.Parent = rewardsOverlay
 
 local titleLabel = Instance.new("TextLabel")
@@ -162,7 +162,7 @@ toastFrame.Name = "RewardToast"
 toastFrame.Size = UDim2.fromOffset(320, 110)
 toastFrame.Position = UDim2.new(0.5, -160, 0, -130)
 toastFrame.ZIndex = 30
-UITheme.StylePanel(toastFrame, 0.05)
+UITheme.StylePremiumPanel(toastFrame, 0.05)
 toastFrame.Parent = mainUI
 
 local toastTitle = Instance.new("TextLabel")

@@ -221,8 +221,8 @@ function Decorations.BuildAll(parent: Instance): Folder
 	-- Keep everything's placement clear of spawns, building
 	-- entrances/footprints, and the queue portal.
 	local avoidPoints = { LobbyConfig.QUEUE_PORTAL_POSITION }
-	for _, spawnPosition in ipairs(LobbyConfig.SPAWN_POSITIONS) do
-		table.insert(avoidPoints, spawnPosition)
+	for _, spawn in ipairs(LobbyConfig.SPAWN_POSITIONS) do
+		table.insert(avoidPoints, spawn.position)
 	end
 	for _, def in ipairs(LobbyConfig.BUILDINGS) do
 		table.insert(avoidPoints, def.position)

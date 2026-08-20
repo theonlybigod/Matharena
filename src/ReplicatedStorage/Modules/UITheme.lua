@@ -33,6 +33,24 @@ UITheme.COLORS = {
 
 UITheme.CORNER_RADIUS = UDim.new(0, 12)
 
+-- Message 26 UI overhaul ("make the whole interface 100x better"):
+-- richer panel/button styling layered on top of the original flat
+-- StylePanel/ApplyCorner helpers below (kept intact - lots of existing
+-- controllers still call them directly for minor UI bits), so every
+-- controller that adopts the new helpers gets a real visual upgrade
+-- (gradient depth, a glowing accent border, icon glyphs) without
+-- needing every single caller rewritten at once.
+UITheme.PANEL_CORNER_RADIUS = UDim.new(0, 18) -- softer/larger than the original 12px, reads as more premium
+
+-- A restrained top-to-bottom gradient (not a flat fill) - the single
+-- cheapest lever for "looks 100x better" on every panel: real depth
+-- instead of a flat color block, at zero extra draw cost (one
+-- UIGradient per panel).
+UITheme.PANEL_GRADIENT_COLORS = {
+	Color3.fromRGB(30, 30, 40),
+	Color3.fromRGB(16, 16, 22),
+}
+
 -- Colorblind mode (Message 12): when enabled, Success/Error resolve to a
 -- blue/orange pair instead of green/red. Blue-orange remains
 -- distinguishable across protanopia, deuteranopia, and tritanopia, unlike
@@ -80,6 +98,35 @@ function UITheme.StylePanel(panel: GuiObject, transparency: number?)
 end
 
 --[[
+	Message 26: the upgraded panel style - a gradient fill (real depth,
+	not flat color), a soft glowing accent border, and the larger rounded
+	corners above. Used for anything meant to feel like a genuine "premium
+	panel" (the bottom button bar's buttons, and every panel a button
+	opens) rather than StylePanel's original plain flat rectangle, which
+	remains available for smaller/minor UI bits that don't need the full
+	treatment.
+]]
+function UITheme.StylePremiumPanel(panel: GuiObject, transparency: number?)
+	panel.BackgroundColor3 = UITheme.PANEL_GRADIENT_COLORS[1]
+	panel.BackgroundTransparency = transparency or 0.05
+	panel.BorderSizePixel = 0
+	UITheme.ApplyCorner(panel, UITheme.PANEL_CORNER_RADIUS)
+
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new(UITheme.PANEL_GRADIENT_COLORS[1], UITheme.PANEL_GRADIENT_COLORS[2])
+	gradient.Rotation = 90
+	gradient.Parent = panel
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = UITheme.COLORS.Accent
+	stroke.Thickness = 1.5
+	stroke.Transparency = 0.55
+	stroke.Parent = panel
+
+	return panel
+end
+
+--[[
 	Attaches a simple hover/press scale animation to a GuiButton. Purely
 	presentational - has no effect on the button's actual click behavior.
 ]]
@@ -103,6 +150,64 @@ function UITheme.ApplyButtonHoverEffect(button: GuiButton)
 			Size = originalSize - UDim2.fromOffset(4, 4),
 		}):Play()
 	end)
+end
+
+--[[
+	Message 26: builds a "premium" nav button - an icon glyph stacked above
+	a text label, a glowing accent underline that brightens on hover, and
+	the existing hover/press scale animation - instead of a single flat
+	TextButton with plain centered text. Used by the bottom button bar so
+	each button reads as a deliberate icon-driven nav item.
+]]
+function UITheme.CreateNavButton(name: string, iconText: string, labelText: string): TextButton
+	local button = Instance.new("TextButton")
+	button.Name = name
+	button.Text = ""
+	UITheme.StylePremiumPanel(button, 0.05)
+	UITheme.ApplyButtonHoverEffect(button)
+
+	local icon = Instance.new("TextLabel")
+	icon.Name = "Icon"
+	icon.Size = UDim2.new(1, 0, 0.55, 0)
+	icon.Position = UDim2.fromScale(0, 0.08)
+	icon.BackgroundTransparency = 1
+	icon.Font = Enum.Font.GothamBold
+	icon.TextScaled = true
+	icon.Text = iconText
+	icon.TextColor3 = UITheme.COLORS.Text
+	icon.Parent = button
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.Size = UDim2.new(1, 0, 0.3, 0)
+	label.Position = UDim2.fromScale(0, 0.66)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = true
+	label.Text = labelText
+	label.TextColor3 = UITheme.COLORS.SubText
+	label.Parent = button
+
+	local underline = Instance.new("Frame")
+	underline.Name = "Underline"
+	underline.Size = UDim2.new(0.5, 0, 0, 3)
+	underline.Position = UDim2.new(0.25, 0, 0.97, 0)
+	underline.BackgroundColor3 = UITheme.COLORS.Accent
+	underline.BackgroundTransparency = 0.5
+	underline.BorderSizePixel = 0
+	underline.Parent = button
+	UITheme.ApplyCorner(underline, UDim.new(1, 0))
+
+	button.MouseEnter:Connect(function()
+		TweenService:Create(underline, TweenInfo.new(0.15), { BackgroundTransparency = 0 }):Play()
+		TweenService:Create(label, TweenInfo.new(0.15), { TextColor3 = UITheme.COLORS.Text }):Play()
+	end)
+	button.MouseLeave:Connect(function()
+		TweenService:Create(underline, TweenInfo.new(0.15), { BackgroundTransparency = 0.5 }):Play()
+		TweenService:Create(label, TweenInfo.new(0.15), { TextColor3 = UITheme.COLORS.SubText }):Play()
+	end)
+
+	return button
 end
 
 --[[

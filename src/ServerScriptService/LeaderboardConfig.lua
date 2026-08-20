@@ -60,30 +60,38 @@ LeaderboardConfig.TITLE_HEIGHT_PIXELS = 80
 -- boards genuinely curve around a shared viewing point in front of them.
 -- Both scaled by MapConfig's map-scale factor.
 --
--- Message 21: pushed close to the map boundary (~5-stud buffer, per
--- explicit direction - see LobbyConfig.lua's LEADERBOARD_ANCHOR comment
--- for the exact verified margins) and boards made noticeably bigger
--- (BOARD_WIDTH/HEIGHT below). VIEW_FOCAL_POINT is new: each board is now
--- oriented to aim DIRECTLY at this point (LeaderboardBoards.lua computes
--- the exact look-at angle per board) instead of the previous "-angle +
--- groupYaw" approximation, which is what caused the two end boards to be
--- angled noticeably off from the actual viewing area (measured ~32
--- degrees off-target) even though the math looked reasonable in
--- isolation - aiming every board at one explicit point is correct by
--- construction, for the end boards exactly as much as the center one.
-LeaderboardConfig.ARC_TOTAL_DEGREES = 100
-LeaderboardConfig.ARC_SPREAD_RADIUS = 34 * MapConfig.SCALE_FACTOR
+-- Message 22, sections 3-4 ("make bigger again" + "move the two end
+-- leaderboards outward... more separation from the middle displays"):
+-- ARC_SPREAD_RADIUS/ARC_TOTAL_DEGREES increased together specifically so
+-- the gap BETWEEN adjacent boards grows non-uniformly along the arc - a
+-- wider total spread pushes the two END boards further out proportionally
+-- more than it grows the inner gaps, which is exactly "the end displays
+-- should have more separation" rather than just scaling the whole arc
+-- uniformly. Verified via Python before applying: end-board gap ~17.9
+-- studs vs inner-board gap ~9.1 studs (roughly double), while every board
+-- corner still stays a comfortable ~32 studs inside the map boundary and
+-- ~12 studs clear of the nearest spawn point.
+--
+-- VIEW_FOCAL_POINT (each board aims directly at this point via an exact
+-- look-at in LeaderboardBoards.lua) is what actually keeps the wider-
+-- spread end boards readable rather than facing off at a useless angle -
+-- widening the arc's SHAPE doesn't require touching this at all, since
+-- every board's orientation is already computed independently of its
+-- position along the arc.
+LeaderboardConfig.ARC_TOTAL_DEGREES = 120
+LeaderboardConfig.ARC_SPREAD_RADIUS = 38 * MapConfig.SCALE_FACTOR
 LeaderboardConfig.ARC_DEPTH_FACTOR = 0.5
 LeaderboardConfig.ARC_DEPTH = LeaderboardConfig.ARC_SPREAD_RADIUS * LeaderboardConfig.ARC_DEPTH_FACTOR
 LeaderboardConfig.VIEW_FOCAL_POINT = Vector3.new(0, 0, 0) -- the map's true center/plaza - "the central viewing area"
 
--- Large standalone futuristic displays - "major landmarks", not small
--- information panels. Message 21: bumped again (17x19 -> 22x24) per
--- explicit "make the leaderboards bigger" direction; re-verified via
--- Python that this larger size still leaves 5+ studs of clearance
--- between every adjacent pair along the arc (see LEADERBOARD_ANCHOR).
-LeaderboardConfig.BOARD_WIDTH = 22
-LeaderboardConfig.BOARD_HEIGHT = 24
+-- Large standalone futuristic displays - "major landmarks". Message 22:
+-- bumped again (22x24 -> 28x30) per explicit "make the leaderboards
+-- bigger" direction; re-verified via Python that this larger size still
+-- keeps every board comfortably inside the map boundary and clear of
+-- every other adjacent board (see ARC_SPREAD_RADIUS's comment above for
+-- the exact verified margins).
+LeaderboardConfig.BOARD_WIDTH = 28
+LeaderboardConfig.BOARD_HEIGHT = 30
 
 -- Podium colors, shared by both the physical board (rank badge fill) and
 -- the client-side glow accent script.

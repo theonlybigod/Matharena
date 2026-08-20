@@ -28,28 +28,31 @@ local playerGui = player:WaitForChild("PlayerGui")
 local mainUI = playerGui:WaitForChild("MainUI")
 
 -- ===== Panel shell =====
+-- Message 26 ("make each opened panel 100x better"): premium panel style
+-- (gradient + glowing accent border), larger, with a title divider -
+-- same upgrade pattern applied to every panel this message touches.
 
 local overlay = Instance.new("Frame")
 overlay.Name = "SettingsOverlay"
 overlay.Size = UDim2.fromScale(1, 1)
 overlay.BackgroundColor3 = Color3.new(0, 0, 0)
-overlay.BackgroundTransparency = 0.5
+overlay.BackgroundTransparency = 0.45
 overlay.Visible = false
 overlay.ZIndex = 10
 overlay.Parent = mainUI
 
 local panel = Instance.new("Frame")
 panel.Name = "SettingsPanel"
-panel.Size = UDim2.fromOffset(460, 400)
-panel.Position = UDim2.new(0.5, -230, 0.5, -200)
+panel.Size = UDim2.fromOffset(500, 440)
+panel.Position = UDim2.new(0.5, -250, 0.5, -220)
 panel.ZIndex = 11
-UITheme.StylePanel(panel, 0.05)
+UITheme.StylePremiumPanel(panel, 0.05)
 panel.Parent = overlay
 
 local title = Instance.new("TextLabel")
 title.Name = "Title"
-title.Size = UDim2.new(1, -20, 0, 40)
-title.Position = UDim2.fromOffset(10, 10)
+title.Size = UDim2.new(1, -28, 0, 44)
+title.Position = UDim2.fromOffset(14, 14)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.GothamBlack
 title.TextScaled = true
@@ -59,10 +62,20 @@ title.Text = "Settings"
 title.ZIndex = 12
 title.Parent = panel
 
+local titleDivider = Instance.new("Frame")
+titleDivider.Name = "Divider"
+titleDivider.Size = UDim2.new(1, -28, 0, 2)
+titleDivider.Position = UDim2.fromOffset(14, 60)
+titleDivider.BackgroundColor3 = UITheme.COLORS.Accent
+titleDivider.BackgroundTransparency = 0.7
+titleDivider.BorderSizePixel = 0
+titleDivider.ZIndex = 12
+titleDivider.Parent = panel
+
 local closeButton = Instance.new("TextButton")
 closeButton.Name = "CloseButton"
-closeButton.Size = UDim2.fromOffset(100, 36)
-closeButton.Position = UDim2.new(1, -110, 1, -46)
+closeButton.Size = UDim2.fromOffset(110, 40)
+closeButton.Position = UDim2.new(1, -124, 1, -54)
 closeButton.Font = Enum.Font.GothamBold
 closeButton.TextScaled = true
 closeButton.Text = "Close"
@@ -78,15 +91,15 @@ end)
 
 local rowsContainer = Instance.new("Frame")
 rowsContainer.Name = "Rows"
-rowsContainer.Size = UDim2.new(1, -20, 1, -110)
-rowsContainer.Position = UDim2.fromOffset(10, 56)
+rowsContainer.Size = UDim2.new(1, -28, 1, -130)
+rowsContainer.Position = UDim2.fromOffset(14, 76)
 rowsContainer.BackgroundTransparency = 1
 rowsContainer.ZIndex = 12
 rowsContainer.Parent = panel
 
 local rowsLayout = Instance.new("UIListLayout")
 rowsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-rowsLayout.Padding = UDim.new(0, 10)
+rowsLayout.Padding = UDim.new(0, 12)
 rowsLayout.Parent = rowsContainer
 
 -- ===== Generic stepper row builder =====

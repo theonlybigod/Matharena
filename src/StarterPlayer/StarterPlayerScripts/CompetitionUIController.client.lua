@@ -1,22 +1,28 @@
 --[[
 	CompetitionUIController.client.lua
 
-	Match UI: Top bar (Round / Players Remaining / Difficulty), Center
-	(question), Bottom (answer box + submit), Side (live roster/
-	"leaderboard" + player info HUD). Also owns the camera focus on
-	whoever's currently answering.
+	Match UI: a Side panel (live roster/"leaderboard" + player info HUD),
+	plus camera focus on whoever's currently answering.
+
+	The arena's giant central screen is now the PRIMARY gameplay surface for
+	BOTH display AND input (see ArenaScreenController.client.lua) - round
+	number, players remaining, difficulty, the question, the timer, AND the
+	answer box/submit button all live there now, visible from both sides,
+	for competitive matches and Practice Mode alike. This script previously
+	still built its own small answer-input popup here too, which meant a
+	player briefly saw two separate places to type an answer during a
+	competitive turn - that duplicate popup has been removed entirely, not
+	just hidden, so there is exactly one input surface.
 
 	All correctness/timing decisions are made by the server
-	(CompetitionGameplay) - this script only displays what it's told and
-	forwards the local player's answer. The visual countdown here is
-	purely local prediction; the server enforces the real timeout
-	independently.
+	(CompetitionGameplay) - this script only displays the side panel/roster
+	and handles the camera; it never touches question/answer state at all
+	anymore.
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
 
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
@@ -26,129 +32,6 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local mainUI = playerGui:WaitForChild("MainUI")
 local camera = Workspace.CurrentCamera
-
--- ===== Top bar: Round / Players Remaining / Difficulty =====
-
-local topBar = Instance.new("Frame")
-topBar.Name = "MatchTopBar"
-topBar.Size = UDim2.fromOffset(560, 44)
-topBar.Position = UDim2.new(0.5, -280, 0, 16)
-topBar.Visible = false
-UITheme.StylePanel(topBar, 0.2)
-topBar.Parent = mainUI
-
-local topBarLayout = Instance.new("UIListLayout")
-topBarLayout.FillDirection = Enum.FillDirection.Horizontal
-topBarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-topBarLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-topBarLayout.Padding = UDim.new(0, 24)
-topBarLayout.Parent = topBar
-
-local function createTopBarLabel(name: string, order: number): TextLabel
-	local label = Instance.new("TextLabel")
-	label.Name = name
-	label.LayoutOrder = order
-	label.Size = UDim2.fromOffset(160, 40)
-	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.GothamBold
-	label.TextScaled = true
-	label.TextColor3 = UITheme.COLORS.Text
-	label.Text = ""
-	label.Parent = topBar
-	return label
-end
-
-local roundLabel = createTopBarLabel("RoundLabel", 1)
-local playersRemainingLabel = createTopBarLabel("PlayersRemainingLabel", 2)
-local difficultyLabel = createTopBarLabel("DifficultyLabel", 3)
-
--- ===== Center: question panel =====
-
-local questionFrame = Instance.new("Frame")
-questionFrame.Name = "QuestionPanel"
-questionFrame.Size = UDim2.fromOffset(560, 170)
-questionFrame.Position = UDim2.new(0.5, -280, 0.5, -170)
-questionFrame.Visible = false
-UITheme.StylePanel(questionFrame, 0.1)
-questionFrame.Parent = mainUI
-
-local nameLabel = Instance.new("TextLabel")
-nameLabel.Name = "ActivePlayerLabel"
-nameLabel.Size = UDim2.new(1, -20, 0, 28)
-nameLabel.Position = UDim2.fromOffset(10, 8)
-nameLabel.BackgroundTransparency = 1
-nameLabel.TextColor3 = UITheme.COLORS.Accent
-nameLabel.Font = Enum.Font.GothamBold
-nameLabel.TextScaled = true
-nameLabel.Text = ""
-nameLabel.Parent = questionFrame
-
-local questionLabel = Instance.new("TextLabel")
-questionLabel.Name = "QuestionLabel"
-questionLabel.Size = UDim2.new(1, -20, 0, 70)
-questionLabel.Position = UDim2.fromOffset(10, 40)
-questionLabel.BackgroundTransparency = 1
-questionLabel.TextColor3 = UITheme.COLORS.Text
-questionLabel.Font = Enum.Font.GothamBlack
-questionLabel.TextScaled = true
-questionLabel.Text = ""
-questionLabel.Parent = questionFrame
-
-local timerLabel = Instance.new("TextLabel")
-timerLabel.Name = "TimerLabel"
-timerLabel.Size = UDim2.new(1, -20, 0, 34)
-timerLabel.Position = UDim2.fromOffset(10, 116)
-timerLabel.BackgroundTransparency = 1
-timerLabel.TextColor3 = UITheme.COLORS.Gold
-timerLabel.Font = Enum.Font.GothamBold
-timerLabel.TextScaled = true
-timerLabel.Text = ""
-timerLabel.Parent = questionFrame
-
--- ===== Bottom: answer box + submit (active player only) =====
-
-local answerBox = Instance.new("TextBox")
-answerBox.Name = "AnswerBox"
-answerBox.Size = UDim2.fromOffset(180, 44)
-answerBox.Position = UDim2.new(0.5, -190, 1, -60)
-answerBox.Font = Enum.Font.Gotham
-answerBox.TextScaled = true
-answerBox.PlaceholderText = "Your answer"
-answerBox.TextColor3 = Color3.fromRGB(20, 20, 25)
-answerBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-answerBox.ClearTextOnFocus = false
-answerBox.Visible = false
-UITheme.ApplyCorner(answerBox)
-answerBox.Parent = mainUI
-
-local submitButton = Instance.new("TextButton")
-submitButton.Name = "SubmitButton"
-submitButton.Size = UDim2.fromOffset(150, 44)
-submitButton.Position = UDim2.new(0.5, 20, 1, -60)
-submitButton.BackgroundColor3 = UITheme.COLORS.Accent
-submitButton.TextColor3 = UITheme.COLORS.Text
-submitButton.Font = Enum.Font.GothamBold
-submitButton.TextScaled = true
-submitButton.Text = "Submit"
-submitButton.Visible = false
-UITheme.ApplyCorner(submitButton)
-UITheme.ApplyButtonHoverEffect(submitButton)
-submitButton.Parent = mainUI
-
-local function submitAnswer()
-	if answerBox.Text == "" then
-		return
-	end
-	RemoteEvents.Get("SubmitAnswer"):FireServer(answerBox.Text)
-	answerBox.Text = ""
-end
-
-submitButton.MouseButton1Click:Connect(submitAnswer)
-answerBox.FocusLost:Connect(function(enterPressed)
-	if enterPressed then
-		submitAnswer()
-	end
-end)
 
 -- ===== Side: leaderboard (live roster) + player info =====
 
@@ -327,79 +210,18 @@ local function releaseCameraControl()
 	end
 end
 
--- ===== Local countdown display (visual only; server enforces the real timeout) =====
-
-local countdownConnection: RBXScriptConnection? = nil
-local countdownDeadlineClock: number? = nil
-
-local function stopCountdown()
-	if countdownConnection then
-		countdownConnection:Disconnect()
-		countdownConnection = nil
-	end
-	countdownDeadlineClock = nil
-end
-
-local function startCountdown(seconds: number)
-	stopCountdown()
-	countdownDeadlineClock = os.clock() + seconds
-	timerLabel.TextColor3 = UITheme.COLORS.Gold
-
-	countdownConnection = RunService.RenderStepped:Connect(function()
-		if not countdownDeadlineClock then
-			return
-		end
-		local remaining = math.max(0, countdownDeadlineClock - os.clock())
-		timerLabel.Text = ("%.1fs"):format(remaining)
-		if remaining <= 0 then
-			stopCountdown()
-		end
-	end)
-end
-
 -- ===== Remote handlers =====
+-- Question/answer/timer state is entirely the arena screen's job now
+-- (ArenaScreenController.client.lua) - this script only still cares
+-- about TurnStarted for the camera focus, and GameStateChanged for the
+-- side panel's visibility.
 
 RemoteEvents.Get("TurnStarted").OnClientEvent:Connect(function(payload)
 	if not payload then
-		questionFrame.Visible = false
-		topBar.Visible = false
-		answerBox.Visible = false
-		submitButton.Visible = false
-		stopCountdown()
 		releaseCameraControl()
 		return
 	end
-
-	topBar.Visible = true
-	roundLabel.Text = "Round " .. tostring(payload.round)
-	playersRemainingLabel.Text = ("Players: %d"):format(payload.playersRemaining)
-	difficultyLabel.Text = payload.difficulty
-
-	questionFrame.Visible = true
-	UITheme.PlayOpenTween(questionFrame)
-	nameLabel.Text = ("%s \u{2014} %s"):format(payload.playerName, payload.category)
-	questionLabel.Text = payload.questionText
-	startCountdown(payload.timerSeconds)
 	focusCameraOnPlatform(payload.platformIndex)
-
-	local isMyTurn = payload.playerUserId == player.UserId
-	answerBox.Visible = isMyTurn
-	submitButton.Visible = isMyTurn
-end)
-
-RemoteEvents.Get("TurnResolved").OnClientEvent:Connect(function(payload)
-	stopCountdown()
-	answerBox.Visible = false
-	submitButton.Visible = false
-
-	if payload.correct then
-		timerLabel.TextColor3 = UITheme.GetSuccessColor()
-		timerLabel.Text = "Correct!"
-	else
-		timerLabel.TextColor3 = UITheme.GetErrorColor()
-		local reason = payload.timedOut and "Time's up!" or "Wrong!"
-		timerLabel.Text = ("%s Answer: %s"):format(reason, tostring(payload.correctAnswer))
-	end
 end)
 
 RemoteEvents.Get("GameStateChanged").OnClientEvent:Connect(function(state: string)

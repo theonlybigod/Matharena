@@ -51,11 +51,22 @@ LobbyConfig.FLOOR_COLOR = Color3.fromRGB(180, 180, 185) -- smooth concrete
 LobbyConfig.NEON_COLOR = LightingConfig.BUILDING_TRIM
 
 LobbyConfig.SPAWN_SIZE = Vector2.new(8, 8)
+-- Message 23: each spawn now faces the leaderboard arc directly, not
+-- just "generally toward the plaza" (the previous default/unrotated
+-- facing left the two OUTER spawns pointing ~59 degrees off from the
+-- leaderboard anchor - close enough to see them peripherally, but not
+-- genuinely "in front of" the player as this message requires). Each
+-- entry now carries its own yaw, computed as an exact look-at from that
+-- spawn's position toward LobbyConfig.LEADERBOARD_ANCHOR.position -
+-- verified via Python (yaw = atan2(-dirX, -dirZ), matching a
+-- SpawnLocation's default -Z-facing orientation with zero rotation) so
+-- each spawn's resulting LookVector exactly matches the direction toward
+-- the leaderboard arc, not approximated.
 LobbyConfig.SPAWN_POSITIONS = {
-	scaled(-30, 90),
-	scaled(-10, 90),
-	scaled(10, 90),
-	scaled(30, 90),
+	{ position = scaled(-30, 90), facingYawDegrees = -59.04 },
+	{ position = scaled(-10, 90), facingYawDegrees = -29.05 },
+	{ position = scaled(10, 90), facingYawDegrees = 29.05 },
+	{ position = scaled(30, 90), facingYawDegrees = 59.04 },
 }
 
 -- Message 20 major expansion: buildings grew substantially (roughly
@@ -119,13 +130,18 @@ LobbyConfig.BUILDINGS = {
 -- separately in LeaderboardBoards.lua as a direct look-at toward
 -- LeaderboardConfig.VIEW_FOCAL_POINT, which is what actually fixes the
 -- two end boards being hard to see (see that module's comment).
--- Verified via Python before applying: every board corner stays within
--- 174.5 studs of center (boundary sits at 187, so a genuine ~7.5-stud
--- buffer - "approximately 5 studs"), every adjacent pair keeps 5+ studs
--- of clearance (no overlap), and the whole arc keeps ~7.9 studs of
--- clearance from the nearest spawn point.
+--
+-- Message 22: pulled back in from the boundary again (anchor_z 93 -> 72)
+-- specifically to make room for the now much-wider arc (bigger boards +
+-- wider spread, see LeaderboardConfig.lua's ARC_SPREAD_RADIUS comment for
+-- the exact numbers) without pushing the two end boards past the
+-- boundary or too close to the spawn row. Verified via Python before
+-- applying: every board corner stays a comfortable ~32 studs inside the
+-- boundary and ~12 studs clear of the nearest spawn point, with the two
+-- end boards genuinely more separated from the middle ones (~17.9-stud
+-- end gap vs ~9.1-stud inner gap) rather than one uniform spacing.
 LobbyConfig.LEADERBOARD_ANCHOR = {
-	position = scaled(0, 93),
+	position = scaled(0, 72),
 	facingYawDegrees = 180,
 }
 

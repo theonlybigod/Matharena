@@ -1,8 +1,7 @@
 --[[
 	PracticeSystem
 
-	Solo-player Practice Mode: if exactly one player is online for
-	MatchConfig.SOLO_PRACTICE_WAIT_SECONDS, they're auto-placed into an
+	Practice Mode: a manually-chosen (via the lobby's Practice Mode button),
 	infinite, non-competitive practice loop on a real arena contestant
 	platform, using the SAME QuestionGenerator/GameplayConfig/Teleporter
 	that competitive matches use - no duplicate question system, timer
@@ -12,26 +11,26 @@
 	deliberately-capped XP trickle (RewardsConfig.PRACTICE_CORRECT_ANSWER_XP)
 	instead of coins.
 
+	Practice Mode is manual-only: it starts ONLY via the lobby's Practice
+	button (RequestManualPractice) - "just make players choose by pressing
+	the Practice button when they want to play" - never automatically. An
+	earlier version of this system auto-started practice for a lone player
+	after a 10-second countdown, with a "Practice Mode starts in..." banner
+	on their screen; that entire mechanic (both the server-side timer and
+	the client countdown UI) has been removed rather than just hidden, so a
+	solo player is never pulled into practice without explicitly choosing
+	to.
+
 	Self-contained: owns its own Players.PlayerAdded/PlayerRemoving
 	connections (same pattern as RemoteThrottle) rather than requiring
 	GameManager to know about it.
 
 	Transition rules (never interrupt mid-question):
-		- A 2nd player joining during the 10s solo countdown cancels it
-		  immediately - no practice starts, normal matchmaking proceeds.
-		- A 2nd player joining WHILE a SOLO (automatic) practice session is
-		  active does not end it right away; a flag is set and checked right
-		  after the current question resolves, so the player always finishes
-		  what they're looking at. Only then are both players handed to
-		  MatchSystem.TryJoinQueue (no button needed, mirroring how solo
-		  practice itself starts without a button).
-		- MANUAL practice (started via the lobby's Practice Mode button) does
-		  NOT auto-end when other players join/queue - a player who chooses
-		  to practice while others are around isn't blocking anyone else's
-		  matchmaking (they already left the queue to practice, if they were
-		  in it), so there's nothing to "free up" by ending it. It only ends
-		  via Exit Practice or a disconnect. `isSoloSession` tracks which
-		  kind the active session is.
+		- A 2nd player joining WHILE a practice session is active does not end
+		  it right away; a flag is set and checked right after the current
+		  question resolves, so the player always finishes what they're
+		  looking at. Only then are both players handed to
+		  MatchSystem.TryJoinQueue (no button needed on their end).
 		- Manually clicking "Leave/Exit Practice" ends it immediately (no
 		  question to protect against interrupting there - it's the
 		  player's own explicit choice).
@@ -58,7 +57,6 @@ local PracticeSystem = {}
 
 local GameState = MatchConfig.GameState
 
-local soloWaitUpdateEvent = RemoteEvents.Get("SoloWaitUpdate")
 local practiceStateChangedEvent = RemoteEvents.Get("PracticeStateChanged")
 local practiceQuestionStartedEvent = RemoteEvents.Get("PracticeQuestionStarted")
 local practiceQuestionResolvedEvent = RemoteEvents.Get("PracticeQuestionResolved")
@@ -66,14 +64,9 @@ local leavePracticeModeEvent = RemoteEvents.Get("LeavePracticeMode")
 local practiceSubmitAnswerEvent = RemoteEvents.Get("PracticeSubmitAnswer")
 local requestManualPracticeEvent = RemoteEvents.Get("RequestManualPractice")
 
--- ===== Solo-wait state =====
-
-local soloWaitGeneration = 0
-local soloWaitPlayer: Player? = nil
-
--- ===== Active practice state (at most one practice session at a time,
--- since practice only ever starts when the whole server has exactly 1
--- player) =====
+-- ===== Active practice state (at most one practice session at a time is
+-- typical, since practice is opt-in per player, but nothing here assumes
+-- exactly one player is online) =====
 
 local practicePlayer: Player? = nil
 local practicePlatform: Model? = nil
@@ -83,42 +76,6 @@ local turnStartClock: number? = nil
 local turnTimerSeconds: number? = nil
 local turnGeneration = 0
 local endPracticeAfterCurrentQuestion = false
--- true only for the AUTOMATIC solo-wait-triggered session; false for a
--- manually-started one (see the module doc comment's transition rules).
-local isSoloSession = false
-
-local function cancelSoloWait()
-	if soloWaitPlayer then
-		soloWaitUpdateEvent:FireClient(soloWaitPlayer, nil)
-	end
-	soloWaitGeneration += 1
-	soloWaitPlayer = nil
-end
-
-local function startSoloWait(player: Player)
-	soloWaitGeneration += 1
-	local myGeneration = soloWaitGeneration
-	soloWaitPlayer = player
-
-	task.spawn(function()
-		for remaining = MatchConfig.SOLO_PRACTICE_WAIT_SECONDS, 0, -1 do
-			if soloWaitGeneration ~= myGeneration then
-				return -- cancelled (someone joined/left, or state changed)
-			end
-			soloWaitUpdateEvent:FireClient(player, remaining)
-			if remaining > 0 then
-				task.wait(1)
-			end
-		end
-
-		if soloWaitGeneration ~= myGeneration then
-			return
-		end
-
-		soloWaitPlayer = nil
-		PracticeSystem.StartPractice(player)
-	end)
-end
 
 -- ===== Practice question loop =====
 
@@ -164,9 +121,7 @@ local function beginNextPracticeQuestion()
 		local endedPlayer = practicePlayer
 		endPractice("SecondPlayerJoined")
 		-- Hand both the ex-practice player and whoever's now online back to
-		-- normal matchmaking, no button needed - mirrors how solo practice
-		-- itself starts without one. (Only reachable for a solo session -
-		-- see onPopulationChanged, which never sets this flag for a manual one.)
+		-- normal matchmaking, no button needed on their end.
 		if endedPlayer and endedPlayer.Parent then
 			MatchSystem.TryJoinQueue(endedPlayer)
 		end
@@ -270,20 +225,15 @@ local function onPracticeSubmitAnswer(player: Player, rawAnswer: unknown)
 end
 
 --[[
-	Starts Practice Mode for `player`.
-
-	AUTOMATIC (isManual=false/nil, from the solo-wait timer): only valid
-	while the whole server has exactly this one player and no competitive
-	match is forming (state Lobby/Waiting).
-
-	MANUAL (isManual=true, from the lobby's Practice Mode button): valid
-	any time this player isn't currently an active match participant and no
-	match is forming FOR THEM specifically - the population check is
-	skipped since other players being online doesn't prevent this player
-	from practicing (section 10: "players waiting may enter Practice
-	Mode"). Removes them from the queue first if they were in it.
+	Starts Practice Mode for `player`, via the lobby's Practice Mode button
+	(RequestManualPractice) - the only way Practice Mode ever starts.
+	Valid any time this player isn't currently an active competitive match
+	participant (never pull them out of a real match) - other players being
+	online doesn't prevent this player from practicing (section 10 from an
+	earlier prompt: "players waiting may enter Practice Mode"). Removes
+	them from the queue first if they were in it.
 ]]
-function PracticeSystem.StartPractice(player: Player, isManual: boolean?)
+function PracticeSystem.StartPractice(player: Player)
 	if not player.Parent then
 		return
 	end
@@ -294,22 +244,11 @@ function PracticeSystem.StartPractice(player: Player, isManual: boolean?)
 		return -- currently in an active competitive match - never pull them out
 	end
 
-	if isManual then
-		MatchSystem.LeaveQueue(player)
-	else
-		if #Players:GetPlayers() ~= 1 then
-			return
-		end
-		local state = MatchSystem.GetState()
-		if state ~= GameState.Lobby and state ~= GameState.Waiting then
-			return
-		end
-	end
+	MatchSystem.LeaveQueue(player)
 
 	practicePlayer = player
 	practiceQuestionNumber = 0
 	endPracticeAfterCurrentQuestion = false
-	isSoloSession = not isManual
 
 	local assignments = Teleporter.AssignPlatforms({ player })
 	practicePlatform = assignments[player]
@@ -319,7 +258,7 @@ function PracticeSystem.StartPractice(player: Player, isManual: boolean?)
 		platformIndex = practicePlatform and practicePlatform:GetAttribute("PlatformIndex"),
 	})
 
-	print(("[PracticeSystem] Practice started for %s (%s)"):format(player.Name, if isManual then "manual" else "solo"))
+	print(("[PracticeSystem] Practice started for %s"):format(player.Name))
 	beginNextPracticeQuestion()
 end
 
@@ -327,10 +266,7 @@ local function onRequestManualPractice(player: Player)
 	if not RemoteThrottle.Check(player, "RequestManualPractice", 1) then
 		return
 	end
-	if player == soloWaitPlayer then
-		cancelSoloWait()
-	end
-	PracticeSystem.StartPractice(player, true)
+	PracticeSystem.StartPractice(player)
 end
 
 local function onLeavePracticeRequest(player: Player)
@@ -343,8 +279,8 @@ local function onLeavePracticeRequest(player: Player)
 	endPractice("ManualLeave")
 end
 
--- ===== Population tracking (drives both solo-wait and the "end practice
--- after this question" handoff) =====
+-- ===== Population tracking (drives the "end practice after this
+-- question" handoff when a second player becomes available) =====
 
 --[[
 	`count` is passed explicitly rather than read fresh from
@@ -353,38 +289,14 @@ end
 	post-event population themselves (see call sites below).
 ]]
 local function onPopulationChanged(count: number)
-	if count ~= 1 then
-		cancelSoloWait()
-	end
-
-	if practicePlayer then
-		-- Only a SOLO session needs to end when someone else becomes
-		-- available - a manual session isn't blocking anyone (see module
-		-- doc comment).
-		if isSoloSession and count >= 2 then
-			endPracticeAfterCurrentQuestion = true
-		end
-		return
-	end
-
-	-- Waiting counts too, not just Lobby - a lone player who's still
-	-- technically queued (e.g. after a countdown got cancelled when their
-	-- opponent left) should still get the automatic solo-practice fallback.
-	local matchState = MatchSystem.GetState()
-	if count == 1 and (matchState == GameState.Lobby or matchState == GameState.Waiting) and not soloWaitPlayer then
-		local onlyPlayer = Players:GetPlayers()[1]
-		if onlyPlayer then
-			startSoloWait(onlyPlayer)
-		end
+	if practicePlayer and count >= 2 then
+		endPracticeAfterCurrentQuestion = true
 	end
 end
 
 local function onPlayerRemoving(player: Player)
 	if player == practicePlayer then
 		endPractice("Disconnected")
-	end
-	if player == soloWaitPlayer then
-		cancelSoloWait()
 	end
 	-- PlayerRemoving fires before the player is actually removed from the
 	-- Players service, so the population AFTER this departure is one less
@@ -401,10 +313,6 @@ function PracticeSystem.Init()
 	leavePracticeModeEvent.OnServerEvent:Connect(onLeavePracticeRequest)
 	practiceSubmitAnswerEvent.OnServerEvent:Connect(onPracticeSubmitAnswer)
 	requestManualPracticeEvent.OnServerEvent:Connect(onRequestManualPractice)
-
-	task.defer(function()
-		onPopulationChanged(#Players:GetPlayers())
-	end) -- handles a solo player already online when the server starts
 
 	print("[PracticeSystem] Initialized")
 end

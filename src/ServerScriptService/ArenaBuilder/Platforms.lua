@@ -88,8 +88,97 @@ local function buildOne(index: number, position: Vector3, parent: Instance): Mod
 		parent = model,
 	})
 
-	addBillboardLabel(model, "NameDisplay", "NameLabel", baseHeight + 6, "Player " .. index)
-	addBillboardLabel(model, "RankDisplay", "RankLabel", baseHeight + 3.5, "Rank -")
+	-- Message 26 ("add cool podiums that all the players stand on"):
+	-- a genuine tiered game-show-style riser sitting ON TOP of Base,
+	-- WITHOUT changing Base's own size/position at all - Base stays
+	-- exactly as every other system already expects it (Teleporter's
+	-- landing math uses base.Position directly, Elimination.lua recolors
+	-- Base/GlowRing by name), so nothing downstream needs to change.
+	-- Verified the podium's own top surface (baseHeight + tier heights)
+	-- stays well below Teleporter's drop point (base.Position.Y + 6,
+	-- i.e. ground + baseHeight/2 + 6) so players still fall a short,
+	-- natural distance onto it instead of spawning inside the geometry.
+	local tier1Height = 1.2
+	local tier2Height = 0.9
+	local tier1Diameter = ArenaConfig.PLATFORM_DIAMETER - 1.5
+	local tier2Diameter = ArenaConfig.PLATFORM_DIAMETER - 3.5
+
+	PartUtils.CreateDisc({
+		name = "PodiumTier1",
+		diameter = tier1Diameter,
+		thickness = tier1Height,
+		position = position + Vector3.new(0, baseHeight + tier1Height / 2, 0),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(42, 45, 52),
+		parent = model,
+	})
+	PartUtils.CreateDisc({
+		name = "PodiumTier1Trim",
+		diameter = tier1Diameter + 0.3,
+		thickness = 0.25,
+		position = position + Vector3.new(0, baseHeight + tier1Height, 0),
+		material = Enum.Material.Neon,
+		color = ArenaConfig.NEON_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+
+	PartUtils.CreateDisc({
+		name = "PodiumTier2",
+		diameter = tier2Diameter,
+		thickness = tier2Height,
+		position = position + Vector3.new(0, baseHeight + tier1Height + tier2Height / 2, 0),
+		material = Enum.Material.Marble,
+		color = Color3.fromRGB(18, 18, 22),
+		parent = model,
+	})
+	PartUtils.CreateDisc({
+		name = "PodiumTier2Trim",
+		diameter = tier2Diameter + 0.3,
+		thickness = 0.2,
+		position = position + Vector3.new(0, baseHeight + tier1Height + tier2Height, 0),
+		material = Enum.Material.Neon,
+		color = ArenaConfig.NEON_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+
+	-- Podium number plate on the front-facing edge (toward the center
+	-- stage), so each contestant's podium visibly reads as "Podium N"
+	-- from across the arena, distinct from the NameDisplay billboard.
+	local towardCenter = (Vector3.new(0, 0, 0) - position)
+	if towardCenter.Magnitude > 0.1 then
+		towardCenter = towardCenter.Unit
+	else
+		towardCenter = Vector3.new(0, 0, 1)
+	end
+	local plateCFrame = CFrame.new(
+		position + towardCenter * (tier2Diameter / 2 - 0.05) + Vector3.new(0, baseHeight + tier1Height + tier2Height / 2, 0),
+		position + towardCenter * 1000 + Vector3.new(0, baseHeight + tier1Height + tier2Height / 2, 0)
+	)
+	local numberPlate = PartUtils.CreatePart({
+		name = "PodiumNumberPlate",
+		size = Vector3.new(1.4, 0.9, 0.1),
+		cframe = plateCFrame,
+		material = Enum.Material.Neon,
+		color = ArenaConfig.NEON_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+	local plateGui = Instance.new("SurfaceGui")
+	plateGui.Face = Enum.NormalId.Front
+	plateGui.Parent = numberPlate
+	local plateLabel = Instance.new("TextLabel")
+	plateLabel.Size = UDim2.fromScale(1, 1)
+	plateLabel.BackgroundTransparency = 1
+	plateLabel.Font = Enum.Font.GothamBlack
+	plateLabel.TextScaled = true
+	plateLabel.TextColor3 = Color3.fromRGB(10, 10, 14)
+	plateLabel.Text = tostring(index)
+	plateLabel.Parent = plateGui
+
+	addBillboardLabel(model, "NameDisplay", "NameLabel", baseHeight + tier1Height + tier2Height + 5, "Player " .. index)
+	addBillboardLabel(model, "RankDisplay", "RankLabel", baseHeight + tier1Height + tier2Height + 2.5, "Rank -")
 
 	local fixture = PartUtils.CreatePart({
 		name = "SpotlightFixture",

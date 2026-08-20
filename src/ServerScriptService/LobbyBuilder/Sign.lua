@@ -2,8 +2,11 @@
 	Sign.lua
 
 	Builds the floating "MATHARENA" landmark sign: large, glowing,
-	borderless typography suspended above the visual center of the lobby.
-	This is the single, primary MATHARENA sign for the lobby.
+	borderless typography suspended above the visual center of the lobby,
+	topped with a subtitle, a slowly-rotating holographic ring, and upward
+	energy beams connecting it down toward the plaza below - a genuine
+	"major installation" rather than just hovering text. This is the
+	single, primary MATHARENA sign for the lobby.
 
 	Sign cleanup pass: an earlier pass on this feature left two floating
 	signs in the lobby at once - the original small "MatharenaLogo" (a
@@ -13,14 +16,15 @@
 	Studio instance) so this is the only floating sign construction path
 	left. This module also dropped its own metal trim bars - a physical
 	frame around the text is exactly the "heavy border" this redesign
-	removes; the glowing text stroke + light + particles now carry the
-	sign's visual identity instead of a panel/frame.
+	removes; the glowing text stroke + light + particles + ring + beams now
+	carry the sign's visual identity instead of a panel/frame.
 
 	This module only builds the static instances (position, size, text,
-	glow, particles). The floating/bobbing motion is purely visual and is
-	intentionally left to MatharenaSignController.client.lua
-	(StarterPlayerScripts) instead of being animated here, so it doesn't
-	cost server time/replication every frame for a cosmetic effect.
+	glow, particles, ring, beams). The floating/bobbing motion and the
+	ring's rotation are purely visual and are intentionally left to
+	MatharenaSignController.client.lua (StarterPlayerScripts) instead of
+	being animated here, so neither costs server time/replication every
+	frame for a cosmetic effect.
 
 	The sign is named and attributed stably (SignConfig.SIGN_NAME, plus a
 	matching boolean Attribute) so the client controller - or any later
@@ -38,15 +42,20 @@ local Sign = {}
 -- sign is legible from the building side and the plaza/spawn side alike).
 -- No background panel/frame behind the text - the glow comes from the
 -- text stroke, plus the shared PointLight/ParticleEmitter on the part.
+-- Reserves a strip at the bottom of the panel for a smaller subtitle
+-- label, so the main title still reads as the dominant element.
 local function createFaceLabel(panel: BasePart, face: Enum.NormalId)
 	local gui = Instance.new("SurfaceGui")
 	gui.Name = face.Name .. "Gui"
 	gui.Face = face
 	gui.Parent = panel
 
+	local subtitleFraction = SignConfig.SUBTITLE_HEIGHT_FRACTION
+
 	local label = Instance.new("TextLabel")
 	label.Name = "TitleLabel"
-	label.Size = UDim2.fromScale(1, 1)
+	label.Size = UDim2.new(1, 0, 1 - subtitleFraction, 0)
+	label.Position = UDim2.fromScale(0, 0)
 	label.BackgroundTransparency = 1
 	label.Font = SignConfig.TEXT_FONT
 	label.TextScaled = true
@@ -62,6 +71,65 @@ local function createFaceLabel(panel: BasePart, face: Enum.NormalId)
 	gradient.Color = ColorSequence.new(SignConfig.TEXT_SHIMMER_COLORS[1], SignConfig.TEXT_SHIMMER_COLORS[2])
 	gradient.Rotation = 90
 	gradient.Parent = label
+
+	local subtitleLabel = Instance.new("TextLabel")
+	subtitleLabel.Name = "SubtitleLabel"
+	subtitleLabel.Size = UDim2.new(1, 0, subtitleFraction, 0)
+	subtitleLabel.Position = UDim2.new(0, 0, 1 - subtitleFraction, 0)
+	subtitleLabel.BackgroundTransparency = 1
+	subtitleLabel.Font = Enum.Font.Gotham
+	subtitleLabel.TextScaled = true
+	subtitleLabel.Text = SignConfig.SUBTITLE_TEXT
+	subtitleLabel.TextColor3 = SignConfig.GLOW_COLOR
+	subtitleLabel.TextTransparency = 0.15
+	subtitleLabel.Parent = gui
+end
+
+--[[
+	Holographic ring: a flattened, mostly-transparent Cylinder disc
+	floating just behind the text - reads immediately as a sci-fi hologram
+	accent rather than a physical frame. Rotated client-side (see
+	MatharenaSignController.client.lua); this just builds the static part.
+]]
+local function createRing(panel: BasePart): BasePart
+	return PartUtils.CreateDisc({
+		name = "HoloRing",
+		diameter = SignConfig.RING_DIAMETER,
+		thickness = SignConfig.RING_THICKNESS,
+		position = panel.Position,
+		material = Enum.Material.Neon,
+		color = SignConfig.GLOW_COLOR,
+		transparency = 0.82,
+		canCollide = false,
+		parent = panel.Parent,
+	})
+end
+
+--[[
+	Upward energy beams: thin, semi-transparent neon columns rising from
+	the plaza toward the sign, arranged in a ring around (not through) the
+	queue portal's own footprint - ties the floating sign visually to the
+	ground below it, reading as a deliberate installation rather than text
+	that happens to hover in the sky. Static/anchored, no per-frame cost.
+]]
+local function createBeams(parent: Instance, panel: BasePart)
+	local beamHeight = panel.Position.Y - SignConfig.PANEL_SIZE.Y / 2
+	for i = 1, SignConfig.BEAM_COUNT do
+		local angle = (2 * math.pi / SignConfig.BEAM_COUNT) * i
+		local x = SignConfig.BEAM_RADIUS * math.sin(angle)
+		local z = SignConfig.BEAM_RADIUS * math.cos(angle)
+
+		PartUtils.CreatePart({
+			name = "EnergyBeam" .. i,
+			size = Vector3.new(SignConfig.BEAM_THICKNESS, beamHeight, SignConfig.BEAM_THICKNESS),
+			position = Vector3.new(x, beamHeight / 2, z),
+			material = Enum.Material.Neon,
+			color = SignConfig.GLOW_COLOR,
+			transparency = 0.55,
+			canCollide = false,
+			parent = parent,
+		})
+	end
 end
 
 --[[
@@ -90,6 +158,8 @@ function Sign.Build(parent: Instance): Model
 
 	createFaceLabel(panel, Enum.NormalId.Front)
 	createFaceLabel(panel, Enum.NormalId.Back)
+	createRing(panel)
+	createBeams(model, panel)
 
 	local glow = Instance.new("PointLight")
 	glow.Color = SignConfig.GLOW_COLOR

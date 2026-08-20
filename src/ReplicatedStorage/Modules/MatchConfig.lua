@@ -13,10 +13,6 @@ MatchConfig.MAX_PLAYERS = 12
 
 MatchConfig.QUEUE_COUNTDOWN_SECONDS = 15
 
--- Solo-player Practice Mode (not a competitive match): how long exactly
--- one player waits alone before being auto-placed into practice.
-MatchConfig.SOLO_PRACTICE_WAIT_SECONDS = 10
-
 MatchConfig.INTRO_STEPS = { "3", "2", "1", "GO" }
 MatchConfig.INTRO_STEP_SECONDS = 1
 
