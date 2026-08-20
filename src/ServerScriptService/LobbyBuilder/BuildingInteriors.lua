@@ -311,9 +311,15 @@ local function terminal(model: Model, position: Vector3, promptName: string, pro
 end
 
 --[[
-	Shop identity: angled glass storefront bays flanking the entrance -
-	makes the Shop read as "browse from outside" the moment you approach,
-	distinct from every other building's flat facade.
+	Shop identity: angled glass storefront bays flanking the entrance, plus
+	an illuminated marquee sign above the canopy - makes the Shop read as
+	"browse from outside" the moment you approach, distinct from every
+	other building's flat facade.
+
+	Message 29 ("make each shop 10x better"): added the marquee (a genuine
+	lit sign distinct from the plain name plate on Base) and a warm accent
+	spotlight over each storefront bay, so the exterior itself reads as
+	"an actual store" even before anyone walks in.
 ]]
 local function addShopIdentity(def, model: Model)
 	local basePos = def.position
@@ -333,7 +339,47 @@ local function addShopIdentity(def, model: Model)
 			canCollide = false,
 			parent = model,
 		})
+
+		local bayLight = PartUtils.CreatePart({
+			name = "StorefrontBaySpotlightFixture",
+			size = Vector3.new(0.6, 0.6, 0.6),
+			position = basePos + Vector3.new(side * (halfX - 2), 7.2, halfZ + 1),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(40, 43, 50),
+			canCollide = false,
+			parent = model,
+		})
+		local spotlight = Instance.new("SpotLight")
+		spotlight.Face = Enum.NormalId.Bottom
+		spotlight.Range = 16
+		spotlight.Angle = 60
+		spotlight.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS * 1.3
+		spotlight.Color = Color3.fromRGB(255, 240, 220)
+		spotlight.Parent = bayLight
 	end
+
+	-- Illuminated marquee above the entrance canopy - a genuine "this is a
+	-- store" beacon, distinct from the plain name plate already on Base.
+	local marquee = PartUtils.CreatePart({
+		name = "ShopMarquee",
+		size = Vector3.new(def.size.X * 0.5, 2, 0.3),
+		position = basePos + Vector3.new(0, def.height + 3, halfZ + 4.6),
+		material = Enum.Material.Neon,
+		color = ACCENT_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+	local marqueeGui = Instance.new("SurfaceGui")
+	marqueeGui.Face = Enum.NormalId.Front
+	marqueeGui.Parent = marquee
+	local marqueeLabel = Instance.new("TextLabel")
+	marqueeLabel.Size = UDim2.fromScale(1, 1)
+	marqueeLabel.BackgroundTransparency = 1
+	marqueeLabel.Font = Enum.Font.GothamBlack
+	marqueeLabel.TextScaled = true
+	marqueeLabel.TextColor3 = Color3.fromRGB(10, 12, 16)
+	marqueeLabel.Text = "OPEN"
+	marqueeLabel.Parent = marqueeGui
 end
 
 --[[
@@ -445,8 +491,10 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		})
 	end
 
-	-- Counter + terminal against the back wall - the store's clear "end
-	-- point".
+	-- Counter + register + terminal against the back wall - the store's
+	-- clear "end point", now with a proper checkout register (a small
+	-- raised monitor + neon accent) and its own overhead spotlight, rather
+	-- than a bare counter slab.
 	PartUtils.CreatePart({
 		name = "Counter",
 		size = Vector3.new(math.min(14, def.size.X - 8), 3.5, 2.5),
@@ -455,6 +503,39 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		color = Color3.fromRGB(50, 53, 62),
 		parent = model,
 	})
+	PartUtils.CreatePart({
+		name = "CounterRegister",
+		size = Vector3.new(1.6, 1.2, 1.2),
+		position = basePos + Vector3.new(0, 4.1, -halfZ + 3.6),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(40, 43, 50),
+		parent = model,
+	})
+	PartUtils.CreatePart({
+		name = "CounterRegisterScreen",
+		size = Vector3.new(1, 0.7, 0.1),
+		position = basePos + Vector3.new(0, 4.3, -halfZ + 3.05),
+		material = Enum.Material.Neon,
+		color = ACCENT_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+	local counterLight = PartUtils.CreatePart({
+		name = "CounterSpotlightFixture",
+		size = Vector3.new(0.6, 0.6, 0.6),
+		position = basePos + Vector3.new(0, def.height - 1.5, -halfZ + 4),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(40, 43, 50),
+		canCollide = false,
+		parent = model,
+	})
+	local counterSpotlight = Instance.new("SpotLight")
+	counterSpotlight.Face = Enum.NormalId.Bottom
+	counterSpotlight.Range = 18
+	counterSpotlight.Angle = 50
+	counterSpotlight.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS * 1.4
+	counterSpotlight.Color = Color3.fromRGB(255, 250, 240)
+	counterSpotlight.Parent = counterLight
 
 	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 7.5), "ShopTerminalPrompt", "Open Shop", "Shop")
 end

@@ -45,12 +45,12 @@
       "$className": "Lighting",
       "$ignoreUnknownInstances": false,
       "$properties": {
-        "Ambient": [160, 140, 120],
-        "OutdoorAmbient": [160, 140, 120],
+        "Ambient": [140, 140, 140],
+        "OutdoorAmbient": [140, 140, 140],
         "Brightness": 3,
-        "ClockTime": 6.5,
+        "ClockTime": 14.0,
         "ExposureCompensation": 0.45,
-        "FogColor": [210, 175, 150],
+        "FogColor": [180, 180, 185],
         "FogEnd": 650
       },
 
@@ -68,9 +68,9 @@
         "$className": "ColorCorrectionEffect",
         "$properties": {
           "Enabled": true,
-          "Contrast": -0.08,
-          "Saturation": -0.03,
-          "TintColor": [245, 248, 255]
+          "Contrast": 0,
+          "Saturation": 0,
+          "TintColor": [255, 255, 255]
         }
       },
 
@@ -79,8 +79,8 @@
         "$properties": {
           "Density": 0.3,
           "Offset": 0.25,
-          "Color": [0.780392, 0.780392, 0.780392],
-          "Decay": [0.415686, 0.439216, 0.490196],
+          "Color": [1, 1, 1],
+          "Decay": [0.6, 0.6, 0.6],
           "Glare": 0,
           "Haze": 0
         }

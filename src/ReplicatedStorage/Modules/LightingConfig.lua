@@ -87,47 +87,48 @@ LightingConfig.DECORATIVE = Color3.fromRGB(95, 175, 240)
 -- focal area around the center") without anything else competing with them.
 LightingConfig.CENTRAL_FEATURE = Config.BRAND_NEON_COLOR
 
--- ===== Global sunrise environment (LobbyLighting.lua) =====
--- Replaces the previous dusk/nighttime theme with a warm sunrise -
--- "the night sky went back to being all dark... make it a nice sunrise
--- so it looks 100x better... warm sunrise atmosphere, bright sky, good
--- visibility, soft environmental lighting... do NOT make the map dark
--- again". This is the ONLY tier responsible for baseline visibility - a
--- player standing far from every lamp, building, and landmark must still
--- clearly read the ground/paths/other players by these values alone,
--- same requirement as the previous dusk theme, just with a warmer
--- sky/sun angle and a golden-hour tint instead of a cool blue dusk one.
--- The blue neon accent palette above is intentionally left untouched -
--- "neon elements still looking good" - only the GLOBAL environment tier
--- changes; local/architectural/decorative accents keep their own colors.
+-- ===== Global dusk/sunset environment (LobbyLighting.lua) =====
+-- "The background lighting/sky not daytime, but more of a dusk/sunset
+-- colour... nice sunset atmosphere, but do not make it dark... map should
+-- remain easy to see". Replaces the previous sunrise theme (ClockTime
+-- 6.5, cool golden-morning tones) with a genuine dusk/sunset - a later
+-- ClockTime for a warm orange/pink horizon, while keeping every actual
+-- brightness/fill lever at least as strong as the brightest prior pass so
+-- "dusk" reads as warm-colored, not dim. This is the ONLY tier
+-- responsible for baseline visibility - a player standing far from every
+-- lamp, building, and landmark must still clearly read the ground/paths/
+-- other players by these values alone. The blue neon accent palette above
+-- is intentionally left untouched - "neon elements still looking good" -
+-- only the GLOBAL environment tier changes; local/architectural/
+-- decorative accents keep their own colors.
 
--- Early-morning sunrise sky (roughly 6:30 AM) - warm horizon glow and a
--- low sun angle, replacing the previous dusk ClockTime=19.25. Ambient/
--- OutdoorAmbient below are fixed overrides, so this mainly shapes the
--- visual sky/sun, not the actual fill brightness.
-LightingConfig.DUSK_CLOCK_TIME = 6.5
+-- Daytime sky (14.0 = early afternoon) - "I just want it to be like
+-- normal" - reverted from the dusk/sunset ClockTime experiments back to
+-- a standard bright daytime hour.
+LightingConfig.DUSK_CLOCK_TIME = 14.0
 
--- Ambient/Outdoor ambient: a warm, soft golden tint (replacing the
--- previous cool blue-grey dusk tone) - bright enough on its own
--- (independent of any lamp) that ground/buildings/players stay clearly
--- readable in open areas between fixtures, matching the explicit "the
--- map should NOT feel dark or gloomy" / "remains easy to see even away
--- from the street lamps" requirements. Kept at least as bright as the
--- previous brightest (Message 22) pass, not just restored to it - a
--- sunrise should read as BRIGHTER than a dusk, not equally dim.
-LightingConfig.AMBIENT_COLOR = Color3.fromRGB(160, 140, 120)
-LightingConfig.OUTDOOR_AMBIENT_COLOR = Color3.fromRGB(160, 140, 120)
-LightingConfig.DUSK_BRIGHTNESS = 3 -- was 2.6 (dusk) / 1.75 (original) - sunrise reads brighter still
+-- Ambient/Outdoor ambient: NEUTRAL white/grey, not color-tinted at all.
+-- Two prior passes tried to convey "dusk/sunset" through a tinted Ambient
+-- color (first too saturated/red, then overcorrected into a flat washed-
+-- out grey) - since Ambient colors literally everything in the scene at
+-- once, any tint strong enough to read as "a mood" ends up reading as
+-- "the whole map is that color" instead. Reverting to genuine neutral so
+-- every building/ground/object shows its own real color correctly -
+-- "I just want it to be like normal". ClockTime below still keeps things
+-- at a later hour for a slightly warmer sun angle, but the FILL light
+-- itself is neutral now, not tinted.
+LightingConfig.AMBIENT_COLOR = Color3.fromRGB(140, 140, 140)
+LightingConfig.OUTDOOR_AMBIENT_COLOR = Color3.fromRGB(140, 140, 140)
+LightingConfig.DUSK_BRIGHTNESS = 3
 
 -- Exposure: a small positive compensation so midtones/shadows lift
 -- slightly without raising Brightness (which affects direct light) or
 -- Ambient (which affects fill color) - a third, independent lever for
--- "clearly playable" without changing the sunrise color mood.
-LightingConfig.EXPOSURE_COMPENSATION = 0.45 -- was 0.4 (dusk) / 0.15 (original)
+-- "clearly playable".
+LightingConfig.EXPOSURE_COMPENSATION = 0.45
 
--- Warm peach/orange fog instead of the previous cool blue-grey dusk fog -
--- reads as morning haze near the horizon rather than nighttime murk.
-LightingConfig.FOG_COLOR = Color3.fromRGB(210, 175, 150)
+-- Fog: neutral grey, same reasoning as Ambient above - no color tint.
+LightingConfig.FOG_COLOR = Color3.fromRGB(180, 180, 185)
 LightingConfig.FOG_END = 650 -- generous falloff distance - "subtle atmospheric depth without heavy fog obscuring distant objects"
 
 -- Bloom: restrained on purpose - enough to make neon read as "glowing"
@@ -140,9 +141,9 @@ LightingConfig.BLOOM_SIZE = 20
 -- "calm/polished" rather than punchy - subtle enough to not flatten the
 -- palette above. Message 22: eased slightly further to complement the
 -- brighter Ambient/Brightness/Exposure above without looking washed out.
-LightingConfig.COLOR_CORRECTION_CONTRAST = -0.08
-LightingConfig.COLOR_CORRECTION_SATURATION = -0.03
-LightingConfig.COLOR_CORRECTION_TINT_COLOR = Color3.fromRGB(245, 248, 255) -- a hair cool, reinforcing the blue identity
+LightingConfig.COLOR_CORRECTION_CONTRAST = 0
+LightingConfig.COLOR_CORRECTION_SATURATION = 0
+LightingConfig.COLOR_CORRECTION_TINT_COLOR = Color3.fromRGB(255, 255, 255) -- neutral - no color tint at all
 
 -- Reference brightness/range for the smaller decorative PointLights
 -- scattered around the lobby (building beacons, ceiling lights, etc.) -

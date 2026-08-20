@@ -64,8 +64,6 @@ ArenaConfig.QUESTION_SCREEN_HEIGHT_ABOVE_STAGE = 21 -- studs above the stage sur
 
 ArenaConfig.WINNER_AREA_DIAMETER = 10
 
-ArenaConfig.HOST_PODIUM_OFFSET = Vector3.new(0, 0, -6) -- offset from stage center
-
 -- Spectator seating: concentric rings beyond the platform ring.
 ArenaConfig.SPECTATOR_RING_OFFSETS = { 20, 36 } -- studs beyond the platform ring radius
 ArenaConfig.SPECTATOR_SEAT_SPACING = 10

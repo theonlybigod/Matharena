@@ -54,10 +54,15 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
+local TweenService = game:GetService("TweenService")
 
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 
 local player = Players.LocalPlayer
+
+local ACCENT_COLOR = Color3.fromRGB(70, 150, 230)
+local SUCCESS_COLOR = Color3.fromRGB(80, 220, 130)
+local ERROR_COLOR = Color3.fromRGB(230, 80, 80)
 
 -- The screen is built once, at server start, before any player could
 -- possibly need it - a short wait here is just startup-order safety, not
@@ -69,14 +74,27 @@ local faces = {}
 for _, gui in ipairs(screen:GetChildren()) do
 	if gui:IsA("SurfaceGui") and gui.Name == "ScreenGui" then
 		local background = gui:WaitForChild("Background")
+		-- Message 28 visual overhaul restructured these into nested
+		-- containers (HeaderBar/QuestionCard/FooterBar) for a proper framed
+		-- layout - WaitForChild only searches DIRECT children, so labels
+		-- that moved into a nested container have to be looked up through
+		-- that container now, not straight off Background.
+		local headerBar = background:WaitForChild("HeaderBar")
+		local questionCard = background:WaitForChild("QuestionCard")
+		local footerBar = background:WaitForChild("FooterBar")
+		local answerBox = background:WaitForChild("AnswerBox") :: TextBox
+		local submitButton = background:WaitForChild("SubmitButton") :: TextButton
 		table.insert(faces, {
 			idle = background:WaitForChild("IdleLabel"),
-			contestant = background:WaitForChild("ContestantLabel"),
-			question = background:WaitForChild("QuestionLabel"),
-			timer = background:WaitForChild("TimerLabel"),
-			round = background:WaitForChild("RoundLabel"),
-			answerBox = background:WaitForChild("AnswerBox") :: TextBox,
-			submitButton = background:WaitForChild("SubmitButton") :: TextButton,
+			contestant = headerBar:WaitForChild("ContestantLabel"),
+			question = questionCard:WaitForChild("QuestionLabel"),
+			questionCard = questionCard,
+			timer = footerBar:WaitForChild("TimerLabel"),
+			round = footerBar:WaitForChild("RoundLabel"),
+			answerBox = answerBox,
+			answerBoxStroke = answerBox:WaitForChild("AnswerBoxStroke") :: UIStroke,
+			submitButton = submitButton,
+			submitButtonStroke = submitButton:WaitForChild("SubmitButtonStroke") :: UIStroke,
 			leavePracticeButton = background:WaitForChild("LeavePracticeButton") :: TextButton,
 		})
 	end
@@ -138,8 +156,80 @@ local function submitAnswer()
 	end
 end
 
+-- ===== Message 29: engaging answer-input feedback ("make the way you
+-- type your answer more engaging... visually react when typing...
+-- animate when focused... satisfying submit interaction") =====
+
 for _, face in ipairs(faces) do
-	face.submitButton.MouseButton1Click:Connect(submitAnswer)
+	-- Glowing focus feedback: the answer box's border brightens and
+	-- thickens while the player is actively typing, and eases back when
+	-- they click away - makes typing feel like an active part of the
+	-- presentation rather than a plain text field.
+	face.answerBox.Focused:Connect(function()
+		TweenService:Create(face.answerBoxStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+			Transparency = 0.1,
+			Thickness = 3,
+		}):Play()
+	end)
+	face.answerBox:GetPropertyChangedSignal("Text"):Connect(function()
+		-- A quick, subtle scale "tick" on every keystroke - immediate visual
+		-- confirmation that input is registering, without being distracting.
+		if not face.answerBox:IsFocused() then
+			return
+		end
+		local originalSize = face.answerBox.Size
+		TweenService:Create(face.answerBox, TweenInfo.new(0.06, Enum.EasingStyle.Quad), {
+			Size = originalSize + UDim2.fromOffset(0, 3),
+		}):Play()
+		task.delay(0.06, function()
+			TweenService:Create(face.answerBox, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {
+				Size = originalSize,
+			}):Play()
+		end)
+	end)
+	face.answerBox.FocusLost:Connect(function()
+		TweenService:Create(face.answerBoxStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+			Transparency = 0.7,
+			Thickness = 2,
+		}):Play()
+	end)
+
+	-- Submit button: a real hover/press scale animation (this screen's
+	-- buttons never had one before - every other panel in the project
+	-- does, via UITheme.ApplyButtonHoverEffect) plus a bright flash-pulse
+	-- on click, so submitting reads as a deliberate, satisfying action.
+	local submitOriginalSize = face.submitButton.Size
+	face.submitButton.MouseEnter:Connect(function()
+		TweenService:Create(face.submitButton, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {
+			Size = submitOriginalSize + UDim2.fromOffset(6, 4),
+		}):Play()
+	end)
+	face.submitButton.MouseLeave:Connect(function()
+		TweenService:Create(face.submitButton, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {
+			Size = submitOriginalSize,
+		}):Play()
+	end)
+
+	-- ===== Actual submit wiring (click, Enter-to-submit, exit practice) =====
+	face.submitButton.MouseButton1Click:Connect(function()
+		-- A quick, bright flash-pulse on the button itself the instant it's
+		-- pressed - immediate, satisfying confirmation the submission
+		-- registered, independent of whatever the server eventually decides.
+		TweenService:Create(face.submitButton, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {
+			Size = submitOriginalSize - UDim2.fromOffset(4, 3),
+		}):Play()
+		face.submitButtonStroke.Thickness = 4
+		face.submitButtonStroke.Transparency = 0.2
+		TweenService:Create(face.submitButtonStroke, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {
+			Transparency = 1,
+		}):Play()
+		task.delay(0.08, function()
+			TweenService:Create(face.submitButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {
+				Size = submitOriginalSize,
+			}):Play()
+		end)
+		submitAnswer()
+	end)
 	face.answerBox.FocusLost:Connect(function(enterPressed)
 		if enterPressed then
 			submitAnswer()
@@ -182,6 +272,32 @@ local function startCountdown(seconds: number)
 	end)
 end
 
+-- ===== Message 29: correct/incorrect feedback flash - a brief colored
+-- pulse on the question card's own border, on top of the existing timer-
+-- text feedback, so the result reads as a genuine game-show "ding/buzz"
+-- moment rather than just a text color change. =====
+local function flashResultBorder(isCorrect: boolean)
+	local color = if isCorrect then SUCCESS_COLOR else ERROR_COLOR
+	for _, face in ipairs(faces) do
+		local stroke = face.questionCard:FindFirstChildOfClass("UIStroke")
+		if not stroke then
+			continue
+		end
+		local originalColor = stroke.Color
+		stroke.Color = color
+		stroke.Thickness = 5
+		stroke.Transparency = 0
+		local tween = TweenService:Create(stroke, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Transparency = 0.6,
+			Thickness = 2,
+		})
+		tween:Play()
+		tween.Completed:Connect(function()
+			stroke.Color = originalColor
+		end)
+	end
+end
+
 -- ===== Competitive match remote handlers =====
 
 RemoteEvents.Get("TurnStarted").OnClientEvent:Connect(function(payload)
@@ -216,11 +332,12 @@ RemoteEvents.Get("TurnResolved").OnClientEvent:Connect(function(payload)
 		face.answerBox.Visible = false
 		face.submitButton.Visible = false
 	end
+	flashResultBorder(payload.correct)
 	if payload.correct then
-		setTimerText("Correct!", Color3.fromRGB(80, 220, 130))
+		setTimerText("Correct!", SUCCESS_COLOR)
 	else
 		local reason = payload.timedOut and "Time's up!" or "Wrong!"
-		setTimerText(("%s Answer: %s"):format(reason, tostring(payload.correctAnswer)), Color3.fromRGB(230, 80, 80))
+		setTimerText(("%s Answer: %s"):format(reason, tostring(payload.correctAnswer)), ERROR_COLOR)
 	end
 end)
 
@@ -264,11 +381,12 @@ RemoteEvents.Get("PracticeQuestionResolved").OnClientEvent:Connect(function(payl
 		face.answerBox.Visible = false
 		face.submitButton.Visible = false
 	end
+	flashResultBorder(payload.correct)
 	if payload.correct then
-		setTimerText("Correct!", Color3.fromRGB(80, 220, 130))
+		setTimerText("Correct!", SUCCESS_COLOR)
 	elseif payload.timedOut then
 		setTimerText(("Time's up! Answer: %s"):format(tostring(payload.correctAnswer)), TIMER_GOLD)
 	else
-		setTimerText(("Wrong! Answer: %s"):format(tostring(payload.correctAnswer)), Color3.fromRGB(230, 80, 80))
+		setTimerText(("Wrong! Answer: %s"):format(tostring(payload.correctAnswer)), ERROR_COLOR)
 	end
 end)

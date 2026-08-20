@@ -98,10 +98,16 @@ local function buildOne(index: number, position: Vector3, parent: Instance): Mod
 	-- stays well below Teleporter's drop point (base.Position.Y + 6,
 	-- i.e. ground + baseHeight/2 + 6) so players still fall a short,
 	-- natural distance onto it instead of spawning inside the geometry.
-	local tier1Height = 1.2
-	local tier2Height = 0.9
-	local tier1Diameter = ArenaConfig.PLATFORM_DIAMETER - 1.5
-	local tier2Diameter = ArenaConfig.PLATFORM_DIAMETER - 3.5
+	-- Message 30 ("make the podiums even bigger"): tiers scaled up ~40%
+	-- from the original Message 26 sizes (1.2/0.9 studs tall, diameters
+	-- PLATFORM_DIAMETER-1.5/-3.5) - verified via calculation that the
+	-- Teleporter drop point (base.Position.Y + 6) still clears the new,
+	-- taller podium top with a real 1.56-stud fall distance, not a
+	-- players-spawn-inside-the-geometry situation.
+	local tier1Height = 1.68
+	local tier2Height = 1.26
+	local tier1Diameter = ArenaConfig.PLATFORM_DIAMETER - 1
+	local tier2Diameter = ArenaConfig.PLATFORM_DIAMETER - 3
 
 	PartUtils.CreateDisc({
 		name = "PodiumTier1",

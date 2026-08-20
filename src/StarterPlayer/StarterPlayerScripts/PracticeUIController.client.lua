@@ -28,11 +28,11 @@ local TweenService = game:GetService("TweenService")
 
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
+local GameplayCameraController = require(script.Parent.GameplayCameraController)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local mainUI = playerGui:WaitForChild("MainUI")
-local camera = Workspace.CurrentCamera
 
 local practiceStateChangedEvent = RemoteEvents.Get("PracticeStateChanged")
 local requestManualPracticeEvent = RemoteEvents.Get("RequestManualPractice")
@@ -49,61 +49,9 @@ queueUpdatedEvent.OnClientEvent:Connect(function(payload)
 	amIQueued = payload and payload.waitingNames and table.find(payload.waitingNames, player.Name) ~= nil
 end)
 
--- ===== Camera (reuses the same focus-on-platform approach as competitive) =====
-
-local cameraActive = false
-
-local function focusCameraOnPlatform(platformIndex: number?)
-	if not platformIndex then
-		return
-	end
-
-	local arena = Workspace:FindFirstChild("Arena")
-	local platforms = arena and arena:FindFirstChild("Platforms")
-	local platform = platforms and platforms:FindFirstChild("Platform" .. platformIndex)
-	local base = platform and platform:FindFirstChild("Base")
-	if not (base and base:IsA("BasePart")) then
-		return
-	end
-
-	local center = Vector3.new(0, base.Position.Y, 0)
-	local outward = base.Position - center
-	if outward.Magnitude < 1 then
-		outward = Vector3.new(0, 0, 1)
-	end
-	outward = outward.Unit
-	local camPos = base.Position + outward * 22 + Vector3.new(0, 10, 0)
-
-	camera.CameraType = Enum.CameraType.Scriptable
-	local fromCFrame = camera.CFrame
-	local toCFrame = CFrame.new(camPos, base.Position + Vector3.new(0, 3, 0))
-
-	-- ~1 second smooth transition, per spec.
-	local tweenTarget = Instance.new("CFrameValue")
-	tweenTarget.Value = fromCFrame
-	local tween = TweenService:Create(tweenTarget, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Value = toCFrame,
-	})
-	local connection: RBXScriptConnection
-	connection = tweenTarget:GetPropertyChangedSignal("Value"):Connect(function()
-		if cameraActive then
-			camera.CFrame = tweenTarget.Value
-		end
-	end)
-	tween.Completed:Connect(function()
-		connection:Disconnect()
-		tweenTarget:Destroy()
-	end)
-	cameraActive = true
-	tween:Play()
-end
-
-local function releaseCameraControl()
-	if cameraActive then
-		camera.CameraType = Enum.CameraType.Custom
-		cameraActive = false
-	end
-end
+-- ===== Camera (Message 28: now shared with CompetitionUIController via
+-- GameplayCameraController.lua, and zooms toward the central MATHARENA
+-- screen rather than just the player's own platform) =====
 
 -- ===== Lobby UI coordination (hide/show the normal lobby menu) =====
 
@@ -196,11 +144,11 @@ end)
 
 practiceStateChangedEvent.OnClientEvent:Connect(function(data)
 	if not data or not data.active then
-		releaseCameraControl()
+		GameplayCameraController.Release()
 		setLobbyMenuVisible(true)
 		return
 	end
 
 	setLobbyMenuVisible(false)
-	focusCameraOnPlatform(data.platformIndex)
+	GameplayCameraController.FocusOnScreen(data.platformIndex, 1)
 end)

@@ -27,11 +27,11 @@ local Workspace = game:GetService("Workspace")
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
+local GameplayCameraController = require(script.Parent.GameplayCameraController)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local mainUI = playerGui:WaitForChild("MainUI")
-local camera = Workspace.CurrentCamera
 
 -- ===== Side: leaderboard (live roster) + player info =====
 
@@ -173,42 +173,11 @@ end
 RemoteEvents.Get("RosterUpdated").OnClientEvent:Connect(rebuildRoster)
 
 -- ===== Camera =====
-
-local cameraActive = false
-
-local function focusCameraOnPlatform(platformIndex: number?)
-	if not platformIndex then
-		return
-	end
-
-	local arena = Workspace:FindFirstChild("Arena")
-	local platforms = arena and arena:FindFirstChild("Platforms")
-	local platform = platforms and platforms:FindFirstChild("Platform" .. platformIndex)
-	local base = platform and platform:FindFirstChild("Base")
-	if not (base and base:IsA("BasePart")) then
-		return
-	end
-
-	local center = Vector3.new(0, base.Position.Y, 0)
-	local outward = base.Position - center
-	if outward.Magnitude < 1 then
-		outward = Vector3.new(0, 0, 1)
-	end
-	outward = outward.Unit
-
-	local camPos = base.Position + outward * 22 + Vector3.new(0, 10, 0)
-
-	camera.CameraType = Enum.CameraType.Scriptable
-	camera.CFrame = CFrame.new(camPos, base.Position + Vector3.new(0, 3, 0))
-	cameraActive = true
-end
-
-local function releaseCameraControl()
-	if cameraActive then
-		camera.CameraType = Enum.CameraType.Custom
-		cameraActive = false
-	end
-end
+-- Message 28: now zooms toward the central MATHARENA screen (shared
+-- GameplayCameraController.lua), not just the player's own platform - see
+-- that module for the framing details. Consolidated out of this file
+-- since PracticeUIController needed the identical behavior; duplicating
+-- it a third time wasn't worth it.
 
 -- ===== Remote handlers =====
 -- Question/answer/timer state is entirely the arena screen's job now
@@ -218,10 +187,10 @@ end
 
 RemoteEvents.Get("TurnStarted").OnClientEvent:Connect(function(payload)
 	if not payload then
-		releaseCameraControl()
+		GameplayCameraController.Release()
 		return
 	end
-	focusCameraOnPlatform(payload.platformIndex)
+	GameplayCameraController.FocusOnScreen(payload.platformIndex, 1)
 end)
 
 RemoteEvents.Get("GameStateChanged").OnClientEvent:Connect(function(state: string)
