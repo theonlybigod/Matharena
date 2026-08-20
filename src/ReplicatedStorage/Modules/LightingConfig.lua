@@ -87,44 +87,47 @@ LightingConfig.DECORATIVE = Color3.fromRGB(95, 175, 240)
 -- focal area around the center") without anything else competing with them.
 LightingConfig.CENTRAL_FEATURE = Config.BRAND_NEON_COLOR
 
--- ===== Global dusk environment (LobbyLighting.lua) =====
--- "Early evening / soft dusk / futuristic nighttime - calm, atmospheric,
--- clearly playable" (Message 2 dusk-environment refinement). This is the
--- ONLY tier responsible for baseline visibility - a player standing far
--- from every lamp, building, and landmark must still clearly read the
--- ground/paths/other players by these values alone.
+-- ===== Global sunrise environment (LobbyLighting.lua) =====
+-- Replaces the previous dusk/nighttime theme with a warm sunrise -
+-- "the night sky went back to being all dark... make it a nice sunrise
+-- so it looks 100x better... warm sunrise atmosphere, bright sky, good
+-- visibility, soft environmental lighting... do NOT make the map dark
+-- again". This is the ONLY tier responsible for baseline visibility - a
+-- player standing far from every lamp, building, and landmark must still
+-- clearly read the ground/paths/other players by these values alone,
+-- same requirement as the previous dusk theme, just with a warmer
+-- sky/sun angle and a golden-hour tint instead of a cool blue dusk one.
+-- The blue neon accent palette above is intentionally left untouched -
+-- "neon elements still looking good" - only the GLOBAL environment tier
+-- changes; local/architectural/decorative accents keep their own colors.
 
--- A dusk sky (not full night) - late-sunset sky tones/sun angle rather
--- than the near-black sky ClockTime=21 (9pm) would give. Ambient/
+-- Early-morning sunrise sky (roughly 6:30 AM) - warm horizon glow and a
+-- low sun angle, replacing the previous dusk ClockTime=19.25. Ambient/
 -- OutdoorAmbient below are fixed overrides, so this mainly shapes the
 -- visual sky/sun, not the actual fill brightness.
-LightingConfig.DUSK_CLOCK_TIME = 19.25
+LightingConfig.DUSK_CLOCK_TIME = 6.5
 
--- Ambient/Outdoor ambient: a restrained blue dusk tint, bright enough on
--- its own (independent of any lamp) that ground/buildings/players stay
--- clearly readable in open areas between fixtures - "do not compensate
--- for poor global visibility by making every street lamp excessively
--- bright" means this has to carry that weight itself.
---
--- Message 22, section 2 ("make the entire map lighter... bright, welcoming,
--- easy to see"): pushed meaningfully brighter across all three
--- independent levers (Ambient color, Brightness, Exposure) rather than
--- just one, since each affects a different part of the render (fill
--- color, direct light, midtone lift respectively) - a real, noticeable
--- jump without any single value doing all the work alone (which would
--- risk washing out the color identity). Saturation/contrast in
--- ColorCorrection below are eased further too, for the same reason.
-LightingConfig.AMBIENT_COLOR = Color3.fromRGB(110, 118, 145)
-LightingConfig.OUTDOOR_AMBIENT_COLOR = Color3.fromRGB(110, 118, 145)
-LightingConfig.DUSK_BRIGHTNESS = 2.6 -- was 1.75
+-- Ambient/Outdoor ambient: a warm, soft golden tint (replacing the
+-- previous cool blue-grey dusk tone) - bright enough on its own
+-- (independent of any lamp) that ground/buildings/players stay clearly
+-- readable in open areas between fixtures, matching the explicit "the
+-- map should NOT feel dark or gloomy" / "remains easy to see even away
+-- from the street lamps" requirements. Kept at least as bright as the
+-- previous brightest (Message 22) pass, not just restored to it - a
+-- sunrise should read as BRIGHTER than a dusk, not equally dim.
+LightingConfig.AMBIENT_COLOR = Color3.fromRGB(160, 140, 120)
+LightingConfig.OUTDOOR_AMBIENT_COLOR = Color3.fromRGB(160, 140, 120)
+LightingConfig.DUSK_BRIGHTNESS = 3 -- was 2.6 (dusk) / 1.75 (original) - sunrise reads brighter still
 
 -- Exposure: a small positive compensation so midtones/shadows lift
 -- slightly without raising Brightness (which affects direct light) or
 -- Ambient (which affects fill color) - a third, independent lever for
--- "clearly playable" without changing the dusk color mood.
-LightingConfig.EXPOSURE_COMPENSATION = 0.4 -- was 0.15
+-- "clearly playable" without changing the sunrise color mood.
+LightingConfig.EXPOSURE_COMPENSATION = 0.45 -- was 0.4 (dusk) / 0.15 (original)
 
-LightingConfig.FOG_COLOR = Color3.fromRGB(34, 38, 52) -- close to Ambient, so fog reads as atmospheric haze, not a mismatched color
+-- Warm peach/orange fog instead of the previous cool blue-grey dusk fog -
+-- reads as morning haze near the horizon rather than nighttime murk.
+LightingConfig.FOG_COLOR = Color3.fromRGB(210, 175, 150)
 LightingConfig.FOG_END = 650 -- generous falloff distance - "subtle atmospheric depth without heavy fog obscuring distant objects"
 
 -- Bloom: restrained on purpose - enough to make neon read as "glowing"

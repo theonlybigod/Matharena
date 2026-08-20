@@ -121,20 +121,32 @@ local function buildSpireCanopy(canopyBase: Vector3, rng: Random, model: Model, 
 
 	local tierCount = 4
 	local tierHeight = canopyHeight / tierCount
-	local y = canopyBase.Y
+	local actualTierHeight = tierHeight * 0.85
+	-- Bug fix (floating/disconnected foliage): this used to start the
+	-- first tier's CENTER at canopyBase.Y + tierHeight*0.5 - a full HALF of
+	-- the nominal tierHeight - even though each tier's ACTUAL built height
+	-- is only tierHeight*0.85 (its real half-height is tierHeight*0.425).
+	-- That left the first tier's BOTTOM floating tierHeight*0.075 studs
+	-- above canopyBase (the trunk's actual top surface) - a small but real
+	-- visible gap between the trunk and the canopy. Tracking the next
+	-- tier's BOTTOM explicitly (starting exactly at canopyBase.Y) and
+	-- centering each tier at bottom + actualTierHeight/2 guarantees the
+	-- first tier sits flush on the trunk, with every subsequent tier still
+	-- stacking flush on the one below it (unchanged from before).
+	local nextTierBottom = canopyBase.Y
 	for i = 1, tierCount do
 		local tierWidth = canopyWidth * (1 - (i - 1) * 0.2)
 		PartUtils.CreatePart({
 			name = "SpireTier" .. i,
-			size = Vector3.new(tierWidth, tierHeight * 0.85, tierWidth),
-			cframe = CFrame.new(canopyBase.X, y + tierHeight * 0.5, canopyBase.Z)
+			size = Vector3.new(tierWidth, actualTierHeight, tierWidth),
+			cframe = CFrame.new(canopyBase.X, nextTierBottom + actualTierHeight / 2, canopyBase.Z)
 				* CFrame.Angles(0, math.rad(rotationY + (i - 1) * 18), 0),
 			material = Enum.Material.Grass,
 			color = foliageColor,
 			canCollide = false,
 			parent = model,
 		})
-		y += tierHeight * 0.85
+		nextTierBottom += actualTierHeight
 	end
 
 	for _, side in ipairs({ -1, 1 }) do
@@ -150,17 +162,6 @@ local function buildSpireCanopy(canopyBase: Vector3, rng: Random, model: Model, 
 			"SpireFin"
 		)
 	end
-
-	PartUtils.CreateDisc({
-		name = "SpireAccentRing",
-		diameter = canopyWidth * 1.15,
-		thickness = 0.2,
-		position = canopyBase,
-		material = Enum.Material.Neon,
-		color = TreeConfig.ACCENT_COLOR,
-		canCollide = false,
-		parent = model,
-	})
 end
 
 --[[
@@ -245,14 +246,36 @@ local function buildTwinBoughCanopy(canopyBase: Vector3, rng: Random, model: Mod
 end
 
 --[[
-	"CrystalCluster": 6 irregular angular blocks of varying size/angle/
-	height scattered along the UPPER TRUNK (not just at the very top),
-	forming an irregular faceted mass - the most organic-feeling of the
-	four, while still built entirely from angular geometry.
+	"CrystalCluster": a solid central core mass (running from the trunk top
+	up through the canopy) with 6 irregular angular blocks of varying size/
+	angle/height radiating outward from it, forming an irregular faceted
+	mass - the most organic-feeling of the four, while still built entirely
+	from angular geometry.
+
+	Bug fix (floating/disconnected foliage): this used to radiate all 6
+	shards from single POINTS along the trunk's central vertical axis, with
+	no actual solid geometry connecting them to each other or to the trunk
+	for any shard whose height offset exceeded the trunk's own height -
+	those shards' near-ends sat suspended in empty air, visibly floating
+	and disconnected. The CoreMass below (sized/positioned the same way
+	CanopyBurst's BurstCore already connects cleanly to its trunk) gives
+	every shard's origin point solid geometry to actually embed into,
+	regardless of its height offset.
 ]]
 local function buildCrystalClusterCanopy(canopyBase: Vector3, rng: Random, model: Model, foliageColor: Color3)
 	local canopyHeight = rng:NextNumber(TreeConfig.CANOPY_HEIGHT_MIN, TreeConfig.CANOPY_HEIGHT_MAX)
 	local canopyWidth = rng:NextNumber(TreeConfig.CANOPY_WIDTH_MIN, TreeConfig.CANOPY_WIDTH_MAX)
+
+	local coreWidth = canopyWidth * 0.32
+	PartUtils.CreatePart({
+		name = "CoreMass",
+		size = Vector3.new(coreWidth, canopyHeight * 1.05, coreWidth),
+		cframe = CFrame.new(canopyBase + Vector3.new(0, canopyHeight * 1.05 / 2 - canopyHeight * 0.25, 0)),
+		material = Enum.Material.Grass,
+		color = foliageColor,
+		canCollide = false,
+		parent = model,
+	})
 
 	local clusterCount = 6
 	for i = 1, clusterCount do

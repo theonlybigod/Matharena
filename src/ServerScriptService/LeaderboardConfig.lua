@@ -107,6 +107,7 @@ export type CategoryConfig = {
 	boardName: string,
 	accentColor: Color3,
 	ascending: boolean, -- true = lower raw value is better (only FastestAnswer)
+	positionOverrideXZ: Vector2?, -- if set, overrides the arc-formula X/Z position for this board (see LeaderboardBoards.lua) - used to reconcile a manual in-Studio move
 	toRawValue: (profile: any) -> number?, -- nil = skip writing this category for this profile
 	toDisplayValue: (raw: number) -> number,
 	format: (value: number) -> string,
@@ -123,6 +124,12 @@ LeaderboardConfig.CATEGORIES = {
 		boardName = "WinsLeaderboard",
 		accentColor = Config.BRAND_NEON_COLOR,
 		ascending = false,
+		-- Manual edit reconciliation: this end board was manually dragged to
+		-- a new position directly in Studio (previously formula-only, this
+		-- override supersedes the arc math for X/Z - see
+		-- LeaderboardBoards.lua's buildOneBoard). Y/height and orientation
+		-- are still computed the normal way from this position.
+		positionOverrideXZ = Vector2.new(69.85, 132.93),
 		toRawValue = function(profile)
 			return profile.wins
 		end,
@@ -190,6 +197,9 @@ LeaderboardConfig.CATEGORIES = {
 		boardName = "FastestAnswerLeaderboard",
 		accentColor = Color3.fromRGB(255, 140, 60),
 		ascending = true, -- lower is better - only this leaderboard sorts ascending
+		-- Manual edit reconciliation: this end board was manually dragged to
+		-- a new position directly in Studio, same as Wins above.
+		positionOverrideXZ = Vector2.new(-71.71, 132.18),
 		-- Stored as whole milliseconds (fractional seconds aren't valid
 		-- OrderedDataStore values), divided back by 1000 for display.
 		-- Players with no recorded fastest answer yet (the -1 sentinel,

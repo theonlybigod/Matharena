@@ -72,8 +72,4 @@ TreeConfig.SKIP_CHANCE = 0.18 -- slightly more open breathing room than before (
 -- more clearance to avoid crowding those objects.
 TreeConfig.AVOID_RADIUS = 20
 
--- A restrained neon accent color (Spire variant only - see Trees.lua) so
--- not every tree spends extra parts/bloom budget on it.
-TreeConfig.ACCENT_COLOR = LightingConfig.DECORATIVE
-
 return TreeConfig

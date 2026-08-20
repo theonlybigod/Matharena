@@ -129,25 +129,49 @@ end
 --[[
 	Attaches a simple hover/press scale animation to a GuiButton. Purely
 	presentational - has no effect on the button's actual click behavior.
+
+	Bug fix (hover-makes-buttons-disappear): this used to capture
+	`button.Size` ONCE, at the moment this function was called, into
+	`originalSize`, then always tweened back to that captured value on
+	MouseLeave. Every caller that builds a button via a shared constructor
+	(see UITheme.CreateNavButton below) calls this function BEFORE setting
+	the button's real final Size - the constructor attaches the hover effect
+	first, then the caller (e.g. LobbyUIController.client.lua's
+	createButton) resizes the button afterward. That meant `originalSize`
+	was permanently locked to the button's default/interim size (not its
+	real, final, laid-out size), so every hover snapped the button to the
+	wrong size and every un-hover snapped it back to that same wrong size -
+	which, sitting inside a UIListLayout alongside every other button, threw
+	off the whole row's layout and could push a button visually out of its
+	parent's bounds, reading as "the button disappeared".
+
+	Fix: capture the base size LAZILY, on the first MouseEnter, instead of
+	at attach time. Since any caller's resize always happens synchronously
+	right after creation (before the game loop can ever deliver a mouse
+	event), the first real MouseEnter is guaranteed to see the button's true
+	final size, so `baseSize` is always correct regardless of call order.
 ]]
 function UITheme.ApplyButtonHoverEffect(button: GuiButton)
-	local originalSize = button.Size
+	local baseSize: UDim2? = nil
 
 	button.MouseEnter:Connect(function()
+		baseSize = baseSize or button.Size
 		TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
-			Size = originalSize + UDim2.fromOffset(6, 6),
+			Size = baseSize + UDim2.fromOffset(6, 6),
 		}):Play()
 	end)
 
 	button.MouseLeave:Connect(function()
+		baseSize = baseSize or button.Size
 		TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
-			Size = originalSize,
+			Size = baseSize,
 		}):Play()
 	end)
 
 	button.MouseButton1Down:Connect(function()
+		baseSize = baseSize or button.Size
 		TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {
-			Size = originalSize - UDim2.fromOffset(4, 4),
+			Size = baseSize - UDim2.fromOffset(4, 4),
 		}):Play()
 	end)
 end

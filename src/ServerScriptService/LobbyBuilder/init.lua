@@ -83,6 +83,12 @@ function LobbyBuilder.Build(force: boolean?)
 	SpawnsAndPortal.BuildQueuePortal(lobby)
 	Decorations.BuildAll(lobby)
 	Sign.Build(lobby)
+	-- CentralBoard was manually deleted directly in Studio - no longer
+	-- built here so a future Rebuild() reproduces that deletion instead of
+	-- silently re-creating it. CentralBoard.lua/CentralBoardConfig.lua
+	-- still physically exist on disk (unused dead code) - I don't have a
+	-- file-delete capability, so removing them from disk entirely needs a
+	-- manual step outside this pipeline if you want them gone for good.
 
 	applyGroundElevation(lobby)
 

@@ -1,21 +1,27 @@
 --[[
 	SeatingConfig.lua
 
-	Centralized configuration for the lobby's seating (Message 2
-	addition/refinement, replacing the single repeated bench design with
-	four distinct seat types arranged into five logically-placed seating
-	zones).
+	Centralized configuration for the lobby's seating.
 
-	SEAT_TYPES: visual/material parameters for each distinct seat design.
-	Kept intentionally different from each other in shape, backrest,
-	armrests, support style, and material - see Seating.lua for the
-	actual construction functions, one per type.
+	Rebuild pass (seating/trees/branding cleanup): every previous seat
+	type (SeatTypeB "Lounge Chair", SeatTypeC "Booth Seat", SeatTypeD
+	"Portal Stool") has been removed entirely from the source tree, per
+	explicit direction to delete all existing seating and settle on ONE
+	consistent upgraded bench design going forward. Only SeatTypeA
+	remains, rebuilt bigger/taller/more detailed (see its comment below)
+	and used for every seating zone - Seating.lua no longer has separate
+	builder functions for the removed types.
 
-	ZONES: where each type of seating actually goes, and how many seats
-	per zone. Positions/yaws are hand-placed (not ring-generated) since
-	"arrange seating in locations that make logical sense" calls for
-	deliberate placement near real points of interest, not a procedural
-	ring. Seating.lua turns each zone entry into actual seat instances.
+	ZONES: where seating actually goes, and how many seats per zone.
+	Positions are hand-placed (not ring-generated) since "arrange seating
+	in locations that make logical sense" calls for deliberate placement
+	near real points of interest, not a procedural ring - kept clear of
+	buildings, leaderboards, the stage, spawns, and main paths, same
+	verified clearances as before. Every placement now only carries a
+	position - Seating.lua computes each bench's facing yaw directly from
+	that position toward the map's true center (0, 0), so "every bench
+	faces the center of the map" holds by construction rather than by
+	separately-authored per-placement angles that could drift out of sync.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -29,13 +35,9 @@ local SCALE = MapConfig.SCALE_FACTOR
 
 --[[
 	Looks up a building's def from LobbyConfig.BUILDINGS by stable NAME
-	rather than a numeric array index. Message 18 removed the
-	"LeaderboardHall" entry from that array entirely (the leaderboard has
-	its own dedicated LobbyConfig.LEADERBOARD_ANCHOR now) - anything that
-	previously indexed BUILDINGS[1..5] positionally would silently break
-	(or worse, silently point at the WRONG building) the moment the array's
-	length/order ever changes again. Name lookup can't drift out of sync
-	like that.
+	rather than a numeric array index - see the original comment history;
+	names can't drift out of sync the way positional indices could if the
+	BUILDINGS array's length/order ever changes again.
 ]]
 local function findBuildingByName(name: string)
 	for _, def in ipairs(LobbyConfig.BUILDINGS) do
@@ -46,184 +48,97 @@ local function findBuildingByName(name: string)
 	error(("SeatingConfig: no LobbyConfig.BUILDINGS entry named %q"):format(name))
 end
 
--- Zones anchored to the map's CENTER (portal plaza, walkway, social
--- lounge, leaderboard viewing) scale uniformly with the map - this both
--- moves them outward for the larger footprint AND increases the actual
--- spacing between them proportionally ("spread seating into comfortable
--- social areas"). Zones anchored to a BUILDING (BuildingFrontZone) instead
--- add a fixed, unscaled offset to that building's own (already-scaled)
--- LobbyConfig position, since the offset is relative to the building's
--- footprint size, which isn't being resized - see LobbyConfig.lua.
 local function scaled(x: number, z: number): Vector3
 	return Vector3.new(x * SCALE, 0, z * SCALE)
 end
 
 SeatingConfig.ROOT_ATTRIBUTE = "LobbySeating" -- set on the top-level seating Folder
-SeatingConfig.DECORATIVE_ATTRIBUTE = "Decorative" -- set on every seat model (true) - it's dressing, not an interactive object
+SeatingConfig.DECORATIVE_ATTRIBUTE = "Decorative" -- set on every seat model (true) - it's dressing, not an interactive gameplay object
 
 export type SeatTypeDef = {
 	id: string,
 	seatSize: Vector3,
-	backrestHeight: number?, -- nil = no backrest (SeatTypeD)
-	hasArmrests: boolean,
-	supportStyle: string, -- "Legs" | "PedestalBlock" | "PedestalPost" - documentation only, Seating.lua has one builder function per type id
+	backrestHeight: number,
 	seatMaterial: Enum.Material,
 	seatColor: Color3,
 	accentColor: Color3,
 }
 
-SeatingConfig.SEAT_TYPES = {
-	-- "Classic Bench", refined: two thin leg supports, a modest backrest,
-	-- no armrests, a thin neon underglow strip along the base. The
-	-- general-purpose walkway seat.
-	-- Message 26 ("make all the benches/seats/stools way bigger"): every
-	-- seat type below is roughly 1.6-1.8x its previous dimensions - a real,
-	-- noticeable jump, not a token bump. Seating.lua's builder functions
-	-- already derive every other measurement (leg height, backrest
-	-- proportions, trim placement) from seatSize/backrestHeight, so scaling
-	-- these numbers up scales the whole seat consistently without needing
-	-- to touch the builder functions themselves.
-	SeatTypeA = {
-		id = "SeatTypeA",
-		seatSize = Vector3.new(7.5, 0.6, 2.7),
-		backrestHeight = 2.5,
-		hasArmrests = false,
-		supportStyle = "Legs",
-		seatMaterial = Enum.Material.SmoothPlastic,
-		seatColor = Color3.fromRGB(235, 235, 240),
-		accentColor = LightingConfig.DECORATIVE,
-	},
-	-- "Lounge Chair": single-seat width, armrests, a single centered
-	-- pedestal block support, a warmer material - the social-lounge seat.
-	SeatTypeB = {
-		id = "SeatTypeB",
-		seatSize = Vector3.new(4.3, 0.6, 3.6),
-		backrestHeight = 3.1,
-		hasArmrests = true,
-		supportStyle = "PedestalBlock",
-		seatMaterial = Enum.Material.SmoothPlastic,
-		seatColor = Color3.fromRGB(90, 70, 60),
-		accentColor = Color3.fromRGB(255, 170, 90),
-	},
-	-- "Booth Seat": tall backrest with side wings for an enclosed booth
-	-- feel, a solid block base (not legs), dark metal - the
-	-- building-entrance / points-of-interest seat.
-	SeatTypeC = {
-		id = "SeatTypeC",
-		seatSize = Vector3.new(5.6, 0.6, 3.0),
-		backrestHeight = 4.8,
-		hasArmrests = false,
-		supportStyle = "Block",
-		seatMaterial = Enum.Material.Metal,
-		seatColor = Color3.fromRGB(45, 48, 56),
-		accentColor = LightingConfig.DECORATIVE,
-	},
-	-- "Portal Stool": low, round, backless - deliberately unobtrusive so
-	-- it never blocks sightlines to the queue portal or the floating
-	-- sign directly overhead.
-	SeatTypeD = {
-		id = "SeatTypeD",
-		seatSize = Vector3.new(3.0, 0.55, 3.0), -- diameter x thickness x diameter (round seat)
-		backrestHeight = nil,
-		hasArmrests = false,
-		supportStyle = "PedestalPost",
-		seatMaterial = Enum.Material.SmoothPlastic,
-		seatColor = Color3.fromRGB(230, 230, 235),
-		accentColor = LightingConfig.DECORATIVE,
-	},
+-- Single upgraded bench design ("Classic Bench", rebuilt): the previous
+-- SeatTypeA silhouette (two leg supports, a modest backrest, no
+-- armrests, a thin neon underglow strip) is preserved as the starting
+-- reference, per explicit direction, but scaled up substantially -
+-- roughly 1.4x on the seat's length/depth (preserving the same
+-- approximate aspect ratio, so it reads as "longer and taller", not
+-- stretched in only one direction) and further on backrest height for a
+-- more substantial, taller presence. See Seating.lua for the actual
+-- extra detail geometry (cross-brace, corner caps, double trim) that
+-- makes this read as "more detailed/more futuristic", not just a bigger
+-- version of the same simple shape.
+SeatingConfig.SEAT_TYPE = {
+	id = "SeatTypeA",
+	seatSize = Vector3.new(10.5, 0.7, 3.8), -- was (7.5, 0.6, 2.7) - same ~2.78:1 length:depth ratio, scaled ~1.4x
+	backrestHeight = 3.6, -- was 2.5 - a taller, more substantial backrest
+	seatMaterial = Enum.Material.SmoothPlastic,
+	seatColor = Color3.fromRGB(235, 235, 240),
+	accentColor = LightingConfig.DECORATIVE,
 }
 
 export type SeatPlacement = {
 	position: Vector3,
-	yawDegrees: number,
 }
 
 export type SeatingZone = {
 	id: string,
-	seatType: string,
 	placements: { SeatPlacement },
 }
 
 -- ASSUMPTION (documented, not stopped for): exact seat counts/positions
--- per zone aren't specified in the brief beyond "several zones, logically
--- placed, with walking space between groups" - the values below are a
--- reasonable concrete layout satisfying that, hand-checked against
--- spawns/buildings/portal footprints in Decorations.lua's placement pass.
+-- per zone aren't specified in the brief beyond "intentional locations...
+-- previously requested reduced seating density" - the values below reuse
+-- the same verified-clear positions as before (hand-checked against
+-- spawns/buildings/portal/leaderboard footprints in Decorations.lua's
+-- placement pass), just now all built as the single upgraded bench type.
+--
+-- Manual edit reconciliation: PortalPlazaZone (4 stools around the queue
+-- portal) was manually deleted directly in Studio. Removed from source
+-- entirely here to match - simply leaving it out (rather than hiding it
+-- some other way) so a future LobbyBuilder.Rebuild() reproduces the
+-- deletion instead of silently re-creating seats that were deliberately
+-- removed.
 SeatingConfig.ZONES = {
-	-- Around the queue portal, at the lobby's visual/social center - low
-	-- stools so nothing blocks the view up to the floating sign or across
-	-- to the portal itself.
-	{
-		id = "PortalPlazaZone",
-		seatType = "SeatTypeD",
-		placements = {
-			{ position = scaled(9, 9), yawDegrees = 45 },
-			{ position = scaled(-9, 9), yawDegrees = -45 },
-			{ position = scaled(9, -9), yawDegrees = 135 },
-			{ position = scaled(-9, -9), yawDegrees = -135 },
-		},
-	},
-	-- Two pairs flanking the main spawn-to-portal walkway, facing inward
-	-- toward the path, far enough apart to leave real walking space
-	-- between the two pairs.
 	{
 		id = "WalkwayZone",
-		seatType = "SeatTypeA",
 		placements = {
-			{ position = scaled(24, 62), yawDegrees = -90 },
-			{ position = scaled(-24, 62), yawDegrees = 90 },
-			{ position = scaled(24, 40), yawDegrees = -90 },
-			{ position = scaled(-24, 40), yawDegrees = 90 },
+			{ position = scaled(24, 62) },
+			{ position = scaled(-24, 62) },
+			{ position = scaled(24, 40) },
+			{ position = scaled(-24, 40) },
 		},
 	},
-	-- A small open "lounge" cluster off to one side, chairs angled
-	-- toward a shared center point rather than all facing the same way -
-	-- reads as an actual social nook rather than a row.
 	{
 		id = "SocialLoungeZone",
-		seatType = "SeatTypeB",
 		placements = {
-			{ position = scaled(50, 25), yawDegrees = 200 },
-			{ position = scaled(60, 32), yawDegrees = 250 },
-			{ position = scaled(60, 15), yawDegrees = 160 },
-			{ position = scaled(50, 5), yawDegrees = 110 },
+			{ position = scaled(50, 25) },
+			{ position = scaled(60, 32) },
+			{ position = scaled(60, 15) },
+			{ position = scaled(50, 5) },
 		},
 	},
-	-- One booth seat to the side of each remaining walk-in building's
-	-- entrance, facing back toward the doorway - present without
-	-- blocking it (LeaderboardHall is intentionally excluded here; it
-	-- gets its own zone below since it's no longer a walk-in building).
-	-- Offsets are fixed/unscaled - they're relative to each building's own
-	-- (unscaled) footprint size - added onto that building's already-scaled
-	-- LobbyConfig position. Message 20: re-derived from each building's new,
-	-- much larger half-width/half-depth (offset = halfWidth-2, halfDepth+4)
-	-- rather than reusing the old fixed numbers, which would have sat
-	-- awkwardly close to (or inside) the bigger entrances.
 	{
 		id = "BuildingFrontZone",
-		seatType = "SeatTypeC",
 		placements = {
-			{ position = findBuildingByName("Shop").position + Vector3.new(16, 0, 19), yawDegrees = 180 },
-			{ position = findBuildingByName("DailyRewards").position + Vector3.new(11, 0, 17), yawDegrees = 180 },
-			{ position = findBuildingByName("TutorialBuilding").position + Vector3.new(-11, 0, 17), yawDegrees = 180 },
-			{
-				position = findBuildingByName("StatisticsBuilding").position + Vector3.new(-16, 0, 13.5),
-				yawDegrees = 180,
-			},
+			{ position = findBuildingByName("Shop").position + Vector3.new(16, 0, 19) },
+			{ position = findBuildingByName("DailyRewards").position + Vector3.new(11, 0, 17) },
+			{ position = findBuildingByName("TutorialBuilding").position + Vector3.new(-11, 0, 17) },
+			{ position = findBuildingByName("StatisticsBuilding").position + Vector3.new(-16, 0, 13.5) },
 		},
 	},
-	-- Facing the leaderboard arc from a comfortable viewing distance.
-	-- Message 20: the arc moved to the NORTH side (+Z), facing SOUTH
-	-- (facingYawDegrees = 180 in LEADERBOARD_ANCHOR) - so these seats sit
-	-- SOUTH of the anchor (toward the plaza/map center, negative local Z)
-	-- and face NORTH (yawDegrees = 0) back up at the boards, the mirror
-	-- image of the previous east-side/west-facing arrangement.
 	{
 		id = "LeaderboardViewingZone",
-		seatType = "SeatTypeC",
 		placements = {
-			{ position = LobbyConfig.LEADERBOARD_ANCHOR.position + scaled(18, -20), yawDegrees = 0 },
-			{ position = LobbyConfig.LEADERBOARD_ANCHOR.position + scaled(-18, -20), yawDegrees = 0 },
+			{ position = LobbyConfig.LEADERBOARD_ANCHOR.position + scaled(18, -20) },
+			{ position = LobbyConfig.LEADERBOARD_ANCHOR.position + scaled(-18, -20) },
 		},
 	},
 }

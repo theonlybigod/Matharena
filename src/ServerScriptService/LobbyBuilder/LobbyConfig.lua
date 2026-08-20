@@ -51,22 +51,48 @@ LobbyConfig.FLOOR_COLOR = Color3.fromRGB(180, 180, 185) -- smooth concrete
 LobbyConfig.NEON_COLOR = LightingConfig.BUILDING_TRIM
 
 LobbyConfig.SPAWN_SIZE = Vector2.new(8, 8)
--- Message 23: each spawn now faces the leaderboard arc directly, not
--- just "generally toward the plaza" (the previous default/unrotated
--- facing left the two OUTER spawns pointing ~59 degrees off from the
--- leaderboard anchor - close enough to see them peripherally, but not
--- genuinely "in front of" the player as this message requires). Each
--- entry now carries its own yaw, computed as an exact look-at from that
--- spawn's position toward LobbyConfig.LEADERBOARD_ANCHOR.position -
--- verified via Python (yaw = atan2(-dirX, -dirZ), matching a
--- SpawnLocation's default -Z-facing orientation with zero rotation) so
--- each spawn's resulting LookVector exactly matches the direction toward
--- the leaderboard arc, not approximated.
+
+--[[
+	Computes the yaw (degrees) that makes a SpawnLocation's default
+	-Z-facing orientation (zero rotation) point exactly from `fromPos`
+	toward `toPos`, ignoring height. Computed directly here (rather than
+	hand-derived decimal literals) so it can never drift out of sync with
+	wherever the leaderboard anchor happens to move to. Matches the exact
+	convention Message 23 already validated (yaw = atan2(-dirX, -dirZ)) for
+	a CFrame.Angles(0, yaw, 0) rotation.
+]]
+local function yawTowards(fromPos: Vector3, toPos: Vector3): number
+	local dir = toPos - fromPos
+	return math.deg(math.atan2(-dir.X, -dir.Z))
+end
+
+-- Spawn-side fix ("spawn IN FRONT of the leaderboards, not behind
+-- them"): every leaderboard board's actual DISPLAY face (the SurfaceGui
+-- is on Enum.NormalId.Back - see LeaderboardBoards.lua) was verified
+-- directly against the live boards' CFrame.LookVector to face toward
+-- DECREASING Z (each board's Front/LookVector points toward INCREASING
+-- Z, so the opposite Back face - where the screen actually renders -
+-- points the other way, toward the map center/portal). The boards
+-- themselves sit around Z=122-138 (scaled). The OLD spawn Z (90 unscaled
+-- = 153 scaled) put players just beyond that range on the FURTHER side -
+-- i.e. behind the boards' blank Front face, the wrong side entirely,
+-- matching the bug report exactly (Message 23's per-spawn rotation only
+-- pointed the camera AT the boards' position - it never fixed which SIDE
+-- of them the player was standing on).
+--
+-- Fix: moved to unscaled Z=55 (scaled ~93.5), comfortably between the
+-- queue portal (Z=0) and the nearest board (~Z=122) - genuinely on the
+-- viewable/Back-face side now, with real walking room on both sides.
+-- facingYawDegrees is recomputed via yawTowards() above (now pointing in
+-- the opposite general direction from before, since the spawn is on the
+-- opposite side of the arc now) so each spawn still looks exactly at the
+-- leaderboard anchor - this time correctly aimed at the screens rather
+-- than their blank back.
 LobbyConfig.SPAWN_POSITIONS = {
-	{ position = scaled(-30, 90), facingYawDegrees = -59.04 },
-	{ position = scaled(-10, 90), facingYawDegrees = -29.05 },
-	{ position = scaled(10, 90), facingYawDegrees = 29.05 },
-	{ position = scaled(30, 90), facingYawDegrees = 59.04 },
+	{ position = scaled(-30, 55), facingYawDegrees = yawTowards(scaled(-30, 55), scaled(0, 72)) },
+	{ position = scaled(-10, 55), facingYawDegrees = yawTowards(scaled(-10, 55), scaled(0, 72)) },
+	{ position = scaled(10, 55), facingYawDegrees = yawTowards(scaled(10, 55), scaled(0, 72)) },
+	{ position = scaled(30, 55), facingYawDegrees = yawTowards(scaled(30, 55), scaled(0, 72)) },
 }
 
 -- Message 20 major expansion: buildings grew substantially (roughly

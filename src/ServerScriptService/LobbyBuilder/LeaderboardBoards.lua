@@ -186,20 +186,32 @@ local function buildOneBoard(category, angleDegrees: number, arcCenter: Vector3,
 	local yaw = facingYawDegrees or 0
 	local angleRad = math.rad(angleDegrees)
 
-	-- Shallow concave bow: wide horizontal spread (ARC_SPREAD_RADIUS),
-	-- but only a small depth variation (ARC_DEPTH) so the flanking boards
-	-- don't push out past the lobby floor - see the module doc comment
-	-- in LeaderboardConfig.lua for why this isn't a true arc radius. This
-	-- local offset is computed in the arc's OWN frame (as if facing north)
-	-- and then rotated by the group's facing yaw, so the fan shape itself
-	-- never changes regardless of which way the whole group points.
-	local localOffset = Vector3.new(
-		LeaderboardConfig.ARC_SPREAD_RADIUS * math.sin(angleRad),
-		0,
-		-LeaderboardConfig.ARC_DEPTH * (1 - math.cos(angleRad))
-	)
-	local yawRotation = CFrame.Angles(0, math.rad(yaw), 0)
-	local boardPosition = arcCenter + (yawRotation * localOffset)
+	local boardPosition: Vector3
+	if category.positionOverrideXZ then
+		-- Manual edit reconciliation: this board was manually dragged to a
+		-- new position directly in Studio - use that exact X/Z instead of
+		-- the arc formula below. Y stays arcCenter.Y (always 0 pre-ground-
+		-- elevation - see LobbyConfig.lua's scaled()), matching how every
+		-- other board's vertical placement actually comes from the part-
+		-- local offsets below (plinthY/postHeight/height), not from
+		-- boardPosition.Y itself.
+		boardPosition = Vector3.new(category.positionOverrideXZ.X, arcCenter.Y, category.positionOverrideXZ.Y)
+	else
+		-- Shallow concave bow: wide horizontal spread (ARC_SPREAD_RADIUS),
+		-- but only a small depth variation (ARC_DEPTH) so the flanking boards
+		-- don't push out past the lobby floor - see the module doc comment
+		-- in LeaderboardConfig.lua for why this isn't a true arc radius. This
+		-- local offset is computed in the arc's OWN frame (as if facing north)
+		-- and then rotated by the group's facing yaw, so the fan shape itself
+		-- never changes regardless of which way the whole group points.
+		local localOffset = Vector3.new(
+			LeaderboardConfig.ARC_SPREAD_RADIUS * math.sin(angleRad),
+			0,
+			-LeaderboardConfig.ARC_DEPTH * (1 - math.cos(angleRad))
+		)
+		local yawRotation = CFrame.Angles(0, math.rad(yaw), 0)
+		boardPosition = arcCenter + (yawRotation * localOffset)
+	end
 
 	-- Orientation: aim this board's Back face (where the SurfaceGui and
 	-- the neon frame both live) directly at the shared focal point, so
