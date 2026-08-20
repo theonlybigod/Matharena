@@ -30,6 +30,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
+local GameplayConfig = require(ReplicatedStorage.Modules.GameplayConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
@@ -252,10 +253,113 @@ task.spawn(function()
 	end
 end)
 
--- ===== Play button =====
+-- ===== Play button (Play redesign: difficulty tier selection) =====
+-- Pressing Play used to instantly fire RequestJoinQueue with no choice
+-- involved. Now shows a tier-select popup first (6 named difficulty
+-- tiers, GameplayConfig.QUEUE_TIERS - Rookie Recruit's simple addition
+-- up through Meltdown Protocol's expert-level everything), which the
+-- player can cancel out of at any point before committing to a queue -
+-- same "press the button -> pick an option -> confirm" shape as the
+-- Practice mode popup (PracticeUIController.client.lua), reused rather
+-- than inventing a different pattern for a very similar choice.
+
+local tierOverlay = Instance.new("Frame")
+tierOverlay.Name = "PlayTierOverlay"
+tierOverlay.Size = UDim2.fromScale(1, 1)
+tierOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
+tierOverlay.BackgroundTransparency = 0.5
+tierOverlay.Visible = false
+tierOverlay.ZIndex = 25
+tierOverlay.Parent = mainUI
+
+local tierPanel = Instance.new("Frame")
+tierPanel.Name = "PlayTierPanel"
+tierPanel.Size = UDim2.fromOffset(420, 460)
+tierPanel.Position = UDim2.new(0.5, -210, 0.5, -230)
+tierPanel.ZIndex = 26
+UITheme.StylePanel(tierPanel, 0.05)
+tierPanel.Parent = tierOverlay
+
+local tierTitle = Instance.new("TextLabel")
+tierTitle.Name = "Title"
+tierTitle.Size = UDim2.new(1, -16, 0, 36)
+tierTitle.Position = UDim2.fromOffset(8, 10)
+tierTitle.BackgroundTransparency = 1
+tierTitle.Font = Enum.Font.GothamBlack
+tierTitle.TextScaled = true
+tierTitle.TextColor3 = UITheme.COLORS.Text
+tierTitle.Text = "CHOOSE YOUR DIFFICULTY"
+tierTitle.ZIndex = 27
+tierTitle.Parent = tierPanel
+
+local tierCancelButton = Instance.new("TextButton")
+tierCancelButton.Name = "CancelButton"
+tierCancelButton.Size = UDim2.new(1, -16, 0, 34)
+tierCancelButton.Position = UDim2.fromOffset(8, 414)
+tierCancelButton.Font = Enum.Font.GothamBold
+tierCancelButton.TextScaled = true
+tierCancelButton.Text = "CANCEL"
+tierCancelButton.TextColor3 = UITheme.COLORS.Text
+tierCancelButton.BackgroundColor3 = UITheme.COLORS.Error
+tierCancelButton.ZIndex = 27
+UITheme.ApplyCorner(tierCancelButton)
+UITheme.ApplyButtonHoverEffect(tierCancelButton)
+tierCancelButton.Parent = tierPanel
+
+tierCancelButton.MouseButton1Click:Connect(function()
+	tierOverlay.Visible = false
+end)
+
+for i, tier in ipairs(GameplayConfig.QUEUE_TIERS) do
+	local tierButton = Instance.new("TextButton")
+	tierButton.Name = "Tier" .. tier.id .. "Button"
+	tierButton.Size = UDim2.new(1, -16, 0, 56)
+	tierButton.Position = UDim2.fromOffset(8, 50 + (i - 1) * 60)
+	tierButton.Font = Enum.Font.GothamBold
+	tierButton.TextColor3 = UITheme.COLORS.Text
+	tierButton.BackgroundColor3 = UITheme.COLORS.Panel
+	tierButton.AutoButtonColor = false
+	tierButton.Text = ""
+	tierButton.ZIndex = 27
+	UITheme.ApplyCorner(tierButton)
+	UITheme.ApplyButtonHoverEffect(tierButton)
+	tierButton.Parent = tierPanel
+
+	local tierLabel = Instance.new("TextLabel")
+	tierLabel.Name = "Label"
+	tierLabel.Size = UDim2.new(1, -16, 0, 24)
+	tierLabel.Position = UDim2.fromOffset(8, 4)
+	tierLabel.BackgroundTransparency = 1
+	tierLabel.Font = Enum.Font.GothamBold
+	tierLabel.TextScaled = true
+	tierLabel.TextXAlignment = Enum.TextXAlignment.Left
+	tierLabel.TextColor3 = UITheme.COLORS.Accent
+	tierLabel.Text = ("%d. %s"):format(tier.id, tier.name)
+	tierLabel.ZIndex = 28
+	tierLabel.Parent = tierButton
+
+	local tierDescription = Instance.new("TextLabel")
+	tierDescription.Name = "Description"
+	tierDescription.Size = UDim2.new(1, -16, 0, 22)
+	tierDescription.Position = UDim2.fromOffset(8, 28)
+	tierDescription.BackgroundTransparency = 1
+	tierDescription.Font = Enum.Font.Gotham
+	tierDescription.TextSize = 14
+	tierDescription.TextXAlignment = Enum.TextXAlignment.Left
+	tierDescription.TextColor3 = UITheme.COLORS.SubText
+	tierDescription.Text = tier.description
+	tierDescription.ZIndex = 28
+	tierDescription.Parent = tierButton
+
+	tierButton.MouseButton1Click:Connect(function()
+		tierOverlay.Visible = false
+		RemoteEvents.Get("RequestJoinQueue"):FireServer(tier.id)
+	end)
+end
 
 playButton.MouseButton1Click:Connect(function()
-	RemoteEvents.Get("RequestJoinQueue"):FireServer()
+	tierOverlay.Visible = true
+	UITheme.PlayOpenTween(tierPanel)
 end)
 
 -- ===== Visibility driven by match state =====

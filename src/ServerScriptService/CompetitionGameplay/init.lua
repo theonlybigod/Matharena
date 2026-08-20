@@ -247,7 +247,15 @@ local function startRound()
 	roundActive = true
 	alivePlayers = MatchSystem.GetParticipants()
 	currentTurnIndex = 0
-	roundNumber = 1
+	-- Difficulty tiers (Play redesign): a match starts at whichever round
+	-- the queued tier maps to (GameplayConfig.QUEUE_TIERS), not always
+	-- round 1 - a harder tier just means "begin further along the SAME
+	-- round-based progression", not a separate difficulty system. Falls
+	-- back to round 1 if, for any reason, no tier was recorded (shouldn't
+	-- normally happen - MatchSystem always claims a tier before a match can
+	-- ever reach Playing).
+	local tierId = MatchSystem.GetCurrentTier()
+	roundNumber = if tierId then GameplayConfig.GetQueueTier(tierId).startingRound else 1
 	Elimination.RestoreAllPlatformColors()
 	QuestionGenerator.ResetUsedQuestions()
 	table.clear(rosterStatus)

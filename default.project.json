@@ -47,9 +47,9 @@
       "$properties": {
         "Ambient": [140, 140, 140],
         "OutdoorAmbient": [140, 140, 140],
-        "Brightness": 3,
+        "Brightness": 1.8,
         "ClockTime": 14.0,
-        "ExposureCompensation": 0.45,
+        "ExposureCompensation": 0.15,
         "FogColor": [180, 180, 185],
         "FogEnd": 650
       },

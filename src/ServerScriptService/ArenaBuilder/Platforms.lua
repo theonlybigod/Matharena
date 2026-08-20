@@ -11,13 +11,26 @@
 		- Each platform Model has these named children:
 			"Base"            -- the physical platform part
 			"GlowRing"        -- decorative base ring
-			"NameDisplay"     -- BillboardGui, contains a TextLabel named "NameLabel"
-			"RankDisplay"     -- BillboardGui, contains a TextLabel named "RankLabel"
-			"SpotlightFixture"-- Part above the platform, contains a SpotLight named "Spotlight"
+			"NameDisplay"     -- BillboardGui (Enabled=false by default - shown
+			                     on hover only), contains a TextLabel named
+			                     "NameLabel"
+			"RankDisplay"     -- BillboardGui (Enabled=false by default - shown
+			                     on hover only), contains a TextLabel named
+			                     "RankLabel"
 	  Future systems can find all platforms via:
 			CollectionService:GetTagged("ContestantPlatform")
 	  and identify a specific one via the PlatformIndex attribute, rather
 	  than hardcoding Workspace paths.
+
+	Spotlight fixtures removed entirely, per explicit direction ("I don't
+	want those features anymore") - platforms no longer have a
+	"SpotlightFixture"/SpotLight above them at all.
+
+	Hover detection lives on the PLAYER CHARACTER standing on a platform,
+	not on the platform itself - see MatchSystem/Teleporter.lua (which
+	attaches/removes it when assigning/returning players) and
+	PlatformHoverController.client.lua (which shows/hides NameDisplay/
+	RankDisplay in response). An unoccupied platform has nothing to hover.
 ]]
 
 local CollectionService = game:GetService("CollectionService")
@@ -43,6 +56,14 @@ local function addBillboardLabel(parent: Instance, name: string, labelName: stri
 	billboard.Size = UDim2.fromOffset(120, 36)
 	billboard.StudsOffset = Vector3.new(0, offsetY, 0)
 	billboard.AlwaysOnTop = true
+	-- Hover-only display pass: hidden by default now (was always visible).
+	-- See PlatformHoverController.client.lua (StarterPlayerScripts), which
+	-- toggles this Enabled flag locally per-viewer based on
+	-- HoverDetector's MouseHoverEnter/MouseHoverLeave events (added below,
+	-- on the platform's Base). The actual name/rank TEXT is still written
+	-- the exact same way as before, by MatchSystem/Teleporter.lua - only
+	-- visibility changed, not the underlying data flow.
+	billboard.Enabled = false
 	billboard.Parent = parent
 
 	local label = Instance.new("TextLabel")
@@ -185,26 +206,6 @@ local function buildOne(index: number, position: Vector3, parent: Instance): Mod
 
 	addBillboardLabel(model, "NameDisplay", "NameLabel", baseHeight + tier1Height + tier2Height + 5, "Player " .. index)
 	addBillboardLabel(model, "RankDisplay", "RankLabel", baseHeight + tier1Height + tier2Height + 2.5, "Rank -")
-
-	local fixture = PartUtils.CreatePart({
-		name = "SpotlightFixture",
-		size = Vector3.new(1, 1, 1),
-		position = position + Vector3.new(0, 20, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(40, 40, 45),
-		canCollide = false,
-		transparency = 0.3,
-		parent = model,
-	})
-
-	local spotlight = Instance.new("SpotLight")
-	spotlight.Name = "Spotlight"
-	spotlight.Face = Enum.NormalId.Bottom
-	spotlight.Range = 30
-	spotlight.Angle = 45
-	spotlight.Brightness = 3
-	spotlight.Color = Color3.fromRGB(255, 255, 255)
-	spotlight.Parent = fixture
 
 	model.PrimaryPart = base
 	CollectionService:AddTag(model, "ContestantPlatform")

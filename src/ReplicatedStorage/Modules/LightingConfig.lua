@@ -119,13 +119,24 @@ LightingConfig.DUSK_CLOCK_TIME = 14.0
 -- itself is neutral now, not tinted.
 LightingConfig.AMBIENT_COLOR = Color3.fromRGB(140, 140, 140)
 LightingConfig.OUTDOOR_AMBIENT_COLOR = Color3.fromRGB(140, 140, 140)
-LightingConfig.DUSK_BRIGHTNESS = 3
+LightingConfig.DUSK_BRIGHTNESS = 1.8
 
 -- Exposure: a small positive compensation so midtones/shadows lift
 -- slightly without raising Brightness (which affects direct light) or
 -- Ambient (which affects fill color) - a third, independent lever for
 -- "clearly playable".
-LightingConfig.EXPOSURE_COMPENSATION = 0.45
+--
+-- Glow/overexposure fix: Brightness and ExposureCompensation were both
+-- tuned specifically for the earlier low-angle SUNRISE theme (ClockTime
+-- 6.5), where the sun sits near the horizon and needs real compensation
+-- to stay readable. Once ClockTime moved to 14.0 (midday - the sun is
+-- already close to overhead and naturally bright on its own), that same
+-- boost became redundant on top of already-strong natural light,
+-- overexposing the whole scene into a washed-out/"glowing" look. Both
+-- values eased back down to levels appropriate for a bright midday sun
+-- rather than a dim sunrise - still clearly bright/"not dark", just not
+-- double-compensated for a sun angle that no longer applies.
+LightingConfig.EXPOSURE_COMPENSATION = 0.15
 
 -- Fog: neutral grey, same reasoning as Ambient above - no color tint.
 LightingConfig.FOG_COLOR = Color3.fromRGB(180, 180, 185)

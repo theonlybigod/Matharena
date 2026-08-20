@@ -66,7 +66,9 @@ shopOverlay.Parent = mainUI
 local shopPanel = Instance.new("Frame")
 shopPanel.Name = "ShopPanel"
 shopPanel.Size = UDim2.fromOffset(720, 480)
-shopPanel.Position = UDim2.new(0.5, -360, 0.5, -240)
+-- Nudged up from dead-center per explicit "the shop was too low, I want
+-- it a little higher" direction.
+shopPanel.Position = UDim2.new(0.5, -360, 0.5, -260)
 shopPanel.ZIndex = 21
 UITheme.StylePremiumPanel(shopPanel, 0.05)
 shopPanel.Parent = shopOverlay
@@ -113,9 +115,19 @@ UITheme.ApplyButtonHoverEffect(closeButton)
 closeButton.Parent = shopPanel
 
 -- Category tabs
+-- Bug fix ("Show All Items/My Items overlaps the shop items sections"):
+-- this row used to share space with FilterToggle beside it (tabBar width
+-- = panel width - 172, leaving a gap for the toggle to its right). With
+-- 6 categories (CosmeticsConfig.CATEGORIES), the tabs' combined width
+-- (6 * 90 + 5 * 6 padding = 570) already EXCEEDS that allotted space
+-- (548) on a full-size desktop panel, before any responsive scaling - the
+-- last tab overflows rightward into the toggle regardless of screen size.
+-- Fixed by giving the toggle its own row entirely below the tabs, so
+-- there's no shared horizontal space to overlap no matter how many
+-- categories exist or how wide their labels are.
 local tabBar = Instance.new("Frame")
 tabBar.Name = "CategoryTabs"
-tabBar.Size = UDim2.new(1, -172, 0, 32)
+tabBar.Size = UDim2.new(1, -32, 0, 32)
 tabBar.Position = UDim2.fromOffset(16, 52)
 tabBar.BackgroundTransparency = 1
 tabBar.ZIndex = 22
@@ -127,11 +139,11 @@ tabLayout.FillDirection = Enum.FillDirection.Horizontal
 tabLayout.Padding = UDim.new(0, 6)
 tabLayout.Parent = tabBar
 
--- Owned-only filter toggle
+-- Owned-only filter toggle - its own row below the tabs (see comment above).
 local filterToggle = Instance.new("TextButton")
 filterToggle.Name = "FilterToggle"
-filterToggle.Size = UDim2.fromOffset(140, 28)
-filterToggle.Position = UDim2.new(1, -156, 0, 52)
+filterToggle.Size = UDim2.fromOffset(140, 26)
+filterToggle.Position = UDim2.new(1, -156, 0, 90)
 filterToggle.Font = Enum.Font.GothamBold
 filterToggle.TextScaled = true
 filterToggle.TextColor3 = UITheme.COLORS.Text
@@ -142,11 +154,13 @@ UITheme.ApplyCorner(filterToggle)
 UITheme.ApplyButtonHoverEffect(filterToggle)
 filterToggle.Parent = shopPanel
 
--- Item grid (scrolling)
+-- Item grid (scrolling) - shifted down to make room for the filter
+-- toggle's own row above, height trimmed to match so the bottom edge
+-- stays where it was.
 local gridScroll = Instance.new("ScrollingFrame")
 gridScroll.Name = "ItemGrid"
-gridScroll.Size = UDim2.fromOffset(440, 360)
-gridScroll.Position = UDim2.fromOffset(16, 96)
+gridScroll.Size = UDim2.fromOffset(440, 332)
+gridScroll.Position = UDim2.fromOffset(16, 124)
 gridScroll.BackgroundTransparency = 1
 gridScroll.BorderSizePixel = 0
 gridScroll.ScrollBarThickness = 6
@@ -164,8 +178,8 @@ gridLayout.Parent = gridScroll
 -- Details panel (right side)
 local detailsPanel = Instance.new("Frame")
 detailsPanel.Name = "DetailsPanel"
-detailsPanel.Size = UDim2.fromOffset(220, 360)
-detailsPanel.Position = UDim2.fromOffset(472, 96)
+detailsPanel.Size = UDim2.fromOffset(220, 332)
+detailsPanel.Position = UDim2.fromOffset(472, 124)
 UITheme.StylePremiumPanel(detailsPanel, 0.1)
 detailsPanel.ZIndex = 22
 detailsPanel.Parent = shopPanel

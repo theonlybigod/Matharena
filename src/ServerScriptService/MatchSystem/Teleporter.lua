@@ -7,6 +7,19 @@
 	them. Finds platforms via the "ContestantPlatform" CollectionService
 	tag and lobby spawns via Workspace.Lobby.Spawns — no hardcoded instance
 	paths beyond those two well-known containers.
+
+	Hover-only name/rank display pass: hover detection lives on the PLAYER
+	CHARACTER itself (not the platform), so mousing over a player's
+	character specifically is what shows their name/rank - not just mousing
+	over empty platform floor near them. A ClickDetector is added to every
+	BasePart of the character when they're assigned a platform (so hovering
+	any visible part of their body - torso, limbs, head - triggers it, not
+	just one narrow hitbox), tagged "HoverableCharacter" with a
+	"PlatformIndex" attribute so PlatformHoverController.client.lua
+	(StarterPlayerScripts) can find the matching platform's displays.
+	Removed again in ReturnToLobby, since a returning character is the same
+	instance (not respawned), so stale detectors would otherwise keep
+	pointing at a platform that's no longer occupied.
 ]]
 
 local CollectionService = game:GetService("CollectionService")
@@ -16,6 +29,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local DataSystem = require(ServerScriptService.DataSystem)
 
 local Teleporter = {}
+
+local HOVERABLE_TAG = "HoverableCharacter"
 
 local function getSortedPlatforms(): { Model }
 	local tagged = CollectionService:GetTagged("ContestantPlatform")
@@ -34,6 +49,49 @@ local function setDisplayText(platform: Model, displayName: string, labelName: s
 	local label = display:FindFirstChild(labelName)
 	if label and label:IsA("TextLabel") then
 		label.Text = text
+	end
+end
+
+--[[
+	Adds a "HoverDetector" ClickDetector to every BasePart of `character`
+	(so hovering any visible part of their body triggers it, not just one
+	narrow hitbox), tags the character itself for discovery, and stamps the
+	platform's index so the client can look up which displays to show.
+]]
+local function attachHoverDetectors(character: Model, platformIndex: number)
+	CollectionService:AddTag(character, HOVERABLE_TAG)
+	character:SetAttribute("PlatformIndex", platformIndex)
+
+	for _, descendant in ipairs(character:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local detector = Instance.new("ClickDetector")
+			detector.Name = "HoverDetector"
+			detector.MaxActivationDistance = 100
+			detector.Parent = descendant
+		end
+	end
+end
+
+--[[
+	Removes every HoverDetector added above, and the tag/attribute, so a
+	character returning to the lobby doesn't keep triggering a platform's
+	displays it no longer occupies.
+]]
+local function removeHoverDetectors(character: Model)
+	if not CollectionService:HasTag(character, HOVERABLE_TAG) then
+		return
+	end
+
+	CollectionService:RemoveTag(character, HOVERABLE_TAG)
+	character:SetAttribute("PlatformIndex", nil)
+
+	for _, descendant in ipairs(character:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local detector = descendant:FindFirstChild("HoverDetector")
+			if detector then
+				detector:Destroy()
+			end
+		end
 	end
 end
 
@@ -69,6 +127,8 @@ function Teleporter.AssignPlatforms(players: { Player }): { [Player]: Model }
 		setDisplayText(platform, "NameDisplay", "NameLabel", player.Name)
 		setDisplayText(platform, "RankDisplay", "RankLabel", profile and profile.rank or "Unranked")
 
+		attachHoverDetectors(character, platform:GetAttribute("PlatformIndex"))
+
 		platform:SetAttribute("OccupyingUserId", player.UserId)
 		assignments[player] = platform
 	end
@@ -93,6 +153,7 @@ function Teleporter.ReturnToLobby(players: { Player })
 	for i, player in ipairs(players) do
 		local character = player.Character
 		if character then
+			removeHoverDetectors(character)
 			local spawnPart = spawnParts[((i - 1) % #spawnParts) + 1] :: BasePart
 			character:PivotTo(spawnPart.CFrame + Vector3.new(0, 3, 0))
 		end

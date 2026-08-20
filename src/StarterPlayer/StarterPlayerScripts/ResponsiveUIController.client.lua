@@ -14,6 +14,19 @@
 	Roblox's TextButton/TextBox/ImageButton already handle touch input
 	natively with no code changes needed - this script only handles the
 	sizing/fit concern, not input handling.
+
+	Height-fit fix ("the Rewards/Shop pop-up reaches below the screen,
+	overlapping the bottom button bar"): this used to compute the fit scale
+	from viewport WIDTH alone. On a wide-but-short viewport (a common shape
+	when testing via a narrow embedded/preview window), the width-based
+	scale can stay close to 1.0 even though the tallest fixed-offset popup
+	(RewardsPanel, 520px tall) genuinely doesn't fit the available height
+	once the top bar and bottom button bar are accounted for - nothing
+	about the OLD width-only formula would ever shrink the UI to compensate
+	for that, regardless of how short the viewport got. Now takes the
+	MINIMUM of the width-based and height-based ratios (a standard
+	"letterbox fit"), so the whole UI actually shrinks when height is the
+	binding constraint, not just when width is.
 ]]
 
 local Players = game:GetService("Players")
@@ -31,6 +44,11 @@ local camera = Workspace.CurrentCamera
 -- against (roughly matches the widest fixed-size element, the 580px
 -- lobby button bar, with some margin).
 local REFERENCE_WIDTH = 900
+-- The desktop-assumed reference HEIGHT: the tallest fixed-offset popup
+-- (RewardsPanel, 520px) plus enough headroom above/below for the top bar
+-- and bottom button bar to both stay fully visible and un-overlapped at
+-- the same time.
+local REFERENCE_HEIGHT = 760
 local MIN_FIT_SCALE = 0.55
 local MAX_FIT_SCALE = 1.0
 
@@ -41,11 +59,16 @@ uiScale.Parent = mainUI
 local userPreferenceScale = 1.0
 
 local function computeFitScale(): number
-	local viewportWidth = camera.ViewportSize.X
-	if viewportWidth <= 0 then
+	local viewportSize = camera.ViewportSize
+	if viewportSize.X <= 0 or viewportSize.Y <= 0 then
 		return 1.0
 	end
-	return math.clamp(viewportWidth / REFERENCE_WIDTH, MIN_FIT_SCALE, MAX_FIT_SCALE)
+	local widthScale = viewportSize.X / REFERENCE_WIDTH
+	local heightScale = viewportSize.Y / REFERENCE_HEIGHT
+	-- Whichever dimension is more constrained wins - a wide-but-short
+	-- viewport shrinks based on height even if width alone would've stayed
+	-- near 1.0, and vice versa for a narrow-but-tall one.
+	return math.clamp(math.min(widthScale, heightScale), MIN_FIT_SCALE, MAX_FIT_SCALE)
 end
 
 local function applyScale()

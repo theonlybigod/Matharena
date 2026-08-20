@@ -1,15 +1,28 @@
 --[[
 	PracticeUIController.client.lua
 
-	Practice Mode entry point + camera - the Practice button/confirm-modal
-	flow in the lobby, and the camera focus onto the practicer's platform.
-	Purely presentational - the server (PracticeSystem) decides everything
-	(question correctness, timing); this script only forwards the local
-	player's practice-entry/leave requests and moves the camera.
+	Practice Mode entry point + camera - the Practice button/mode-select/
+	confirm-modal flow in the lobby, and the camera focus onto the
+	practicer's platform. Purely presentational - the server
+	(PracticeSystem) decides everything (question correctness, timing,
+	which practice mode variant actually applies); this script only
+	forwards the local player's practice-entry/leave requests and moves
+	the camera.
 
 	Practice Mode is manual-only: it starts ONLY when the player presses
 	the Practice button - there is no automatic countdown/entry of any
 	kind, and no "Practice Mode starts in..." banner.
+
+	Practice mode selection ("what type of practice you want"): pressing
+	Practice now always shows a mode-select popup first (Regular/Double
+	Time/No Cooldown), before anything else - including before the
+	queued-confirm modal, so the flow is always: press Practice -> choose
+	a mode -> (confirm leaving the queue, if applicable) -> practice
+	starts in that mode. The three modes themselves (what "double time"/
+	"no cooldown" actually change about timing) are entirely a server-side
+	concern (see PracticeSystem.lua) - this script only ever sends one of
+	three fixed strings ("Regular"/"DoubleTime"/"NoCooldown"), never
+	invents timing values itself.
 
 	The actual question/timer/answer-input/exit UI all live on the arena's
 	giant central screen now (ArenaScreenController.client.lua), the exact
@@ -40,6 +53,14 @@ local queueUpdatedEvent = RemoteEvents.Get("QueueUpdated")
 
 local lobbyButtonBar = mainUI:WaitForChild("LobbyButtonBar")
 local practiceButton = lobbyButtonBar:WaitForChild("PracticeButton") :: TextButton
+
+-- Which mode was picked in the mode-select popup, remembered across the
+-- (optional) queued-confirm step so the eventual FireServer call sends
+-- the mode the player actually chose, not always "Regular". Declared once
+-- here, before anything below references it, so every closure in this
+-- file shares this exact same variable rather than accidentally creating
+-- separate globals.
+local pendingPracticeMode = "Regular"
 
 -- Tracked purely so clicking Practice while queued can show a confirm
 -- step instead of silently pulling the player out - updated from the
@@ -128,16 +149,106 @@ end)
 
 confirmPracticeButton.MouseButton1Click:Connect(function()
 	confirmOverlay.Visible = false
-	requestManualPracticeEvent:FireServer()
+	requestManualPracticeEvent:FireServer(pendingPracticeMode)
 end)
 
-practiceButton.MouseButton1Click:Connect(function()
+-- ===== Practice mode selection ("what type of practice you want") =====
+
+local modeOverlay = Instance.new("Frame")
+modeOverlay.Name = "PracticeModeOverlay"
+modeOverlay.Size = UDim2.fromScale(1, 1)
+modeOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
+modeOverlay.BackgroundTransparency = 0.5
+modeOverlay.Visible = false
+modeOverlay.ZIndex = 25
+modeOverlay.Parent = mainUI
+
+local modePanel = Instance.new("Frame")
+modePanel.Name = "PracticeModePanel"
+modePanel.Size = UDim2.fromOffset(380, 260)
+modePanel.Position = UDim2.new(0.5, -190, 0.5, -130)
+modePanel.ZIndex = 26
+UITheme.StylePanel(modePanel, 0.05)
+modePanel.Parent = modeOverlay
+
+local modeTitle = Instance.new("TextLabel")
+modeTitle.Name = "Title"
+modeTitle.Size = UDim2.new(1, -16, 0, 36)
+modeTitle.Position = UDim2.fromOffset(8, 10)
+modeTitle.BackgroundTransparency = 1
+modeTitle.Font = Enum.Font.GothamBlack
+modeTitle.TextScaled = true
+modeTitle.TextColor3 = UITheme.COLORS.Text
+modeTitle.Text = "WHAT TYPE OF PRACTICE?"
+modeTitle.ZIndex = 27
+modeTitle.Parent = modePanel
+
+local MODE_OPTIONS = {
+	{ mode = "Regular", label = "Regular Practice", description = "Normal timer, normal pace." },
+	{ mode = "DoubleTime", label = "Double Time Practice", description = "2x the usual time per question." },
+	{ mode = "NoCooldown", label = "No Cooldown Practice", description = "No pause between questions." },
+}
+
+local function startPracticeWithMode(mode: string)
+	pendingPracticeMode = mode
+	modeOverlay.Visible = false
 	if amIQueued then
 		confirmOverlay.Visible = true
 		UITheme.PlayOpenTween(confirmPanel)
 	else
-		requestManualPracticeEvent:FireServer()
+		requestManualPracticeEvent:FireServer(pendingPracticeMode)
 	end
+end
+
+for i, option in ipairs(MODE_OPTIONS) do
+	local optionButton = Instance.new("TextButton")
+	optionButton.Name = option.mode .. "Button"
+	optionButton.Size = UDim2.new(1, -16, 0, 56)
+	optionButton.Position = UDim2.fromOffset(8, 50 + (i - 1) * 62)
+	optionButton.Font = Enum.Font.GothamBold
+	optionButton.TextColor3 = UITheme.COLORS.Text
+	optionButton.BackgroundColor3 = UITheme.COLORS.Panel
+	optionButton.AutoButtonColor = false
+	optionButton.Text = ""
+	optionButton.ZIndex = 27
+	UITheme.ApplyCorner(optionButton)
+	UITheme.ApplyButtonHoverEffect(optionButton)
+	optionButton.Parent = modePanel
+
+	local labelText = Instance.new("TextLabel")
+	labelText.Name = "Label"
+	labelText.Size = UDim2.new(1, -16, 0, 26)
+	labelText.Position = UDim2.fromOffset(8, 4)
+	labelText.BackgroundTransparency = 1
+	labelText.Font = Enum.Font.GothamBold
+	labelText.TextScaled = true
+	labelText.TextXAlignment = Enum.TextXAlignment.Left
+	labelText.TextColor3 = UITheme.COLORS.Accent
+	labelText.Text = option.label
+	labelText.ZIndex = 28
+	labelText.Parent = optionButton
+
+	local descriptionText = Instance.new("TextLabel")
+	descriptionText.Name = "Description"
+	descriptionText.Size = UDim2.new(1, -16, 0, 22)
+	descriptionText.Position = UDim2.fromOffset(8, 30)
+	descriptionText.BackgroundTransparency = 1
+	descriptionText.Font = Enum.Font.Gotham
+	descriptionText.TextSize = 14
+	descriptionText.TextXAlignment = Enum.TextXAlignment.Left
+	descriptionText.TextColor3 = UITheme.COLORS.SubText
+	descriptionText.Text = option.description
+	descriptionText.ZIndex = 28
+	descriptionText.Parent = optionButton
+
+	optionButton.MouseButton1Click:Connect(function()
+		startPracticeWithMode(option.mode)
+	end)
+end
+
+practiceButton.MouseButton1Click:Connect(function()
+	modeOverlay.Visible = true
+	UITheme.PlayOpenTween(modePanel)
 end)
 
 -- ===== Remote handlers =====

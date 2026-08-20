@@ -9,6 +9,11 @@
 	"QueuePortal" via CollectionService so future systems can find it with
 	CollectionService:GetTagged("QueuePortal") without this module needing
 	to know anything about match/queue logic.
+
+	Pillar removal pass: the four decorative corner pillars around the
+	portal have been removed entirely, per explicit direction ("pillars 1
+	to 4 of the queue portal section gone"). The portal's floor disc and
+	the invisible trigger volume (used by MatchSystem) are untouched.
 ]]
 
 local CollectionService = game:GetService("CollectionService")
@@ -59,25 +64,6 @@ function SpawnsAndPortal.BuildQueuePortal(parent: Instance): Model
 		canCollide = false,
 		parent = model,
 	})
-
-	local half = LobbyConfig.QUEUE_PORTAL_SIZE.X / 2
-	local corners = {
-		Vector3.new(half, 0, half),
-		Vector3.new(half, 0, -half),
-		Vector3.new(-half, 0, half),
-		Vector3.new(-half, 0, -half),
-	}
-
-	for i, offset in ipairs(corners) do
-		PartUtils.CreatePart({
-			name = "Pillar" .. i,
-			size = Vector3.new(1, 10, 1),
-			position = LobbyConfig.QUEUE_PORTAL_POSITION + offset + Vector3.new(0, 5, 0),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(50, 50, 55),
-			parent = model,
-		})
-	end
 
 	local trigger = PartUtils.CreatePart({
 		name = "Trigger",

@@ -77,6 +77,47 @@ end
 GameplayConfig.RESOLVE_DISPLAY_SECONDS = 2.5 -- pause after an answer before the next turn begins
 
 --[[
+	Queue difficulty tiers ("what type of match you want", chosen from the
+	Play button's tier-select popup - see LobbyUIController.client.lua).
+	Each tier maps to a STARTING round in the EXISTING round-based
+	category/difficulty progression above (ROUND_PLAN / DIFFICULTY_BY_ROUND)
+	- picking a tier doesn't create a second difficulty system, it just
+	picks where in the current one a match begins. The match still
+	progresses harder from there exactly as it always has (a Tier 1 match
+	still gets harder every round; it just starts at round 1 instead of,
+	say, round 6).
+
+	Each tier is also its own separate matchmaking queue (see
+	MatchSystem.lua) - players choosing different tiers wait in different
+	pools rather than being grouped together, though only one match runs on
+	the arena at a time (whichever tier fills up first launches next).
+]]
+export type QueueTier = {
+	id: number,
+	name: string,
+	description: string,
+	startingRound: number,
+}
+
+GameplayConfig.QUEUE_TIERS = {
+	{ id = 1, name = "Rookie Recruit", description = "Simple addition to get started.", startingRound = 1 },
+	{ id = 2, name = "Number Cadet", description = "Basic arithmetic, a bit further.", startingRound = 2 },
+	{ id = 3, name = "Operation Overdrive", description = "Mixed operations kick in.", startingRound = 3 },
+	{ id = 4, name = "Percentage Pressure", description = "Percentages and fractions.", startingRound = 4 },
+	{ id = 5, name = "Order of Chaos", description = "Full BEDMAS - order of operations.", startingRound = 6 },
+	{ id = 6, name = "Meltdown Protocol", description = "Explosive, expert-level everything.", startingRound = 8 },
+} :: { QueueTier }
+
+function GameplayConfig.GetQueueTier(tierId: number): QueueTier
+	for _, tier in ipairs(GameplayConfig.QUEUE_TIERS) do
+		if tier.id == tierId then
+			return tier
+		end
+	end
+	return GameplayConfig.QUEUE_TIERS[1] -- fall back to the easiest tier for any invalid/stale id
+end
+
+--[[
 	Network contract. RemoteEvents are created on demand via the shared
 	RemoteEvents factory (ReplicatedStorage.Remotes.RemoteEvents), same
 	pattern as MatchSystem's remotes.

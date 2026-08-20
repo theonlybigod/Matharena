@@ -59,7 +59,12 @@ rewardsOverlay.Parent = mainUI
 local rewardsPanel = Instance.new("Frame")
 rewardsPanel.Name = "RewardsPanel"
 rewardsPanel.Size = UDim2.fromOffset(520, 520)
-rewardsPanel.Position = UDim2.new(0.5, -260, 0.5, -260)
+-- Nudged up from dead-center ("the pop-up reaches below the screen,
+-- overlapping the bottom button bar") - see ResponsiveUIController.lua
+-- for the actual fit-to-viewport fix; this repositioning is the "a little
+-- higher" complement to that, so the panel isn't sitting flush against
+-- the bottom bar even once it does fit.
+rewardsPanel.Position = UDim2.new(0.5, -260, 0.5, -300)
 rewardsPanel.ZIndex = 21
 UITheme.StylePremiumPanel(rewardsPanel, 0.05)
 rewardsPanel.Parent = rewardsOverlay

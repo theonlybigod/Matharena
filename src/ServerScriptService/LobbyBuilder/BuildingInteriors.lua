@@ -339,23 +339,6 @@ local function addShopIdentity(def, model: Model)
 			canCollide = false,
 			parent = model,
 		})
-
-		local bayLight = PartUtils.CreatePart({
-			name = "StorefrontBaySpotlightFixture",
-			size = Vector3.new(0.6, 0.6, 0.6),
-			position = basePos + Vector3.new(side * (halfX - 2), 7.2, halfZ + 1),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(40, 43, 50),
-			canCollide = false,
-			parent = model,
-		})
-		local spotlight = Instance.new("SpotLight")
-		spotlight.Face = Enum.NormalId.Bottom
-		spotlight.Range = 16
-		spotlight.Angle = 60
-		spotlight.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS * 1.3
-		spotlight.Color = Color3.fromRGB(255, 240, 220)
-		spotlight.Parent = bayLight
 	end
 
 	-- Illuminated marquee above the entrance canopy - a genuine "this is a
@@ -520,22 +503,6 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		canCollide = false,
 		parent = model,
 	})
-	local counterLight = PartUtils.CreatePart({
-		name = "CounterSpotlightFixture",
-		size = Vector3.new(0.6, 0.6, 0.6),
-		position = basePos + Vector3.new(0, def.height - 1.5, -halfZ + 4),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(40, 43, 50),
-		canCollide = false,
-		parent = model,
-	})
-	local counterSpotlight = Instance.new("SpotLight")
-	counterSpotlight.Face = Enum.NormalId.Bottom
-	counterSpotlight.Range = 18
-	counterSpotlight.Angle = 50
-	counterSpotlight.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS * 1.4
-	counterSpotlight.Color = Color3.fromRGB(255, 250, 240)
-	counterSpotlight.Parent = counterLight
 
 	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 7.5), "ShopTerminalPrompt", "Open Shop", "Shop")
 end

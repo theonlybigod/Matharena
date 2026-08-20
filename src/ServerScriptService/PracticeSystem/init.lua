@@ -77,6 +77,22 @@ local turnTimerSeconds: number? = nil
 local turnGeneration = 0
 local endPracticeAfterCurrentQuestion = false
 
+-- Practice mode variants ("what type of practice you want", chosen from
+-- the popup shown when pressing Practice - see PracticeUIController.client.lua):
+--   "Regular"    - normal timer, normal between-question pause.
+--   "DoubleTime" - each question's timer is doubled - more breathing
+--                  room to work through harder questions while training.
+--   "NoCooldown" - the between-question result-display pause
+--                  (GameplayConfig.RESOLVE_DISPLAY_SECONDS) is skipped
+--                  entirely, so the next question starts immediately -
+--                  rapid-fire reps with no downtime.
+-- Server-authoritative: the client only ever REQUESTS one of these three
+-- exact strings; the server clamps/validates and applies the actual
+-- timer/pause math below, exactly as it already owned every other timing
+-- value.
+local VALID_PRACTICE_MODES = { Regular = true, DoubleTime = true, NoCooldown = true }
+local practiceMode: string = "Regular"
+
 -- ===== Practice question loop =====
 
 local function clearPracticeStatDisplayPayload(player: Player)
@@ -145,7 +161,9 @@ local function beginNextPracticeQuestion()
 	-- progression without a second, incompatible difficulty table.
 	local question = QuestionGenerator.Generate(practiceQuestionNumber)
 	local difficulty = GameplayConfig.GetDifficultyForRound(practiceQuestionNumber)
-	local timerSeconds = GameplayConfig.TIMER_SECONDS[difficulty]
+	-- "DoubleTime" mode: exactly what it says - double the usual per-
+	-- question timer, the only difference from Regular mode's timing.
+	local timerSeconds = GameplayConfig.TIMER_SECONDS[difficulty] * (if practiceMode == "DoubleTime" then 2 else 1)
 
 	currentQuestion = question
 	turnStartClock = os.clock()
@@ -200,7 +218,7 @@ function PracticeSystem.ResolveTurn(player: Player, isCorrect: boolean, timedOut
 		stats = clearPracticeStatDisplayPayload(player),
 	})
 
-	task.wait(GameplayConfig.RESOLVE_DISPLAY_SECONDS)
+	task.wait(if practiceMode == "NoCooldown" then 0 else GameplayConfig.RESOLVE_DISPLAY_SECONDS)
 
 	if player == practicePlayer then
 		beginNextPracticeQuestion()
@@ -232,8 +250,13 @@ end
 	online doesn't prevent this player from practicing (section 10 from an
 	earlier prompt: "players waiting may enter Practice Mode"). Removes
 	them from the queue first if they were in it.
+
+	`requestedMode` is one of VALID_PRACTICE_MODES's keys ("Regular",
+	"DoubleTime", "NoCooldown") - anything else (a stale/malicious client)
+	silently falls back to "Regular" rather than erroring, same defensive
+	pattern as every other client-supplied value in this project.
 ]]
-function PracticeSystem.StartPractice(player: Player)
+function PracticeSystem.StartPractice(player: Player, requestedMode: string?)
 	if not player.Parent then
 		return
 	end
@@ -249,6 +272,7 @@ function PracticeSystem.StartPractice(player: Player)
 	practicePlayer = player
 	practiceQuestionNumber = 0
 	endPracticeAfterCurrentQuestion = false
+	practiceMode = if requestedMode and VALID_PRACTICE_MODES[requestedMode] then requestedMode else "Regular"
 
 	local assignments = Teleporter.AssignPlatforms({ player })
 	practicePlatform = assignments[player]
@@ -256,17 +280,18 @@ function PracticeSystem.StartPractice(player: Player)
 	practiceStateChangedEvent:FireClient(player, {
 		active = true,
 		platformIndex = practicePlatform and practicePlatform:GetAttribute("PlatformIndex"),
+		mode = practiceMode,
 	})
 
-	print(("[PracticeSystem] Practice started for %s"):format(player.Name))
+	print(("[PracticeSystem] Practice started for %s (mode: %s)"):format(player.Name, practiceMode))
 	beginNextPracticeQuestion()
 end
 
-local function onRequestManualPractice(player: Player)
+local function onRequestManualPractice(player: Player, requestedMode: unknown)
 	if not RemoteThrottle.Check(player, "RequestManualPractice", 1) then
 		return
 	end
-	PracticeSystem.StartPractice(player)
+	PracticeSystem.StartPractice(player, if typeof(requestedMode) == "string" then requestedMode else nil)
 end
 
 local function onLeavePracticeRequest(player: Player)

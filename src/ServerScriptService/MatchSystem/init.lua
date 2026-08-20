@@ -30,11 +30,25 @@
 	Only this module mutates match state. All RemoteEvents here are
 	one-way server -> client (QueueUpdated, MatchCountdownTick,
 	GameStateChanged, MatchWinner) except "RequestJoinQueue" (client ->
-	server, fire-and-forget - the lobby Play button, Message 8; it carries
-	no payload, so there is nothing for a client to falsify beyond their
-	own identity, which Roblox itself guarantees). The one RemoteFunction
+	server, fire-and-forget - the lobby Play button, Message 8; now also
+	carries the chosen difficulty tier id, see below) and
+	"RequestLeaveQueue" (also fire-and-forget). The one RemoteFunction
 	(GetMatchSnapshot) is a read-only query with no side effects, so
 	there's nothing for a client to abuse by calling it.
+
+	Difficulty tiers (Play redesign): the queue is now SIX separate
+	per-tier queues (GameplayConfig.QUEUE_TIERS), one Queue instance each
+	(see Queue.lua's instantiable pass), rather than one flat list. Only
+	ONE match still ever runs on the arena at a time - this doesn't add
+	concurrent matches, it only changes WHICH players get grouped
+	together. `currentTier` tracks which tier the currently-forming/active
+	match belongs to; evaluateQueueForLaunch picks a tier to "claim" (the
+	lowest-numbered tier with anyone waiting) once the arena is free, and
+	no other tier can begin a countdown until that match fully returns to
+	Lobby. A player choosing a HARDER tier just means "start the match's
+	round-progression further along" (see GameplayConfig.GetQueueTier) -
+	the actual per-turn difficulty/category logic in CompetitionGameplay
+	is completely unchanged, unaware anything but the round number moved.
 
 	EndMatch()/RemoveParticipant() are the public hooks CompetitionGameplay
 	calls; this module never fabricates a winner on its own.
@@ -46,6 +60,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
+local GameplayConfig = require(ReplicatedStorage.Modules.GameplayConfig)
 local RewardsConfig = require(ReplicatedStorage.Modules.RewardsConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
@@ -65,6 +80,17 @@ local state: string = GameState.Lobby
 local countdownGeneration = 0
 local currentCountdownSeconds: number? = nil
 
+-- One independent Queue instance per difficulty tier (GameplayConfig.
+-- QUEUE_TIERS), keyed by tier id.
+local tierQueues: { [number]: Queue.QueueInstance } = {}
+for _, tier in ipairs(GameplayConfig.QUEUE_TIERS) do
+	tierQueues[tier.id] = Queue.new()
+end
+
+-- Which tier the currently-forming/active match belongs to. nil means the
+-- arena is free and no tier has been "claimed" yet.
+local currentTier: number? = nil
+
 local participants: { Player } = {}
 local platformAssignments: { [Player]: Model } = {}
 
@@ -80,19 +106,63 @@ local getMatchSnapshotFunction = RemoteFunctions.Get("GetMatchSnapshot")
 local requestJoinQueueEvent = RemoteEvents.Get("RequestJoinQueue")
 local requestLeaveQueueEvent = RemoteEvents.Get("RequestLeaveQueue")
 
+--[[
+	Total players waiting across every tier's queue - used anywhere the
+	old single-queue "how many people are waiting" count was used (the
+	queue banner shows a per-tier breakdown too - see QueueUpdated's
+	payload below).
+]]
+local function totalWaitingCount(): number
+	local total = 0
+	for _, queue in pairs(tierQueues) do
+		total += Queue.Count(queue)
+	end
+	return total
+end
+
+--[[
+	Finds which tier's queue (if any) `player` is currently in. Players can
+	only ever be in one tier's queue at a time (tryJoinQueue below removes
+	them from any other tier first).
+]]
+local function findPlayerTier(player: Player): number?
+	for tierId, queue in pairs(tierQueues) do
+		if Queue.Contains(queue, player) then
+			return tierId
+		end
+	end
+	return nil
+end
+
 local function getWaitingNames(): { string }
 	local names = {}
-	for _, player in ipairs(Queue.GetPlayers()) do
-		table.insert(names, player.Name)
+	for _, queue in pairs(tierQueues) do
+		for _, player in ipairs(Queue.GetPlayers(queue)) do
+			table.insert(names, player.Name)
+		end
 	end
 	return names
 end
 
+--[[
+	Per-tier waiting counts, in tier order, for the queue banner to show
+	"Tier X: N waiting" style breakdowns rather than just one opaque total.
+]]
+local function getTierCounts(): { [number]: number }
+	local counts = {}
+	for tierId, queue in pairs(tierQueues) do
+		counts[tierId] = Queue.Count(queue)
+	end
+	return counts
+end
+
 local function broadcastQueueUpdated()
 	queueUpdatedEvent:FireAllClients({
-		waitingCount = Queue.Count(),
+		waitingCount = totalWaitingCount(),
 		waitingNames = getWaitingNames(),
 		countdownSeconds = currentCountdownSeconds,
+		currentTier = currentTier,
+		tierCounts = getTierCounts(),
 	})
 end
 
@@ -107,9 +177,11 @@ end
 getMatchSnapshotFunction.OnServerInvoke = function(_player: Player)
 	return {
 		gameState = state,
-		waitingCount = Queue.Count(),
+		waitingCount = totalWaitingCount(),
 		waitingNames = getWaitingNames(),
 		countdownSeconds = currentCountdownSeconds,
+		currentTier = currentTier,
+		tierCounts = getTierCounts(),
 	}
 end
 
@@ -122,11 +194,13 @@ end
 
 local function beginTeleportAndIntro()
 	local myGeneration = countdownGeneration
+	local activeQueue = tierQueues[currentTier :: number]
 
-	-- FIFO-capped: only ever takes the first MAX_PLAYERS queued players,
-	-- no matter how many are actually waiting. Anyone beyond that stays in
-	-- Queue for the next match - never dropped, never force-included.
-	local launchingPlayers = Queue.TakeUpTo(MatchConfig.MAX_PLAYERS)
+	-- FIFO-capped: only ever takes the first MAX_PLAYERS queued players
+	-- from the claimed tier's queue, no matter how many are actually
+	-- waiting. Anyone beyond that stays in that tier's queue for the next
+	-- match - never dropped, never force-included.
+	local launchingPlayers = Queue.TakeUpTo(activeQueue, MatchConfig.MAX_PLAYERS)
 	currentCountdownSeconds = nil
 	broadcastQueueUpdated()
 
@@ -157,6 +231,7 @@ end
 
 local function runCountdown()
 	local myGeneration = countdownGeneration
+	local activeQueue = tierQueues[currentTier :: number]
 
 	for remaining = MatchConfig.QUEUE_COUNTDOWN_SECONDS, 0, -1 do
 		if countdownGeneration ~= myGeneration then
@@ -166,7 +241,7 @@ local function runCountdown()
 		currentCountdownSeconds = remaining
 		broadcastQueueUpdated()
 
-		if Queue.Count() >= MatchConfig.MAX_PLAYERS then
+		if Queue.Count(activeQueue) >= MatchConfig.MAX_PLAYERS then
 			break -- full roster reached early; launch without waiting out the rest
 		end
 
@@ -191,7 +266,8 @@ end
 local function revertToWaitingOrLobby()
 	cancelCountdown()
 	broadcastQueueUpdated()
-	setState(if Queue.Count() > 0 then GameState.Waiting else GameState.Lobby)
+	local activeQueue = currentTier and tierQueues[currentTier]
+	setState(if activeQueue and Queue.Count(activeQueue) > 0 then GameState.Waiting else GameState.Lobby)
 end
 
 --[[
@@ -203,13 +279,37 @@ end
 	overflow players (beyond MAX_PLAYERS) and players who joined mid-match
 	automatically start their own countdown the moment it becomes possible,
 	without needing a fresh join event to trigger it.
+
+	Difficulty tiers: if no tier is currently claimed (currentTier == nil,
+	i.e. the arena is genuinely free), this claims the lowest-numbered
+	tier with anyone waiting in it - deterministic and simple, rather than
+	trying to race multiple tiers against each other. Once a tier is
+	claimed, only THAT tier's queue is checked for the MIN_PLAYERS
+	threshold; other tiers' players simply wait their turn.
 ]]
 local function evaluateQueueForLaunch()
-	if state == GameState.Lobby and Queue.Count() > 0 then
+	if state ~= GameState.Lobby and state ~= GameState.Waiting then
+		return
+	end
+
+	if not currentTier then
+		for _, tier in ipairs(GameplayConfig.QUEUE_TIERS) do
+			if Queue.Count(tierQueues[tier.id]) > 0 then
+				currentTier = tier.id
+				break
+			end
+		end
+	end
+
+	if not currentTier then
+		return -- nothing waiting in any tier
+	end
+
+	if state == GameState.Lobby then
 		setState(GameState.Waiting)
 	end
 
-	if (state == GameState.Lobby or state == GameState.Waiting) and Queue.Count() >= MatchConfig.MIN_PLAYERS then
+	if Queue.Count(tierQueues[currentTier]) >= MatchConfig.MIN_PLAYERS then
 		beginCountdown()
 	end
 end
@@ -218,18 +318,26 @@ end
 
 --[[
 	Shared queue-join validation, used by both the physical portal Touched
-	handler and the "RequestJoinQueue" RemoteEvent (the lobby Play button,
-	Message 8). Same rules either way - a button click gets no special
-	treatment over walking into the portal. Joining is allowed regardless
-	of current match state (SERVER vs MATCH: queueing during an active
-	match just means "waiting for the next one" - see module doc comment);
-	evaluateQueueForLaunch decides whether that actually starts anything
-	right now.
+	handler (always joins the default/easiest tier, since walking into the
+	portal has no tier-selection UI of its own) and the "RequestJoinQueue"
+	RemoteEvent (the lobby Play button's tier-select popup). Same rules
+	either way - a button click gets no special treatment over walking in.
+	Joining is allowed regardless of current match state (SERVER vs MATCH:
+	queueing during an active match just means "waiting for the next one"
+	- see module doc comment); evaluateQueueForLaunch decides whether that
+	actually starts anything right now.
 ]]
-local function tryJoinQueue(player: Player)
-	if not Queue.Add(player) then
-		return -- already queued
+local function tryJoinQueue(player: Player, tierId: number)
+	local tier = GameplayConfig.GetQueueTier(tierId) -- clamps/validates, falls back to tier 1
+	local existingTier = findPlayerTier(player)
+	if existingTier == tier.id then
+		return -- already queued for this exact tier
 	end
+	if existingTier then
+		Queue.Remove(tierQueues[existingTier], player) -- switching tiers - only ever in one queue at a time
+	end
+
+	Queue.Add(tierQueues[tier.id], player)
 
 	broadcastQueueUpdated()
 	evaluateQueueForLaunch()
@@ -242,14 +350,15 @@ local function onPortalTouched(hit: BasePart)
 		return
 	end
 
-	tryJoinQueue(player)
+	tryJoinQueue(player, GameplayConfig.QUEUE_TIERS[1].id)
 end
 
-local function onRequestJoinQueue(player: Player)
+local function onRequestJoinQueue(player: Player, rawTierId: unknown)
 	if not RemoteThrottle.Check(player, "RequestJoinQueue", 1) then
 		return
 	end
-	tryJoinQueue(player)
+	local tierId = if typeof(rawTierId) == "number" then rawTierId else GameplayConfig.QUEUE_TIERS[1].id
+	tryJoinQueue(player, tierId)
 end
 
 local function onRequestLeaveQueue(player: Player)
@@ -326,6 +435,12 @@ function MatchSystem.EndMatch(winner: Player?)
 	task.wait(MatchConfig.RETURNING_SECONDS)
 
 	setState(GameState.Lobby)
+	-- Free the arena for any tier to claim next - if this tier still has
+	-- overflow players left over, evaluateQueueForLaunch below will just
+	-- re-claim the SAME tier immediately (identical to the pre-tiers
+	-- overflow behavior); otherwise a different tier's waiting players get
+	-- their turn.
+	currentTier = nil
 	broadcastQueueUpdated()
 	-- Pick up any leftover/overflow players who were already queued during
 	-- this match (beyond MAX_PLAYERS, or who joined mid-match) - starts
@@ -372,17 +487,21 @@ end
 
 --[[
 	Called from GameManager's Players.PlayerRemoving. Handles a player
-	disconnecting whether they were queued or already in an active match.
+	disconnecting whether they were queued (in any tier) or already in an
+	active match.
 ]]
 function MatchSystem.HandlePlayerLeaving(player: Player)
-	if Queue.Contains(player) then
-		Queue.Remove(player)
-		if state == GameState.Starting and Queue.Count() < MatchConfig.MIN_PLAYERS then
+	local tierId = findPlayerTier(player)
+	if tierId then
+		Queue.Remove(tierQueues[tierId], player)
+		if state == GameState.Starting and tierId == currentTier and Queue.Count(tierQueues[tierId]) < MatchConfig.MIN_PLAYERS then
 			revertToWaitingOrLobby()
 		else
 			broadcastQueueUpdated()
-			if state == GameState.Waiting and Queue.Count() == 0 then
+			if state == GameState.Waiting and tierId == currentTier and Queue.Count(tierQueues[tierId]) == 0 then
+				currentTier = nil
 				setState(GameState.Lobby)
+				evaluateQueueForLaunch() -- another tier's players may be waiting
 			end
 		end
 		return
@@ -408,35 +527,49 @@ function MatchSystem.GetPlatformForPlayer(player: Player): Model?
 end
 
 --[[
-	Public wrapper around the same queue-join validation the Play button
-	and portal use (Practice Mode, solo-wait system). No special treatment
-	over any other entry point - same checks.
+	Which difficulty tier the CURRENTLY forming/active match belongs to
+	(nil if the arena is free). CompetitionGameplay reads this at round
+	start to pick the correct starting round via
+	GameplayConfig.GetQueueTier(tierId).startingRound.
 ]]
-function MatchSystem.TryJoinQueue(player: Player)
-	tryJoinQueue(player)
+function MatchSystem.GetCurrentTier(): number?
+	return currentTier
 end
 
 --[[
-	Removes `player` from the queue if present - used by both manual
-	Practice Mode entry (a queued player chooses to leave the queue and
-	practice instead, section 9) and the plain "Cancel Queue" button
-	(section 26). Mirrors HandlePlayerLeaving's queue-side logic but
-	without the "they disconnected" framing - the player is still in the
-	server, just no longer queued. Returns true if they were actually
-	removed from the queue.
+	Public wrapper around the same queue-join validation the Play button
+	and portal use (Practice Mode, solo-wait system). No special treatment
+	over any other entry point - same checks. Defaults to the easiest tier
+	if not specified.
+]]
+function MatchSystem.TryJoinQueue(player: Player, tierId: number?)
+	tryJoinQueue(player, tierId or GameplayConfig.QUEUE_TIERS[1].id)
+end
+
+--[[
+	Removes `player` from whichever tier's queue they're currently in (if
+	any) - used by both manual Practice Mode entry (a queued player
+	chooses to leave the queue and practice instead, section 9) and the
+	plain "Cancel Queue" button (section 26). Mirrors HandlePlayerLeaving's
+	queue-side logic but without the "they disconnected" framing - the
+	player is still in the server, just no longer queued. Returns true if
+	they were actually removed from a queue.
 ]]
 function MatchSystem.LeaveQueue(player: Player): boolean
-	if not Queue.Contains(player) then
+	local tierId = findPlayerTier(player)
+	if not tierId then
 		return false
 	end
 
-	Queue.Remove(player)
-	if state == GameState.Starting and Queue.Count() < MatchConfig.MIN_PLAYERS then
+	Queue.Remove(tierQueues[tierId], player)
+	if state == GameState.Starting and tierId == currentTier and Queue.Count(tierQueues[tierId]) < MatchConfig.MIN_PLAYERS then
 		revertToWaitingOrLobby()
 	else
 		broadcastQueueUpdated()
-		if state == GameState.Waiting and Queue.Count() == 0 then
+		if state == GameState.Waiting and tierId == currentTier and Queue.Count(tierQueues[tierId]) == 0 then
+			currentTier = nil
 			setState(GameState.Lobby)
+			evaluateQueueForLaunch() -- another tier's players may be waiting
 		end
 	end
 

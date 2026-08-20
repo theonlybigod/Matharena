@@ -300,6 +300,15 @@ local function addScreenFace(screen: BasePart, face: Enum.NormalId)
 	answerBox.Position = UDim2.fromScale(0.04, 0.79)
 	answerBox.Font = Enum.Font.GothamBlack
 	answerBox.TextScaled = true
+	-- Bug fix: a freshly-created TextBox's default .Text is Roblox's own
+	-- placeholder string ("Text Box"), not an empty string - PlaceholderText
+	-- below only ever DISPLAYS instead of an empty .Text, it doesn't clear
+	-- a non-empty one. Without this explicit clear, the very first time a
+	-- player ever saw this box (before any clear-cycle had run), it showed
+	-- that literal leftover default text, which - combined with
+	-- ClearTextOnFocus = false below - had to be manually deleted before
+	-- typing an actual answer.
+	answerBox.Text = ""
 	answerBox.PlaceholderText = "Type your answer..."
 	answerBox.TextColor3 = Color3.fromRGB(20, 20, 25)
 	answerBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)

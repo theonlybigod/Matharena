@@ -1,11 +1,17 @@
 --[[
 	ArenaDecorations.lua
 
-	Builds the arena's floor ring decals, spectator seating (tagged
-	"SpectatorSeat"), rim spotlights, and rotating "moving beam" fixtures.
+	Builds the arena's floor ring decals and spectator seating (tagged
+	"SpectatorSeat").
+
+	Spotlight removal pass: rim spotlights and rotating "moving beam"
+	fixtures have been removed entirely, per explicit direction ("I know
+	they add light to the map, I don't want those features anymore") -
+	their sole purpose was to be spotlights, so removing just the SpotLight
+	and leaving a pointless decorative fixture behind wouldn't match what
+	was actually asked for.
 ]]
 
-local TweenService = game:GetService("TweenService")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -92,78 +98,6 @@ local function buildSpectatorSeating(parent: Instance)
 	end
 end
 
-local function buildRimLights(parent: Instance)
-	local folder = Instance.new("Folder")
-	folder.Name = "RimLights"
-	folder.Parent = parent
-
-	local count = ArenaConfig.RIM_LIGHT_COUNT
-	for i = 1, count do
-		local angle = (i - 1) / count * math.pi * 2
-		local radius = ArenaConfig.ARENA_RADIUS - 5
-		local position = Vector3.new(math.sin(angle) * radius, ArenaConfig.RIM_LIGHT_HEIGHT, math.cos(angle) * radius)
-
-		local fixture = PartUtils.CreatePart({
-			name = "RimLight" .. i,
-			size = Vector3.new(2, 2, 2),
-			position = position,
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(30, 30, 35),
-			canCollide = false,
-			parent = folder,
-		})
-
-		local spotlight = Instance.new("SpotLight")
-		spotlight.Name = "Spotlight"
-		spotlight.Face = Enum.NormalId.Bottom
-		spotlight.Range = 80
-		spotlight.Angle = 35
-		spotlight.Brightness = 4
-		spotlight.Color = ArenaConfig.NEON_COLOR
-		spotlight.Parent = fixture
-	end
-end
-
-local function buildMovingBeams(parent: Instance)
-	local folder = Instance.new("Folder")
-	folder.Name = "MovingBeams"
-	folder.Parent = parent
-
-	local count = ArenaConfig.MOVING_BEAM_COUNT
-	for i = 1, count do
-		local angle = (i - 1) / count * math.pi * 2
-		local radius = ArenaConfig.ARENA_RADIUS * 0.5
-		local position = Vector3.new(math.sin(angle) * radius, ArenaConfig.MOVING_BEAM_HEIGHT, math.cos(angle) * radius)
-
-		local fixture = PartUtils.CreatePart({
-			name = "MovingBeam" .. i,
-			size = Vector3.new(1.5, 1.5, 1.5),
-			position = position,
-			material = Enum.Material.Neon,
-			color = ArenaConfig.NEON_COLOR,
-			canCollide = false,
-			parent = folder,
-		})
-
-		local spotlight = Instance.new("SpotLight")
-		spotlight.Name = "Spotlight"
-		spotlight.Face = Enum.NormalId.Bottom
-		spotlight.Range = 100
-		spotlight.Angle = 20
-		spotlight.Brightness = 5
-		spotlight.Color = ArenaConfig.NEON_COLOR
-		spotlight.Parent = fixture
-
-		-- Continuous sweeping rotation to simulate a moving concert beam.
-		local tween = TweenService:Create(
-			fixture,
-			TweenInfo.new(6, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false),
-			{ Orientation = Vector3.new(0, 360, 0) }
-		)
-		tween:Play()
-	end
-end
-
 function ArenaDecorations.BuildAll(parent: Instance): Folder
 	local folder = Instance.new("Folder")
 	folder.Name = "Decorations"
@@ -171,8 +105,6 @@ function ArenaDecorations.BuildAll(parent: Instance): Folder
 
 	buildFloorRings(parent)
 	buildSpectatorSeating(folder)
-	buildRimLights(folder)
-	buildMovingBeams(folder)
 
 	return folder
 end
