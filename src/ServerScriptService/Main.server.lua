@@ -41,6 +41,7 @@
 
 local LobbyBuilder = require(script.Parent.LobbyBuilder)
 local ArenaBuilder = require(script.Parent.ArenaBuilder)
+local LobbyLighting = require(script.Parent.LobbyBuilder.LobbyLighting)
 local GameManager = require(script.Parent.GameManager)
 local MatchSystem = require(script.Parent.MatchSystem)
 local PracticeSystem = require(script.Parent.PracticeSystem)
@@ -55,6 +56,22 @@ local CompetitionGameplay = require(script.Parent.CompetitionGameplay)
 
 LobbyBuilder.Build()
 ArenaBuilder.Build()
+
+-- Always re-run the Lighting post-effect dedup, even when both builders
+-- skip their full build (Lobby/Arena already marked built). Bloom and
+-- ColorCorrectionEffect are children of the single global Lighting
+-- service, not Workspace.Lobby/Workspace.Arena, so they are NOT reset by
+-- a fresh Rojo sync or a normal server start - only Build()'s own
+-- (skippable) code path used to clean them up. If two builders (or a
+-- stray manual edit) ever leave duplicate BloomEffect/ColorCorrection
+-- instances sitting in the saved place file, every previous server start
+-- would silently keep stacking them forever, since Build() never re-runs
+-- once already built. Calling this unconditionally, every single server
+-- start, makes the dedup self-healing regardless of build state - this
+-- is what actually prevents the "whole map glowing white" bug from ever
+-- silently persisting across a restart again.
+LobbyLighting.Apply()
+
 DataSystem.Init()
 LeaderboardSystem.Init()
 LeaderboardDisplay.Init()

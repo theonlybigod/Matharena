@@ -43,15 +43,67 @@
 
     "Lighting": {
       "$className": "Lighting",
-      "$ignoreUnknownInstances": true,
+      "$ignoreUnknownInstances": false,
       "$properties": {
-        "Ambient": [66, 73, 94],
-        "OutdoorAmbient": [66, 73, 94],
-        "Brightness": 1.75,
-        "ClockTime": 19.25,
-        "ExposureCompensation": 0.15,
-        "FogColor": [34, 38, 52],
+        "Ambient": [160, 140, 120],
+        "OutdoorAmbient": [160, 140, 120],
+        "Brightness": 3,
+        "ClockTime": 6.5,
+        "ExposureCompensation": 0.45,
+        "FogColor": [210, 175, 150],
         "FogEnd": 650
+      },
+
+      "LobbyBloom": {
+        "$className": "BloomEffect",
+        "$properties": {
+          "Enabled": true,
+          "Intensity": 0.35,
+          "Threshold": 1.6,
+          "Size": 20
+        }
+      },
+
+      "LobbyColorCorrection": {
+        "$className": "ColorCorrectionEffect",
+        "$properties": {
+          "Enabled": true,
+          "Contrast": -0.08,
+          "Saturation": -0.03,
+          "TintColor": [245, 248, 255]
+        }
+      },
+
+      "Atmosphere": {
+        "$className": "Atmosphere",
+        "$properties": {
+          "Density": 0.3,
+          "Offset": 0.25,
+          "Color": [0.780392, 0.780392, 0.780392],
+          "Decay": [0.415686, 0.439216, 0.490196],
+          "Glare": 0,
+          "Haze": 0
+        }
+      },
+
+      "SunRays": {
+        "$className": "SunRaysEffect",
+        "$properties": {
+          "Enabled": true,
+          "Intensity": 0.01,
+          "Spread": 0.1
+        }
+      },
+
+      "DepthOfField": {
+        "$className": "DepthOfFieldEffect",
+        "$properties": {
+          "Enabled": true,
+          "FarIntensity": 0.1,
+          "FocusDistance": 0.05,
+          "InFocusRadius": 30,
+          "NearIntensity": 0.75
+        }
       }
     }
   }
