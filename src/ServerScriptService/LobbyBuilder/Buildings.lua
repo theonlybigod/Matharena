@@ -23,6 +23,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local LobbyConfig = require(script.Parent.LobbyConfig)
 local BuildingInteriors = require(script.Parent.BuildingInteriors)
+local BuildingSigns = require(script.Parent.BuildingSigns)
 local LeaderboardBoards = require(script.Parent.LeaderboardBoards)
 
 local Buildings = {}
@@ -74,6 +75,11 @@ local function buildOne(def, parent: Instance): Model
 	else
 		addSign(base, def.displayName)
 	end
+
+	-- Message 32: floating overhead sign above every building (distinct
+	-- from the door-side plaque `addSign` above builds), clickable to
+	-- teleport right to the building's entrance - see BuildingSigns.lua.
+	BuildingSigns.BuildOne(def, model)
 
 	model.PrimaryPart = base
 	return model

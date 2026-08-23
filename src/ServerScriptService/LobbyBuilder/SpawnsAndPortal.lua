@@ -3,12 +3,16 @@
 
 	Builds the 4 player spawn locations and the queue portal structure.
 
-	The queue portal is visual/structural only in this pass — it is not
-	wired to any queueing or match logic yet (that belongs to MatchSystem
-	in a later prompt). It exposes an invisible trigger volume tagged
-	"QueuePortal" via CollectionService so future systems can find it with
-	CollectionService:GetTagged("QueuePortal") without this module needing
-	to know anything about match/queue logic.
+	The queue portal is visual/structural only - its invisible trigger
+	volume (tagged "QueuePortal" via CollectionService) is a purely
+	decorative landmark now, not a queue-entry trigger. MatchSystem used to
+	wire a Touched handler to this tag that silently queued any player who
+	walked across the map's dead center for a match with zero confirmation
+	- that auto-join behavior has been removed entirely (see MatchSystem's
+	module doc comment) because it bypassed the game's actual, deliberate
+	entry point (the Play button's tier-select-then-confirm popup). The
+	tag is left in place in case a future system wants to find this part by
+	name, but nothing currently listens for it being touched.
 
 	Pillar removal pass: the four decorative corner pillars around the
 	portal have been removed entirely, per explicit direction ("pillars 1

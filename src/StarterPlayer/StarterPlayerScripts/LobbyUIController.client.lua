@@ -34,6 +34,7 @@ local GameplayConfig = require(ReplicatedStorage.Modules.GameplayConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
+local OverlayManager = require(script.Parent.OverlayManager)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -157,10 +158,12 @@ closeButton.MouseButton1Click:Connect(function()
 	modalOverlay.Visible = false
 end)
 
+OverlayManager.Register(modalOverlay)
+
 local function openModal(title: string, body: string)
 	modalTitle.Text = title
 	modalBody.Text = body
-	modalOverlay.Visible = true
+	OverlayManager.Show(modalOverlay)
 	UITheme.PlayOpenTween(modalPanel)
 end
 
@@ -255,9 +258,9 @@ end)
 
 -- ===== Play button (Play redesign: difficulty tier selection) =====
 -- Pressing Play used to instantly fire RequestJoinQueue with no choice
--- involved. Now shows a tier-select popup first (6 named difficulty
--- tiers, GameplayConfig.QUEUE_TIERS - Rookie Recruit's simple addition
--- up through Meltdown Protocol's expert-level everything), which the
+-- involved. Now shows a tier-select popup first (5 named difficulty
+-- tiers, GameplayConfig.QUEUE_TIERS - Easy Mode's simple addition up
+-- through Master Mode's everything-mixed-together), which the
 -- player can cancel out of at any point before committing to a queue -
 -- same "press the button -> pick an option -> confirm" shape as the
 -- Practice mode popup (PracticeUIController.client.lua), reused rather
@@ -274,8 +277,11 @@ tierOverlay.Parent = mainUI
 
 local tierPanel = Instance.new("Frame")
 tierPanel.Name = "PlayTierPanel"
-tierPanel.Size = UDim2.fromOffset(420, 460)
-tierPanel.Position = UDim2.new(0.5, -210, 0.5, -230)
+-- Message 32: shrunk from 460 to 400 tall (and re-centered to match) now
+-- that there are 5 tiers instead of 6 - keeps the Cancel button close
+-- under the last option instead of leaving a large empty gap.
+tierPanel.Size = UDim2.fromOffset(420, 400)
+tierPanel.Position = UDim2.new(0.5, -210, 0.5, -200)
 tierPanel.ZIndex = 26
 UITheme.StylePanel(tierPanel, 0.05)
 tierPanel.Parent = tierOverlay
@@ -295,7 +301,7 @@ tierTitle.Parent = tierPanel
 local tierCancelButton = Instance.new("TextButton")
 tierCancelButton.Name = "CancelButton"
 tierCancelButton.Size = UDim2.new(1, -16, 0, 34)
-tierCancelButton.Position = UDim2.fromOffset(8, 414)
+tierCancelButton.Position = UDim2.fromOffset(8, 354)
 tierCancelButton.Font = Enum.Font.GothamBold
 tierCancelButton.TextScaled = true
 tierCancelButton.Text = "CANCEL"
@@ -309,6 +315,8 @@ tierCancelButton.Parent = tierPanel
 tierCancelButton.MouseButton1Click:Connect(function()
 	tierOverlay.Visible = false
 end)
+
+OverlayManager.Register(tierOverlay)
 
 for i, tier in ipairs(GameplayConfig.QUEUE_TIERS) do
 	local tierButton = Instance.new("TextButton")
@@ -358,7 +366,7 @@ for i, tier in ipairs(GameplayConfig.QUEUE_TIERS) do
 end
 
 playButton.MouseButton1Click:Connect(function()
-	tierOverlay.Visible = true
+	OverlayManager.Show(tierOverlay)
 	UITheme.PlayOpenTween(tierPanel)
 end)
 

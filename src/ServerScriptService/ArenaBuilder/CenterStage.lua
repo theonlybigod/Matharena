@@ -201,10 +201,20 @@ local function addScreenFace(screen: BasePart, face: Enum.NormalId)
 	-- background) so the question itself reads as the screen's clear focal
 	-- point. Permanently visible (structural chrome) - same reasoning as
 	-- headerBar/footerBar above; only QuestionLabel itself toggles.
+	-- Message 30 layout fix ("the timer is behind/underlying the answer
+	-- box, the question number is crammed in with it"): the old layout
+	-- had FooterBar (timer+round) spanning y=0.76-0.92 and the AnswerBox/
+	-- SubmitButton/LeavePracticeButton row spanning y=0.79-0.95 - those two
+	-- bands OVERLAPPED, so the opaque, higher-ZIndex AnswerBox literally
+	-- covered the timer/round text underneath it. QuestionCard is shrunk
+	-- (0.48 -> 0.36 tall) to free up room so every band below now gets its
+	-- own non-overlapping strip, in order: header -> question -> timer ->
+	-- round -> input row - each one fully visible on its own, nothing
+	-- drawn on top of anything else.
 	local questionCard = Instance.new("Frame")
 	questionCard.Name = "QuestionCard"
-	questionCard.Size = UDim2.new(1, -60, 0.48, 0)
-	questionCard.Position = UDim2.fromScale(0, 0.24)
+	questionCard.Size = UDim2.new(1, -60, 0.36, 0)
+	questionCard.Position = UDim2.fromScale(0, 0.22)
 	questionCard.BackgroundColor3 = Color3.fromRGB(14, 15, 20)
 	questionCard.BorderSizePixel = 0
 	questionCard.ZIndex = 2
@@ -230,13 +240,18 @@ local function addScreenFace(screen: BasePart, face: Enum.NormalId)
 	questionLabel.ZIndex = 3
 	questionLabel.Parent = questionCard
 
-	-- Bottom info strip: timer + round, visually grouped in their own
-	-- footer band rather than floating loose on the background. Permanently
-	-- visible - same reasoning as headerBar above.
+	-- Bottom info strip: timer + round. Message 30 layout fix: these used
+	-- to sit side-by-side in one short band that the input row overlapped
+	-- (see comment above questionCard). Now FooterBar is its own taller,
+	-- clearly-separated band (0.58-0.76) sitting entirely ABOVE the input
+	-- row (which starts at 0.80 - see AnswerBox below), with TimerLabel and
+	-- RoundLabel stacked in their own individual halves of it (timer on
+	-- top, round/question-number on the bottom) instead of squeezed
+	-- side-by-side, so each is fully readable on its own.
 	local footerBar = Instance.new("Frame")
 	footerBar.Name = "FooterBar"
-	footerBar.Size = UDim2.new(1, 0, 0.16, 0)
-	footerBar.Position = UDim2.fromScale(0, 0.76)
+	footerBar.Size = UDim2.new(1, 0, 0.18, 0)
+	footerBar.Position = UDim2.fromScale(0, 0.58)
 	footerBar.BackgroundColor3 = Color3.fromRGB(16, 17, 24)
 	footerBar.BorderSizePixel = 0
 	footerBar.ZIndex = 2
@@ -253,8 +268,8 @@ local function addScreenFace(screen: BasePart, face: Enum.NormalId)
 
 	local timerLabel = Instance.new("TextLabel")
 	timerLabel.Name = "TimerLabel"
-	timerLabel.Size = UDim2.new(0.4, 0, 1, 0)
-	timerLabel.Position = UDim2.fromScale(0.05, 0)
+	timerLabel.Size = UDim2.new(1, -30, 0.5, 0)
+	timerLabel.Position = UDim2.fromScale(0, 0)
 	timerLabel.BackgroundTransparency = 1
 	timerLabel.TextColor3 = Color3.fromRGB(255, 205, 60)
 	timerLabel.Font = Enum.Font.GothamBold
@@ -266,8 +281,8 @@ local function addScreenFace(screen: BasePart, face: Enum.NormalId)
 
 	local roundLabel = Instance.new("TextLabel")
 	roundLabel.Name = "RoundLabel"
-	roundLabel.Size = UDim2.new(0.4, 0, 1, 0)
-	roundLabel.Position = UDim2.fromScale(0.55, 0)
+	roundLabel.Size = UDim2.new(1, -30, 0.5, 0)
+	roundLabel.Position = UDim2.fromScale(0, 0.5)
 	roundLabel.BackgroundTransparency = 1
 	roundLabel.TextColor3 = Color3.fromRGB(200, 205, 215)
 	roundLabel.Font = Enum.Font.Gotham
@@ -294,10 +309,13 @@ local function addScreenFace(screen: BasePart, face: Enum.NormalId)
 	-- built Instance (same principle as everything else on this screen);
 	-- only its Transparency/Thickness/Color are ever touched, client-side,
 	-- exactly like every other purely-visual property on this screen. =====
+	-- Message 30 layout fix: moved from y=0.79 to y=0.80, and FooterBar
+	-- above now ends at 0.76 (with a gap to spare) instead of 0.92 - the
+	-- input row and the timer/round band no longer occupy the same space.
 	local answerBox = Instance.new("TextBox")
 	answerBox.Name = "AnswerBox"
 	answerBox.Size = UDim2.new(0.42, 0, 0.16, 0)
-	answerBox.Position = UDim2.fromScale(0.04, 0.79)
+	answerBox.Position = UDim2.fromScale(0.04, 0.80)
 	answerBox.Font = Enum.Font.GothamBlack
 	answerBox.TextScaled = true
 	-- Bug fix: a freshly-created TextBox's default .Text is Roblox's own
@@ -331,7 +349,7 @@ local function addScreenFace(screen: BasePart, face: Enum.NormalId)
 	local submitButton = Instance.new("TextButton")
 	submitButton.Name = "SubmitButton"
 	submitButton.Size = UDim2.new(0.22, 0, 0.16, 0)
-	submitButton.Position = UDim2.fromScale(0.48, 0.79)
+	submitButton.Position = UDim2.fromScale(0.48, 0.80)
 	submitButton.BackgroundColor3 = ArenaConfig.NEON_COLOR
 	submitButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 	submitButton.Font = Enum.Font.GothamBold
@@ -355,7 +373,7 @@ local function addScreenFace(screen: BasePart, face: Enum.NormalId)
 	local leavePracticeButton = Instance.new("TextButton")
 	leavePracticeButton.Name = "LeavePracticeButton"
 	leavePracticeButton.Size = UDim2.new(0.22, 0, 0.16, 0)
-	leavePracticeButton.Position = UDim2.fromScale(0.74, 0.79)
+	leavePracticeButton.Position = UDim2.fromScale(0.74, 0.80)
 	leavePracticeButton.BackgroundColor3 = Color3.fromRGB(190, 60, 60)
 	leavePracticeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 	leavePracticeButton.Font = Enum.Font.GothamBold

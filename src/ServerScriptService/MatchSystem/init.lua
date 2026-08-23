@@ -36,7 +36,7 @@
 	(GetMatchSnapshot) is a read-only query with no side effects, so
 	there's nothing for a client to abuse by calling it.
 
-	Difficulty tiers (Play redesign): the queue is now SIX separate
+	Difficulty tiers (Play redesign): the queue is now FIVE separate
 	per-tier queues (GameplayConfig.QUEUE_TIERS), one Queue instance each
 	(see Queue.lua's instantiable pass), rather than one flat list. Only
 	ONE match still ever runs on the arena at a time - this doesn't add
@@ -52,10 +52,25 @@
 
 	EndMatch()/RemoveParticipant() are the public hooks CompetitionGameplay
 	calls; this module never fabricates a winner on its own.
+
+	Message 32 ("the middle of the map starts loading a game the instant
+	you walk on it"): the physical queue-portal disc in the middle of the
+	lobby (SpawnsAndPortal.lua, tagged "QueuePortal") used to have an
+	invisible Touched trigger wired here that silently added ANY player who
+	so much as walked across the map's dead center to the easiest tier's
+	queue, with no confirmation of any kind - and if enough players were
+	standing there, that alone was enough to auto-launch a match. That
+	completely bypassed the game's actual, deliberate entry point (the Play
+	button's tier-select-then-confirm popup, which every other queue-join
+	path in this game goes through) and is exactly what made stepping in
+	the middle of the map feel like it "randomly starts loading a game".
+	That auto-join wiring (connectPortals/onPortalTouched) has been removed
+	entirely - the portal's neon floor disc is still there as a purely
+	visual landmark, but walking on it no longer does anything. The Play
+	button (and its confirm/cancel flow) is now the only way to join a
+	queue.
 ]]
 
-local Players = game:GetService("Players")
-local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -317,15 +332,13 @@ end
 -- ===== Portal / queue membership =====
 
 --[[
-	Shared queue-join validation, used by both the physical portal Touched
-	handler (always joins the default/easiest tier, since walking into the
-	portal has no tier-selection UI of its own) and the "RequestJoinQueue"
-	RemoteEvent (the lobby Play button's tier-select popup). Same rules
-	either way - a button click gets no special treatment over walking in.
-	Joining is allowed regardless of current match state (SERVER vs MATCH:
-	queueing during an active match just means "waiting for the next one"
-	- see module doc comment); evaluateQueueForLaunch decides whether that
-	actually starts anything right now.
+	Shared queue-join validation, used by "RequestJoinQueue" (the lobby
+	Play button's tier-select popup) - the only queue-join path left, since
+	the physical portal's auto-join Touched handler has been removed (see
+	module doc comment). Joining is allowed regardless of current match
+	state (SERVER vs MATCH: queueing during an active match just means
+	"waiting for the next one" - see module doc comment); evaluateQueueForLaunch
+	decides whether that actually starts anything right now.
 ]]
 local function tryJoinQueue(player: Player, tierId: number)
 	local tier = GameplayConfig.GetQueueTier(tierId) -- clamps/validates, falls back to tier 1
@@ -343,16 +356,6 @@ local function tryJoinQueue(player: Player, tierId: number)
 	evaluateQueueForLaunch()
 end
 
-local function onPortalTouched(hit: BasePart)
-	local character = hit.Parent
-	local player = character and Players:GetPlayerFromCharacter(character)
-	if not player then
-		return
-	end
-
-	tryJoinQueue(player, GameplayConfig.QUEUE_TIERS[1].id)
-end
-
 local function onRequestJoinQueue(player: Player, rawTierId: unknown)
 	if not RemoteThrottle.Check(player, "RequestJoinQueue", 1) then
 		return
@@ -366,19 +369,6 @@ local function onRequestLeaveQueue(player: Player)
 		return
 	end
 	MatchSystem.LeaveQueue(player)
-end
-
-local function connectPortals()
-	local tagged = CollectionService:GetTagged("QueuePortal")
-	for _, part in ipairs(tagged) do
-		if part:IsA("BasePart") then
-			part.Touched:Connect(onPortalTouched)
-		end
-	end
-
-	if #tagged == 0 then
-		warn('[MatchSystem] No instance tagged "QueuePortal" found - queue entry will not work.')
-	end
 end
 
 -- ===== Match end / participant removal =====
@@ -538,9 +528,9 @@ end
 
 --[[
 	Public wrapper around the same queue-join validation the Play button
-	and portal use (Practice Mode, solo-wait system). No special treatment
-	over any other entry point - same checks. Defaults to the easiest tier
-	if not specified.
+	uses (Practice Mode, solo-wait system). No special treatment over any
+	other entry point - same checks. Defaults to the easiest tier if not
+	specified.
 ]]
 function MatchSystem.TryJoinQueue(player: Player, tierId: number?)
 	tryJoinQueue(player, tierId or GameplayConfig.QUEUE_TIERS[1].id)
@@ -598,7 +588,6 @@ function MatchSystem.OnParticipantRemoved(callback: (Player) -> ())
 end
 
 function MatchSystem.Init()
-	connectPortals()
 	requestJoinQueueEvent.OnServerEvent:Connect(onRequestJoinQueue)
 	requestLeaveQueueEvent.OnServerEvent:Connect(onRequestLeaveQueue)
 	print("[MatchSystem] Initialized")

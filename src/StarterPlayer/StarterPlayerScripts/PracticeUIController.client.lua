@@ -42,6 +42,7 @@ local TweenService = game:GetService("TweenService")
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
 local GameplayCameraController = require(script.Parent.GameplayCameraController)
+local OverlayManager = require(script.Parent.OverlayManager)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -93,6 +94,8 @@ confirmOverlay.BackgroundTransparency = 0.5
 confirmOverlay.Visible = false
 confirmOverlay.ZIndex = 25
 confirmOverlay.Parent = mainUI
+
+OverlayManager.Register(confirmOverlay)
 
 local confirmPanel = Instance.new("Frame")
 confirmPanel.Name = "PracticeConfirmPanel"
@@ -163,10 +166,15 @@ modeOverlay.Visible = false
 modeOverlay.ZIndex = 25
 modeOverlay.Parent = mainUI
 
+OverlayManager.Register(modeOverlay)
+
 local modePanel = Instance.new("Frame")
 modePanel.Name = "PracticeModePanel"
-modePanel.Size = UDim2.fromOffset(380, 260)
-modePanel.Position = UDim2.new(0.5, -190, 0.5, -130)
+-- Height grown from 260 to 310 (and re-centered to match) to fit the
+-- Cancel button below the three mode options without overlapping the
+-- last one (which ends at y=230 - see MODE_OPTIONS layout below).
+modePanel.Size = UDim2.fromOffset(380, 310)
+modePanel.Position = UDim2.new(0.5, -190, 0.5, -155)
 modePanel.ZIndex = 26
 UITheme.StylePanel(modePanel, 0.05)
 modePanel.Parent = modeOverlay
@@ -183,6 +191,32 @@ modeTitle.Text = "WHAT TYPE OF PRACTICE?"
 modeTitle.ZIndex = 27
 modeTitle.Parent = modePanel
 
+-- Cancel button: dismisses the mode-select popup without starting
+-- Practice at all. This popup previously had no way to back out of it
+-- once opened (the only controls were the three mode options
+-- themselves) - every other popup in this project (the Play tier-select
+-- popup in LobbyUIController.client.lua, and this file's own
+-- queued-confirm popup above) already has a Cancel button, so this was
+-- the one real gap: pressing Practice by mistake left no way to close
+-- the popup except picking a mode. Same visual pattern as those.
+local modeCancelButton = Instance.new("TextButton")
+modeCancelButton.Name = "CancelButton"
+modeCancelButton.Size = UDim2.new(1, -16, 0, 34)
+modeCancelButton.Position = UDim2.fromOffset(8, 244)
+modeCancelButton.Font = Enum.Font.GothamBold
+modeCancelButton.TextScaled = true
+modeCancelButton.Text = "CANCEL"
+modeCancelButton.TextColor3 = UITheme.COLORS.Text
+modeCancelButton.BackgroundColor3 = UITheme.COLORS.Error
+modeCancelButton.ZIndex = 27
+UITheme.ApplyCorner(modeCancelButton)
+UITheme.ApplyButtonHoverEffect(modeCancelButton)
+modeCancelButton.Parent = modePanel
+
+modeCancelButton.MouseButton1Click:Connect(function()
+	modeOverlay.Visible = false
+end)
+
 local MODE_OPTIONS = {
 	{ mode = "Regular", label = "Regular Practice", description = "Normal timer, normal pace." },
 	{ mode = "DoubleTime", label = "Double Time Practice", description = "2x the usual time per question." },
@@ -193,7 +227,7 @@ local function startPracticeWithMode(mode: string)
 	pendingPracticeMode = mode
 	modeOverlay.Visible = false
 	if amIQueued then
-		confirmOverlay.Visible = true
+		OverlayManager.Show(confirmOverlay)
 		UITheme.PlayOpenTween(confirmPanel)
 	else
 		requestManualPracticeEvent:FireServer(pendingPracticeMode)
@@ -247,7 +281,7 @@ for i, option in ipairs(MODE_OPTIONS) do
 end
 
 practiceButton.MouseButton1Click:Connect(function()
-	modeOverlay.Visible = true
+	OverlayManager.Show(modeOverlay)
 	UITheme.PlayOpenTween(modePanel)
 end)
 

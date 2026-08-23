@@ -19,6 +19,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
+local OverlayManager = require(script.Parent.OverlayManager)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -191,10 +192,12 @@ closeButton.MouseButton1Click:Connect(function()
 end)
 
 local function openTutorialPanel()
-	tutorialOverlay.Visible = true
+	OverlayManager.Show(tutorialOverlay)
 	UITheme.PlayOpenTween(tutorialPanel)
 	selectTopic(1)
 end
+
+OverlayManager.Register(tutorialOverlay)
 
 -- ===== Tutorial Terminal (in-world interaction) =====
 

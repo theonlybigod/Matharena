@@ -11,6 +11,17 @@
 	which leaves this button's click handling to this script - same
 	handoff pattern Message 10 used for the Shop button).
 
+	Message 31 split: this button is now the quick-claim entry point ONLY
+	- "press the rewards button, decide, and claim any available rewards"
+	- so RewardsButton itself is hidden entirely whenever nothing is
+		currently Available to claim (see refreshRewardsButtonVisibility below),
+	rather than always being visible as a general progress-viewing button.
+	Viewing longer-term progress toward bigger milestones now lives
+	separately in the Daily Rewards building (DailyRewardsUIController.lua,
+	a genuinely different daily-login-streak system) - this win-based track
+	no longer has an in-world terminal of its own; the DailyRewards
+	building's terminal belongs entirely to that other system now.
+
 	Purely presentational: claiming always goes through the server, which
 	re-validates wins and already-claimed state - this script only shows
 	whatever the server confirms, and never marks anything Claimed on its
@@ -22,18 +33,23 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local Workspace = game:GetService("Workspace")
 
 local RewardTrackConfig = require(ReplicatedStorage.Modules.RewardTrackConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
+local OverlayManager = require(script.Parent.OverlayManager)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local mainUI = playerGui:WaitForChild("MainUI")
 local lobbyButtonBar = mainUI:WaitForChild("LobbyButtonBar")
 local rewardsButton = lobbyButtonBar:WaitForChild("RewardsButton") :: TextButton
+-- Message 31 ("make the Rewards button display only when an applicable
+-- reward is available"): hidden by default - refreshClaimButtonFromSnapshot
+-- below is the only thing that ever makes it Visible again, driven
+-- entirely by the server's own snapshot, never a client guess.
+rewardsButton.Visible = false
 
 local getRewardTrackSnapshotFunction = RemoteFunctions.Get("GetRewardTrackSnapshot")
 local claimRewardMilestoneFunction = RemoteFunctions.Get("ClaimRewardMilestone")
@@ -269,13 +285,15 @@ local function findAvailableMilestone(snapshot)
 end
 
 -- Server-authoritative claim-button visibility: shows/hides the toast's
--- "Claim Now" button purely based on what the server's own snapshot says
--- is currently Available - never based on the client guessing, and never
--- based on a timer. Called every time a snapshot is fetched (on load, on
--- panel open, and after every claim attempt), so the button's visibility
--- always reflects the player's actual current claimable state.
+-- "Claim Now" button, AND the lobby RewardsButton itself (Message 31),
+-- purely based on what the server's own snapshot says is currently
+-- Available - never based on the client guessing, and never based on a
+-- timer. Called every time a snapshot is fetched (on load, on panel open,
+-- and after every claim attempt), so both stay in sync with the player's
+-- actual current claimable state.
 local function refreshClaimButtonFromSnapshot(snapshot)
 	local available = findAvailableMilestone(snapshot)
+	rewardsButton.Visible = available ~= nil
 	if available then
 		if currentToastWinsRequired ~= available.winsRequired then
 			showClaimToast(available)
@@ -450,19 +468,22 @@ function requestSnapshot()
 	end
 end
 
--- Establish the "Claim Now" button's correct initial state as soon as this
--- script loads (on join, or on a UI reload) - not just in reaction to a
--- live unlock event. Without this, a player with an already-available (but
--- not freshly-unlocked-this-session) reward would never see the button.
+-- Establish the RewardsButton's + "Claim Now" button's correct initial
+-- state as soon as this script loads (on join, or on a UI reload) - not
+-- just in reaction to a live unlock event. Without this, a player with an
+-- already-available (but not freshly-unlocked-this-session) reward would
+-- never see either.
 requestSnapshot()
 
 -- ===== Open/close =====
 
 local function openRewardsPanel()
-	rewardsOverlay.Visible = true
+	OverlayManager.Show(rewardsOverlay)
 	UITheme.PlayOpenTween(rewardsPanel)
 	requestSnapshot()
 end
+
+OverlayManager.Register(rewardsOverlay)
 
 rewardsButton.MouseButton1Click:Connect(function()
 	if rewardsOverlay.Visible then
@@ -474,22 +495,6 @@ end)
 
 closeButton.MouseButton1Click:Connect(function()
 	rewardsOverlay.Visible = false
-end)
-
--- ===== Rewards Terminal (in-world interaction, Message 15) =====
--- Same open logic as the lobby RewardsButton above.
-task.spawn(function()
-	local lobby = Workspace:WaitForChild("Lobby", 10)
-	local rewardsBuilding = lobby and lobby:WaitForChild("Buildings", 10):WaitForChild("DailyRewards", 10)
-	local stand = rewardsBuilding and rewardsBuilding:FindFirstChild("RewardsTerminalStand")
-	local prompt = stand and stand:FindFirstChild("RewardsTerminalPrompt")
-	if prompt then
-		(prompt :: ProximityPrompt).Triggered:Connect(function(triggeringPlayer: Player)
-			if triggeringPlayer == player then
-				openRewardsPanel()
-			end
-		end)
-	end
 end)
 
 -- ===== Unlock toast (works whether or not the panel is open) =====

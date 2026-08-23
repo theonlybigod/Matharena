@@ -77,6 +77,19 @@ export type PracticeStatistics = {
 	bestStreak: number,
 }
 
+-- Daily-login streak state (DailyRewardsSystem/DailyRewardsConfig) -
+-- entirely separate from claimedRewardMilestones below (that's the
+-- win-based track; this is real-calendar-day-based). lastClaimUnix = 0
+-- means "never claimed". streakDay is which DailyRewardsConfig.DAY_TRACK
+-- entry was most recently claimed (1-7); DailyRewardsSystem decides
+-- whether the NEXT claim continues the streak or resets to day 1 by
+-- comparing lastClaimUnix's calendar day to the current one.
+export type DailyRewardsState = {
+	lastClaimUnix: number,
+	streakDay: number,
+	totalClaims: number,
+}
+
 export type Profile = {
 	wins: number,
 	coins: number,
@@ -91,6 +104,7 @@ export type Profile = {
 	settings: { [string]: any }, -- generic/extensible; no Settings system exists yet to populate this
 	claimedRewardMilestones: { [string]: boolean }, -- win-based Rewards track: set of claimed winsRequired milestones, KEYED BY STRING (tostring(winsRequired)) since DataStore round-trips turn numeric table keys into strings anyway
 	practiceStatistics: PracticeStatistics,
+	dailyRewards: DailyRewardsState,
 }
 
 local PROFILE_STORE_NAME = "MathArena_PlayerProfiles_v1"
@@ -143,6 +157,11 @@ local function createDefaultProfile(): Profile
 			currentStreak = 0,
 			bestStreak = 0,
 		},
+		dailyRewards = {
+			lastClaimUnix = 0,
+			streakDay = 0,
+			totalClaims = 0,
+		},
 	}
 end
 
@@ -156,8 +175,11 @@ local function reconcileWithDefaults(saved: { [string]: any }): Profile
 	local profile = createDefaultProfile()
 
 	for key, value in pairs(saved) do
-		if (key == "statistics" or key == "practiceStatistics") and typeof(value) == "table" then
-			local target = if key == "statistics" then profile.statistics else profile.practiceStatistics
+		if (key == "statistics" or key == "practiceStatistics" or key == "dailyRewards") and typeof(value) == "table" then
+			local target = if key == "statistics"
+				then profile.statistics
+				elseif key == "practiceStatistics" then profile.practiceStatistics
+				else profile.dailyRewards
 			for statKey, statValue in pairs(value) do
 				(target :: any)[statKey] = statValue
 			end

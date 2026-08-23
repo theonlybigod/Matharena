@@ -18,13 +18,16 @@
 	neon trim (base underglow + backrest top trim) instead of the single
 	strip the old version had.
 
-	Real interactive Seat (not just decorative): the main seat surface is
-	now built with className "Seat" (a real Roblox Seat instance), not a
-	plain Part - "account for the actual Seat orientation" in the design
-	brief only makes sense for a genuine Seat, and a plain decorative Part
-	can't be sat on at all, so there was nothing to verify facing
-	direction against before. A Roblox Seat's occupant faces the seat
-	part's own Front direction (local -Z, i.e. its CFrame's LookVector).
+	Real interactive Seats (not just decorative): the seat surface is built
+	from TWO real Roblox Seat instances side by side - "SeatLeft" and
+	"SeatRight" - not a plain Part, and not a single wide Seat either. A
+	single Seat instance only ever holds one occupant regardless of its
+	size, so a bench meant to seat two people at once needs two separate
+	Seat instances; "account for the actual Seat orientation" in the
+	design brief only makes sense for a genuine Seat, and a plain
+	decorative Part can't be sat on at all, so there was nothing to verify
+	facing direction against before. A Roblox Seat's occupant faces the
+	seat part's own Front direction (local -Z, i.e. its CFrame's LookVector).
 	Every bench's CFrame is computed by BuildAll (via yawTowards below) so
 	that LookVector always points from the bench's position toward the
 	map's true center (world (0, 0)) - "every bench faces the center of
@@ -67,30 +70,34 @@ local function buildBench(cframe: CFrame, model: Model, def: SeatingConfig.SeatT
 	local legWidth = 0.5 -- was 0.35 - thicker, more substantial legs
 	local seatY = legHeight + def.seatSize.Y / 2
 
-	-- Real, sittable Seat (not a plain decorative Part) - see module doc
-	-- for why this matters for verifying facing direction.
-	PartUtils.CreatePart({
-		className = "Seat",
-		name = "Seat",
-		size = def.seatSize,
-		cframe = cframe * CFrame.new(0, seatY, 0),
-		material = def.seatMaterial,
-		color = def.seatColor,
-		parent = model,
-	})
-
-	-- Center console/spine trim down the middle of the seat surface - a
-	-- small raised detail line, purely cosmetic, that reads as
-	-- "constructed/futuristic" rather than a single flat plank.
-	PartUtils.CreatePart({
-		name = "SeatSpineTrim",
-		size = Vector3.new(0.35, 0.06, def.seatSize.Z - 0.3),
-		cframe = cframe * CFrame.new(0, seatY + def.seatSize.Y / 2 + 0.03, 0),
-		material = Enum.Material.Neon,
-		color = def.accentColor,
-		canCollide = false,
-		parent = model,
-	})
+	-- Message 30 ("flat bench, no laser in the middle, seat two people -
+	-- one on the left, one on the right"): this used to be ONE Seat
+	-- instance spanning the bench's full width - visually a two-person
+	-- bench, but a Roblox Seat only ever holds a single occupant no matter
+	-- how wide it's built, so only one player could actually sit at a
+	-- time, and the seat surface had a raised Neon "SeatSpineTrim" strip
+	-- running down its exact center (the "laser in the middle" - a thin
+	-- glowing bar bisecting the seat). Both are fixed here: SeatSpineTrim
+	-- is removed entirely (not hidden), and the single Seat is replaced by
+	-- TWO separate, side-by-side Seat instances - SeatLeft and SeatRight -
+	-- each sized to one half of the bench (minus a small gap between them
+	-- so they read as two distinct seats on one flat surface, not a
+	-- divider down the middle), so two players can sit at once, one on
+	-- each half, with nothing raised between them.
+	local seatGap = 0.3
+	local seatWidth = (def.seatSize.X - seatGap) / 2
+	local seatXOffset = (seatWidth + seatGap) / 2
+	for _, side in ipairs({ { name = "SeatLeft", sign = -1 }, { name = "SeatRight", sign = 1 } }) do
+		PartUtils.CreatePart({
+			className = "Seat",
+			name = side.name,
+			size = Vector3.new(seatWidth, def.seatSize.Y, def.seatSize.Z),
+			cframe = cframe * CFrame.new(side.sign * seatXOffset, seatY, 0),
+			material = def.seatMaterial,
+			color = def.seatColor,
+			parent = model,
+		})
+	end
 
 	for _, side in ipairs({ -1, 1 }) do
 		PartUtils.CreatePart({

@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SettingsConfig = require(ReplicatedStorage.Modules.SettingsConfig)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
 local ClientSettingsState = require(script.Parent.ClientSettingsState)
+local OverlayManager = require(script.Parent.OverlayManager)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -267,9 +268,11 @@ end
 -- ===== Wire up from LobbyUIController's Settings button =====
 
 local function openSettings()
-	overlay.Visible = true
+	OverlayManager.Show(overlay)
 	UITheme.PlayOpenTween(panel)
 end
+
+OverlayManager.Register(overlay)
 
 -- LobbyUIController creates the SettingsButton; find it and hook into it
 -- directly rather than duplicating the button (mirrors how ShopUIController

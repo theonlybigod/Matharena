@@ -615,7 +615,7 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 		parent = model,
 	})
 
-	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 5), "RewardsTerminalPrompt", "Open Rewards", "Rewards")
+	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 5), "DailyRewardsTerminalPrompt", "Claim Daily Reward", "Daily Rewards")
 end
 
 --[[

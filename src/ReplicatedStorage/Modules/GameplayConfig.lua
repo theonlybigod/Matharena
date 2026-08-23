@@ -83,9 +83,20 @@ GameplayConfig.RESOLVE_DISPLAY_SECONDS = 2.5 -- pause after an answer before the
 	category/difficulty progression above (ROUND_PLAN / DIFFICULTY_BY_ROUND)
 	- picking a tier doesn't create a second difficulty system, it just
 	picks where in the current one a match begins. The match still
-	progresses harder from there exactly as it always has (a Tier 1 match
-	still gets harder every round; it just starts at round 1 instead of,
-	say, round 6).
+	progresses harder from there exactly as it always has (a match still
+	gets harder every round; it just starts at round 1 instead of, say,
+	round 6).
+
+	Message 32 ("scrap that - five difficulties, plain measurement-style
+	names like easy/medium/hard, with a LITTLE novelty"): replaces the
+	previous six flavor-first names (Addition Academy, Arithmetic
+	Apprentice, Mixed Operations Mayhem, Percentage Pursuit, Order of
+	Operations Odyssey, Expert Equation Gauntlet) with five
+	<StraightforwardDifficultyWord> + "Mode" names - immediately readable
+	as a plain difficulty ladder (Easy -> Medium -> Hard -> Expert ->
+	Master), with "Mode" as the one consistent touch of novelty rather
+	than each tier inventing its own unrelated theme. `description` still
+	names the actual math content each tier starts at, same as before.
 
 	Each tier is also its own separate matchmaking queue (see
 	MatchSystem.lua) - players choosing different tiers wait in different
@@ -100,12 +111,11 @@ export type QueueTier = {
 }
 
 GameplayConfig.QUEUE_TIERS = {
-	{ id = 1, name = "Rookie Recruit", description = "Simple addition to get started.", startingRound = 1 },
-	{ id = 2, name = "Number Cadet", description = "Basic arithmetic, a bit further.", startingRound = 2 },
-	{ id = 3, name = "Operation Overdrive", description = "Mixed operations kick in.", startingRound = 3 },
-	{ id = 4, name = "Percentage Pressure", description = "Percentages and fractions.", startingRound = 4 },
-	{ id = 5, name = "Order of Chaos", description = "Full BEDMAS - order of operations.", startingRound = 6 },
-	{ id = 6, name = "Meltdown Protocol", description = "Explosive, expert-level everything.", startingRound = 8 },
+	{ id = 1, name = "Easy Mode", description = "Simple single-digit addition.", startingRound = 1 },
+	{ id = 2, name = "Medium Mode", description = "Mixed addition, subtraction, multiplication, and division.", startingRound = 3 },
+	{ id = 3, name = "Hard Mode", description = "Fractions.", startingRound = 5 },
+	{ id = 4, name = "Expert Mode", description = "Square roots.", startingRound = 7 },
+	{ id = 5, name = "Master Mode", description = "Algebra, decimals, exponents, and geometry - everything, all mixed together.", startingRound = 8 },
 } :: { QueueTier }
 
 function GameplayConfig.GetQueueTier(tierId: number): QueueTier

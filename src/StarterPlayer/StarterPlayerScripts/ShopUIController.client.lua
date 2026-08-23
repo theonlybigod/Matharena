@@ -31,6 +31,7 @@ local CosmeticsConfig = require(ReplicatedStorage.Modules.CosmeticsConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
+local OverlayManager = require(script.Parent.OverlayManager)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -538,11 +539,13 @@ local function requestSnapshot()
 end
 
 local function openShopPanel()
-	shopOverlay.Visible = true
+	OverlayManager.Show(shopOverlay)
 	UITheme.PlayOpenTween(shopPanel)
 	refreshCurrencyDisplay()
 	requestSnapshot()
 end
+
+OverlayManager.Register(shopOverlay)
 
 shopButton.MouseButton1Click:Connect(function()
 	if shopOverlay.Visible then
