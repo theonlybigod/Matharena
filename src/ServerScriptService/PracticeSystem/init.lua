@@ -12,14 +12,33 @@
 	instead of coins.
 
 	Practice Mode is manual-only: it starts ONLY via the lobby's Practice
-	button (RequestManualPractice) - "just make players choose by pressing
-	the Practice button when they want to play" - never automatically. An
-	earlier version of this system auto-started practice for a lone player
-	after a 10-second countdown, with a "Practice Mode starts in..." banner
-	on their screen; that entire mechanic (both the server-side timer and
-	the client countdown UI) has been removed rather than just hidden, so a
-	solo player is never pulled into practice without explicitly choosing
-	to.
+	button (RequestManualPractice) - never automatically.
+
+	Practice TYPE ("what type of practice you want", chosen from the
+	popup shown when pressing Practice - see PracticeUIController.client.lua):
+		"Regular"   - normal timer, taken straight from the same round+
+		              category formula a competitive match uses
+		              (GameplayConfig.GetTimerSeconds).
+		"ExtraTime" - the SAME base timer, multiplied by a player-chosen
+		              factor of 2x-5x (practiceTimeMultiplier), OR
+		              Infinite Time (practiceInfiniteTime = true), which
+		              removes the per-question countdown/timeout entirely
+		              without touching the normal answer/result flow - a
+		              player can still submit at any time, they just never
+		              get auto-resolved by a timeout.
+	Server-authoritative: the client only ever REQUESTS one of these two
+	exact strings plus (for "ExtraTime") a multiplier number 2-5 or the
+	literal string "Infinite" - the server clamps/validates and applies
+	the actual timer math below, exactly as it already owned every other
+	timing value.
+
+	The popup flow is Type (Regular/ExtraTime) -> [ExtraTime only: pick a
+	multiplier or Infinite] -> Difficulty (the same five GameplayConfig.
+	QUEUE_TIERS the Play button's tier-select popup uses) -> practice
+	actually starts. The chosen tier's `startingRound` feeds
+	`practiceQuestionNumber`'s starting point exactly the same way
+	MatchSystem seeds a competitive match's starting round from a queue
+	tier.
 
 	Self-contained: owns its own Players.PlayerAdded/PlayerRemoving
 	connections (same pattern as RemoteThrottle) rather than requiring
@@ -49,6 +68,7 @@ local DataSystem = require(ServerScriptService.DataSystem)
 local ProgressionSystem = require(ServerScriptService.ProgressionSystem)
 local MatchSystem = require(ServerScriptService.MatchSystem)
 local RemoteThrottle = require(ServerScriptService.RemoteThrottle)
+local QuestsSystem = require(ServerScriptService.QuestsSystem)
 
 local QuestionGenerator = require(ServerScriptService.CompetitionGameplay.QuestionGenerator)
 local Teleporter = require(ServerScriptService.MatchSystem.Teleporter)
@@ -64,6 +84,13 @@ local leavePracticeModeEvent = RemoteEvents.Get("LeavePracticeMode")
 local practiceSubmitAnswerEvent = RemoteEvents.Get("PracticeSubmitAnswer")
 local requestManualPracticeEvent = RemoteEvents.Get("RequestManualPractice")
 
+-- Sent to the client in place of a real timerSeconds value whenever
+-- Infinite Time is active - negative, so any naive client code that just
+-- checks `timerSeconds and timerSeconds > 0` before starting a countdown
+-- safely treats it as "no timer" without needing to know this sentinel by
+-- name (ArenaScreenController.client.lua does exactly that).
+local INFINITE_TIME_SENTINEL = -1
+
 -- ===== Active practice state (at most one practice session at a time is
 -- typical, since practice is opt-in per player, but nothing here assumes
 -- exactly one player is online) =====
@@ -71,27 +98,17 @@ local requestManualPracticeEvent = RemoteEvents.Get("RequestManualPractice")
 local practicePlayer: Player? = nil
 local practicePlatform: Model? = nil
 local practiceQuestionNumber = 0
+local practiceTierId: number? = nil -- the difficulty tier picked from the Practice popup - caps how far practiceQuestionNumber is ever allowed to climb, see GameplayConfig.AdvanceRoundForTier
 local currentQuestion: QuestionGenerator.Question? = nil
 local turnStartClock: number? = nil
 local turnTimerSeconds: number? = nil
 local turnGeneration = 0
 local endPracticeAfterCurrentQuestion = false
 
--- Practice mode variants ("what type of practice you want", chosen from
--- the popup shown when pressing Practice - see PracticeUIController.client.lua):
---   "Regular"    - normal timer, normal between-question pause.
---   "DoubleTime" - each question's timer is doubled - more breathing
---                  room to work through harder questions while training.
---   "NoCooldown" - the between-question result-display pause
---                  (GameplayConfig.RESOLVE_DISPLAY_SECONDS) is skipped
---                  entirely, so the next question starts immediately -
---                  rapid-fire reps with no downtime.
--- Server-authoritative: the client only ever REQUESTS one of these three
--- exact strings; the server clamps/validates and applies the actual
--- timer/pause math below, exactly as it already owned every other timing
--- value.
-local VALID_PRACTICE_MODES = { Regular = true, DoubleTime = true, NoCooldown = true }
+local VALID_PRACTICE_MODES = { Regular = true, ExtraTime = true }
 local practiceMode: string = "Regular"
+local practiceTimeMultiplier: number = 1 -- ExtraTime only: 2-5
+local practiceInfiniteTime: boolean = false -- ExtraTime only: Infinite Time selected
 
 -- ===== Practice question loop =====
 
@@ -149,40 +166,55 @@ local function beginNextPracticeQuestion()
 		return
 	end
 
-	practiceQuestionNumber += 1
+	-- Capped by the chosen practice tier (an Easy Mode practice session
+	-- stays genuinely Easy for however long the player keeps going - it
+	-- can get harder WITHIN its own band, but a long session must never
+	-- drift into a harder tier's categories, e.g. Exponents, just because
+	-- the player answered enough questions in a row).
+	practiceQuestionNumber = GameplayConfig.AdvanceRoundForTier(practiceQuestionNumber, practiceTierId)
 	turnGeneration += 1
 	local myTurnGeneration = turnGeneration
 
 	-- Reuses the EXACT same round-based difficulty/category progression
 	-- competitive matches use (GameplayConfig), feeding the practice
-	-- question counter in as the "round" - rounds 1-7 already ramp
-	-- Easy -> Medium -> Hard -> Expert and arithmetic -> mixed ->
-	-- percentages/fractions -> harder categories, matching the requested
-	-- progression without a second, incompatible difficulty table.
+	-- question counter in as the "round" - StartPractice seeds it from the
+	-- chosen difficulty tier's startingRound, so a Master Mode practice
+	-- session correctly begins on round 8's category pool immediately.
 	local question = QuestionGenerator.Generate(practiceQuestionNumber)
 	local difficulty = GameplayConfig.GetDifficultyForRound(practiceQuestionNumber)
-	-- "DoubleTime" mode: exactly what it says - double the usual per-
-	-- question timer, the only difference from Regular mode's timing.
-	local timerSeconds = GameplayConfig.TIMER_SECONDS[difficulty] * (if practiceMode == "DoubleTime" then 2 else 1)
+
+	-- Same round+category timer formula a competitive match uses
+	-- (GameplayConfig.GetTimerSeconds - gradual per-round decay plus a
+	-- per-category complexity bonus), then Extra Time Mode's multiplier
+	-- (2x-5x) on top, or Infinite Time which drops the per-question
+	-- countdown/timeout entirely.
+	local baseTimerSeconds = GameplayConfig.GetTimerSeconds(practiceQuestionNumber, question.category)
+	local timerSeconds = if practiceInfiniteTime then nil else baseTimerSeconds * practiceTimeMultiplier
 
 	currentQuestion = question
 	turnStartClock = os.clock()
-	turnTimerSeconds = timerSeconds
+	turnTimerSeconds = timerSeconds -- nil while Infinite Time is active
 
 	practiceQuestionStartedEvent:FireClient(practicePlayer, {
 		questionNumber = practiceQuestionNumber,
 		questionText = question.text,
 		difficulty = difficulty,
-		timerSeconds = timerSeconds,
+		timerSeconds = if timerSeconds then timerSeconds else INFINITE_TIME_SENTINEL,
 	})
 
-	local watchedPlayer = practicePlayer
-	task.delay(timerSeconds, function()
-		if turnGeneration ~= myTurnGeneration then
-			return -- already resolved (answered) or practice ended
-		end
-		PracticeSystem.ResolveTurn(watchedPlayer, false, true)
-	end)
+	if timerSeconds then
+		local watchedPlayer = practicePlayer
+		task.delay(timerSeconds, function()
+			if turnGeneration ~= myTurnGeneration then
+				return -- already resolved (answered) or practice ended
+			end
+			PracticeSystem.ResolveTurn(watchedPlayer, false, true)
+		end)
+	end
+	-- Infinite Time: deliberately no task.delay scheduled at all - the
+	-- ONLY way this question resolves is a real submitted answer, via
+	-- onPracticeSubmitAnswer below. The normal answer/result flow
+	-- (ResolveTurn, stats, XP, the resolve pause) is completely unchanged.
 end
 
 --[[
@@ -209,6 +241,10 @@ function PracticeSystem.ResolveTurn(player: Player, isCorrect: boolean, timedOut
 	ProgressionSystem.RecordPracticeQuestionAnswer(player, isCorrect, if isCorrect then elapsed else nil)
 	if isCorrect then
 		ProgressionSystem.AwardXP(player, RewardsConfig.PRACTICE_CORRECT_ANSWER_XP)
+		-- Quest progress ("Practice Makes Perfect" - practice correct
+		-- answers) moves via RecordPracticeQuestionAnswer above - check
+		-- right after, same reasoning as CompetitionGameplay's own check.
+		QuestsSystem.CheckForNewlyCompleted(player)
 	end
 
 	practiceQuestionResolvedEvent:FireClient(player, {
@@ -218,7 +254,7 @@ function PracticeSystem.ResolveTurn(player: Player, isCorrect: boolean, timedOut
 		stats = clearPracticeStatDisplayPayload(player),
 	})
 
-	task.wait(if practiceMode == "NoCooldown" then 0 else GameplayConfig.RESOLVE_DISPLAY_SECONDS)
+	task.wait(GameplayConfig.RESOLVE_DISPLAY_SECONDS)
 
 	if player == practicePlayer then
 		beginNextPracticeQuestion()
@@ -246,17 +282,26 @@ end
 	Starts Practice Mode for `player`, via the lobby's Practice Mode button
 	(RequestManualPractice) - the only way Practice Mode ever starts.
 	Valid any time this player isn't currently an active competitive match
-	participant (never pull them out of a real match) - other players being
-	online doesn't prevent this player from practicing (section 10 from an
-	earlier prompt: "players waiting may enter Practice Mode"). Removes
-	them from the queue first if they were in it.
+	participant (never pull them out of a real match). Removes them from
+	the queue first if they were in it.
 
 	`requestedMode` is one of VALID_PRACTICE_MODES's keys ("Regular",
-	"DoubleTime", "NoCooldown") - anything else (a stale/malicious client)
-	silently falls back to "Regular" rather than erroring, same defensive
-	pattern as every other client-supplied value in this project.
+	"ExtraTime") - anything else (a stale/malicious client) silently falls
+	back to "Regular" rather than erroring, same defensive pattern as
+	every other client-supplied value in this project.
+
+	`requestedTierId` is one of GameplayConfig.QUEUE_TIERS' ids (1-5, Easy
+	Mode through Master Mode) - anything else falls back to tier 1.
+	Determines which round practiceQuestionNumber starts counting from.
+
+	`requestedExtraTime` only matters when requestedMode == "ExtraTime":
+	either a number (clamped to 2-5, the per-question time multiplier) or
+	the literal string "Infinite" (removes the per-question timer
+	entirely). Anything else falls back to a 2x multiplier - never
+	silently drops back to "Regular" behavior just because this one extra
+	argument was malformed.
 ]]
-function PracticeSystem.StartPractice(player: Player, requestedMode: string?)
+function PracticeSystem.StartPractice(player: Player, requestedMode: string?, requestedTierId: number?, requestedExtraTime: (number | string)?)
 	if not player.Parent then
 		return
 	end
@@ -269,10 +314,32 @@ function PracticeSystem.StartPractice(player: Player, requestedMode: string?)
 
 	MatchSystem.LeaveQueue(player)
 
+	local tier = GameplayConfig.GetQueueTier(requestedTierId or 1)
+
 	practicePlayer = player
-	practiceQuestionNumber = 0
+	practiceTierId = tier.id
+	-- beginNextPracticeQuestion advances BEFORE generating, so seeding one
+	-- below the tier's starting round makes the very first question land
+	-- exactly on tier.startingRound.
+	practiceQuestionNumber = tier.startingRound - 1
 	endPracticeAfterCurrentQuestion = false
 	practiceMode = if requestedMode and VALID_PRACTICE_MODES[requestedMode] then requestedMode else "Regular"
+
+	if practiceMode == "ExtraTime" then
+		if requestedExtraTime == "Infinite" then
+			practiceInfiniteTime = true
+			practiceTimeMultiplier = 1
+		elseif typeof(requestedExtraTime) == "number" then
+			practiceInfiniteTime = false
+			practiceTimeMultiplier = math.clamp(math.floor(requestedExtraTime), 2, 5)
+		else
+			practiceInfiniteTime = false
+			practiceTimeMultiplier = 2
+		end
+	else
+		practiceInfiniteTime = false
+		practiceTimeMultiplier = 1
+	end
 
 	local assignments = Teleporter.AssignPlatforms({ player })
 	practicePlatform = assignments[player]
@@ -281,17 +348,32 @@ function PracticeSystem.StartPractice(player: Player, requestedMode: string?)
 		active = true,
 		platformIndex = practicePlatform and practicePlatform:GetAttribute("PlatformIndex"),
 		mode = practiceMode,
+		timeMultiplier = practiceTimeMultiplier,
+		infiniteTime = practiceInfiniteTime,
 	})
 
-	print(("[PracticeSystem] Practice started for %s (mode: %s)"):format(player.Name, practiceMode))
+	print(
+		("[PracticeSystem] Practice started for %s (mode: %s%s)"):format(
+			player.Name,
+			practiceMode,
+			if practiceMode == "ExtraTime"
+				then (if practiceInfiniteTime then ", Infinite Time" else (", " .. tostring(practiceTimeMultiplier) .. "x"))
+				else ""
+		)
+	)
 	beginNextPracticeQuestion()
 end
 
-local function onRequestManualPractice(player: Player, requestedMode: unknown)
+local function onRequestManualPractice(player: Player, requestedMode: unknown, requestedTierId: unknown, requestedExtraTime: unknown)
 	if not RemoteThrottle.Check(player, "RequestManualPractice", 1) then
 		return
 	end
-	PracticeSystem.StartPractice(player, if typeof(requestedMode) == "string" then requestedMode else nil)
+	PracticeSystem.StartPractice(
+		player,
+		if typeof(requestedMode) == "string" then requestedMode else nil,
+		if typeof(requestedTierId) == "number" then requestedTierId else nil,
+		if typeof(requestedExtraTime) == "number" or typeof(requestedExtraTime) == "string" then requestedExtraTime else nil
+	)
 end
 
 local function onLeavePracticeRequest(player: Player)

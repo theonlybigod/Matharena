@@ -26,12 +26,39 @@
 	CLIENT controller that already owns the corresponding panel connects
 	directly to that prompt's Triggered signal. No new remotes, no
 	duplicate UI/shop/rewards/statistics logic.
+
+	Multi-theme support: every color/material below that isn't purely
+	functional (ProximityPrompt config, doorway sizing math, etc.) is
+	driven by a small set of mutable module-level variables, latched via
+	BuildingInteriors.SetTheme(theme) once per map build (see
+	LobbyBuilder/init.lua and Buildings.lua, which cascades its own
+	SetTheme call into this module) - every function below already closes
+	over these same variables, so a theme swap needs no other changes
+	anywhere in this file:
+		WALL_MATERIAL / EXTERIOR_WALL_COLOR - structural exterior walls,
+			ceiling, roof cap, entrance canopy, doorway header.
+		INTERIOR_WALL_COLOR / INTERIOR_FLOOR_COLOR - the (currently mostly
+			unused, kept for future interior-specific surfaces) interior
+			shell tones.
+		FURNITURE_MATERIAL / FURNITURE_COLOR - every freestanding interior
+			fixture (shelves, terminal stands, counters, pedestals,
+			monitors, benches) and every roof-mounted "identity" massing
+			structure's solid body (the reward tower, data spire, turret).
+		ACCENT_MATERIAL / ACCENT_COLOR - every glowing trim/accent surface
+			that used to be a flat Enum.Material.Neon - roofline/canopy/
+			doorway trim, terminal screens, identity-structure trim rings,
+			shop marquee, milestone panels, monitor screens, and so on.
+		GLASS_MATERIAL / GLASS_COLOR / GLASS_TRANSPARENCY - the side-wall
+			window strips and the Shop's storefront bays. For the Lava
+			theme this becomes a genuinely different MATERIAL (CrackedLava
+			"lava vents" glowing through the wall) rather than a tinted
+			pane of Glass, not just a recolor.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
-local LobbyConfig = require(script.Parent.LobbyConfig)
 local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
+local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local BuildingInteriors = {}
 
@@ -39,11 +66,45 @@ local WALL_THICKNESS = 1
 local MIN_DOOR_WIDTH = 8
 local MAX_DOOR_WIDTH = 14
 
-local INTERIOR_WALL_COLOR = Color3.fromRGB(40, 43, 50)
-local INTERIOR_FLOOR_COLOR = Color3.fromRGB(30, 32, 38)
-local EXTERIOR_WALL_COLOR = Color3.fromRGB(52, 56, 66)
-local ACCENT_COLOR = LobbyConfig.NEON_COLOR
-local GLASS_COLOR = Color3.fromRGB(120, 200, 255)
+local defaultTheme = LobbyTheme.Get()
+local WALL_MATERIAL = defaultTheme.buildingWallMaterial
+local EXTERIOR_WALL_COLOR = defaultTheme.buildingExteriorWallColor
+local INTERIOR_WALL_COLOR = defaultTheme.buildingInteriorWallColor
+local INTERIOR_FLOOR_COLOR = defaultTheme.buildingInteriorFloorColor
+local CEILING_COLOR = defaultTheme.buildingCeilingColor
+local ROOFCAP_COLOR = defaultTheme.buildingRoofCapColor
+local HEADER_COLOR = defaultTheme.buildingHeaderColor
+local CANOPY_COLOR = defaultTheme.buildingCanopyColor
+local ACCENT_MATERIAL = defaultTheme.buildingAccentMaterial
+local ACCENT_COLOR = defaultTheme.buildingAccentColor
+local GLASS_MATERIAL = defaultTheme.buildingGlassMaterial
+local GLASS_COLOR = defaultTheme.buildingGlassColor
+local GLASS_TRANSPARENCY = defaultTheme.buildingGlassTransparency
+local FURNITURE_MATERIAL = defaultTheme.buildingFurnitureMaterial
+local FURNITURE_COLOR = defaultTheme.buildingFurnitureColor
+
+--[[
+	Latches `theme` for every building-interior/exterior color and
+	material in this file - see the module doc comment above for exactly
+	which surfaces each field drives.
+]]
+function BuildingInteriors.SetTheme(theme: LobbyTheme.Theme)
+	WALL_MATERIAL = theme.buildingWallMaterial
+	EXTERIOR_WALL_COLOR = theme.buildingExteriorWallColor
+	INTERIOR_WALL_COLOR = theme.buildingInteriorWallColor
+	INTERIOR_FLOOR_COLOR = theme.buildingInteriorFloorColor
+	CEILING_COLOR = theme.buildingCeilingColor
+	ROOFCAP_COLOR = theme.buildingRoofCapColor
+	HEADER_COLOR = theme.buildingHeaderColor
+	CANOPY_COLOR = theme.buildingCanopyColor
+	ACCENT_MATERIAL = theme.buildingAccentMaterial
+	ACCENT_COLOR = theme.buildingAccentColor
+	GLASS_MATERIAL = theme.buildingGlassMaterial
+	GLASS_COLOR = theme.buildingGlassColor
+	GLASS_TRANSPARENCY = theme.buildingGlassTransparency
+	FURNITURE_MATERIAL = theme.buildingFurnitureMaterial
+	FURNITURE_COLOR = theme.buildingFurnitureColor
+end
 
 --[[
 	Builds the hollow shell for one building: floor, ceiling, left/right/back
@@ -77,8 +138,8 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		name = "Ceiling",
 		size = Vector3.new(def.size.X, 0.5, def.size.Y),
 		position = basePos + Vector3.new(0, def.height - 0.25, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(50, 53, 60),
+		material = WALL_MATERIAL,
+		color = CEILING_COLOR,
 		parent = model,
 	})
 
@@ -86,7 +147,7 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		name = "BackWall",
 		size = Vector3.new(def.size.X, def.height, WALL_THICKNESS),
 		position = basePos + Vector3.new(0, def.height / 2, -halfZ + WALL_THICKNESS / 2),
-		material = Enum.Material.Metal,
+		material = WALL_MATERIAL,
 		color = EXTERIOR_WALL_COLOR,
 		parent = model,
 	})
@@ -100,7 +161,7 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 			name = if side == -1 then "LeftWall" else "RightWall",
 			size = Vector3.new(WALL_THICKNESS, def.height, def.size.Y),
 			position = basePos + Vector3.new(wallX, def.height / 2, 0),
-			material = Enum.Material.Metal,
+			material = WALL_MATERIAL,
 			color = EXTERIOR_WALL_COLOR,
 			parent = model,
 		})
@@ -117,7 +178,7 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 				name = "WindowFrame",
 				size = Vector3.new(0.3, windowHeight + 0.6, windowWidth + 0.6),
 				position = basePos + Vector3.new(side * (halfX - 0.15), def.height * 0.55, offsetZ),
-				material = Enum.Material.Metal,
+				material = ACCENT_MATERIAL,
 				color = ACCENT_COLOR,
 				canCollide = false,
 				parent = model,
@@ -126,9 +187,9 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 				name = "Window",
 				size = Vector3.new(0.15, windowHeight, windowWidth),
 				position = basePos + Vector3.new(side * (halfX - 0.15), def.height * 0.55, offsetZ),
-				material = Enum.Material.Glass,
+				material = GLASS_MATERIAL,
 				color = GLASS_COLOR,
-				transparency = 0.45,
+				transparency = GLASS_TRANSPARENCY,
 				canCollide = false,
 				parent = model,
 			})
@@ -142,7 +203,7 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		name = "FrontWallLeft",
 		size = Vector3.new(sideSegWidth, doorHeight, WALL_THICKNESS),
 		position = basePos + Vector3.new(-halfX + sideSegWidth / 2, doorHeight / 2, halfZ - WALL_THICKNESS / 2),
-		material = Enum.Material.Metal,
+		material = WALL_MATERIAL,
 		color = EXTERIOR_WALL_COLOR,
 		parent = model,
 		})
@@ -150,7 +211,7 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		name = "FrontWallRight",
 		size = Vector3.new(sideSegWidth, doorHeight, WALL_THICKNESS),
 		position = basePos + Vector3.new(halfX - sideSegWidth / 2, doorHeight / 2, halfZ - WALL_THICKNESS / 2),
-		material = Enum.Material.Metal,
+		material = WALL_MATERIAL,
 		color = EXTERIOR_WALL_COLOR,
 		parent = model,
 		})
@@ -162,8 +223,8 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		name = "Base",
 		size = Vector3.new(def.size.X, headerHeight, WALL_THICKNESS),
 		position = basePos + Vector3.new(0, doorHeight + headerHeight / 2, halfZ - WALL_THICKNESS / 2),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(60, 65, 75),
+		material = WALL_MATERIAL,
+		color = HEADER_COLOR,
 		parent = model,
 	})
 
@@ -176,8 +237,8 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		size = Vector3.new(DOOR_WIDTH + 4, 2.5, 5),
 		cframe = CFrame.new(basePos + Vector3.new(0, doorHeight + 0.5, halfZ + 2))
 			* CFrame.Angles(0, math.rad(180), 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(60, 65, 75),
+		material = WALL_MATERIAL,
+		color = CANOPY_COLOR,
 		canCollide = false,
 		parent = model,
 	})
@@ -185,7 +246,7 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		name = "CanopyTrim",
 		size = Vector3.new(DOOR_WIDTH + 4.2, 0.25, 0.25),
 		position = basePos + Vector3.new(0, doorHeight - 0.6, halfZ + 4.4),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
@@ -196,7 +257,7 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		name = "DoorwayTrim",
 		size = Vector3.new(DOOR_WIDTH + 1, 0.4, WALL_THICKNESS + 0.2),
 		position = basePos + Vector3.new(0, doorHeight, halfZ - WALL_THICKNESS / 2),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
@@ -210,15 +271,15 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		name = "RoofCap",
 		size = Vector3.new(def.size.X - capInset * 2, 1.5, def.size.Y - capInset * 2),
 		position = basePos + Vector3.new(0, def.height + 0.75, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(45, 48, 56),
+		material = WALL_MATERIAL,
+		color = ROOFCAP_COLOR,
 		parent = model,
 	})
 	PartUtils.CreatePart({
 		name = "RoofCapTrim",
 		size = Vector3.new(def.size.X - capInset * 2 + 0.3, 0.3, def.size.Y - capInset * 2 + 0.3),
 		position = basePos + Vector3.new(0, def.height + 1.5, 0),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
@@ -231,13 +292,13 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 			name = "CeilingLight",
 			size = Vector3.new(4, 0.2, 1.5),
 			position = basePos + Vector3.new(0, def.height - 0.7, offsetZ),
-			material = Enum.Material.Neon,
-			color = Color3.fromRGB(230, 240, 255),
+			material = ACCENT_MATERIAL,
+			color = ACCENT_COLOR,
 			canCollide = false,
 			parent = model,
 		})
 		local pointLight = Instance.new("PointLight")
-		pointLight.Color = Color3.fromRGB(220, 230, 255)
+		pointLight.Color = ACCENT_COLOR
 		pointLight.Range = LightingConfig.ACCENT_LIGHT_RANGE
 		pointLight.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS
 		pointLight.Parent = light
@@ -253,7 +314,7 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 			name = "FloorSeam" .. i,
 			size = Vector3.new(0.15, 0.02, def.size.Y - 2),
 			position = basePos + Vector3.new(-halfX + tileSpacing * i, 0.51, 0),
-			material = Enum.Material.Metal,
+			material = WALL_MATERIAL,
 			color = Color3.fromRGB(20, 22, 27),
 			canCollide = false,
 			parent = model,
@@ -268,7 +329,7 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 			name = "CeilingBeam",
 			size = Vector3.new(def.size.X - 1, 0.4, 0.6),
 			position = basePos + Vector3.new(0, def.height - 0.7, offsetZ),
-			material = Enum.Material.Metal,
+			material = WALL_MATERIAL,
 			color = Color3.fromRGB(38, 41, 48),
 			canCollide = false,
 			parent = model,
@@ -283,8 +344,8 @@ local function terminal(model: Model, position: Vector3, promptName: string, pro
 		name = promptName:gsub("Prompt$", "Stand"),
 		size = Vector3.new(3, 3.5, 1.5),
 		position = position,
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(45, 48, 56),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
 		parent = model,
 	})
 
@@ -292,7 +353,7 @@ local function terminal(model: Model, position: Vector3, promptName: string, pro
 		name = "Screen",
 		size = Vector3.new(2.4, 1.6, 0.15),
 		position = position + Vector3.new(0, 0.8, 0.85),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
@@ -333,9 +394,9 @@ local function addShopIdentity(def, model: Model)
 			size = Vector3.new(4, 6, 3),
 			cframe = CFrame.new(basePos + Vector3.new(side * (halfX - 2), 4, halfZ + 1))
 				* CFrame.Angles(0, math.rad(side == -1 and 90 or -90), 0),
-			material = Enum.Material.Glass,
+			material = GLASS_MATERIAL,
 			color = GLASS_COLOR,
-			transparency = 0.35,
+			transparency = GLASS_TRANSPARENCY,
 			canCollide = false,
 			parent = model,
 		})
@@ -347,7 +408,7 @@ local function addShopIdentity(def, model: Model)
 		name = "ShopMarquee",
 		size = Vector3.new(def.size.X * 0.5, 2, 0.3),
 		position = basePos + Vector3.new(0, def.height + 3, halfZ + 4.6),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
@@ -392,15 +453,15 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 					name = "WallShelf",
 					size = Vector3.new(3.2, 0.25, 1.4),
 					position = basePos + Vector3.new(side * (halfX - 2.1), shelfY, offsetZ),
-					material = Enum.Material.Metal,
-					color = Color3.fromRGB(50, 53, 62),
+					material = FURNITURE_MATERIAL,
+					color = FURNITURE_COLOR,
 					parent = model,
 				})
 				PartUtils.CreatePart({
 					name = "ShelfItem",
 					size = Vector3.new(0.8, 0.8, 0.8),
 					position = basePos + Vector3.new(side * (halfX - 2.1), shelfY + 0.55, offsetZ),
-					material = Enum.Material.Neon,
+					material = ACCENT_MATERIAL,
 					color = ACCENT_COLOR,
 					canCollide = false,
 					parent = model,
@@ -419,8 +480,8 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 			name = "AisleIsland",
 			size = Vector3.new(2.2, 4, halfZ * 0.7),
 			position = basePos + Vector3.new(aisleX, 2, halfZ * 0.05),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(48, 51, 60),
+			material = FURNITURE_MATERIAL,
+			color = FURNITURE_COLOR,
 			parent = model,
 		})
 		for _, itemOffsetZ in ipairs({ -halfZ * 0.25, 0, halfZ * 0.25 }) do
@@ -430,7 +491,7 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 					size = Vector3.new(0.9, 0.9, 0.9),
 					position = basePos
 						+ Vector3.new(aisleX + faceX * 1.5, 4.2, itemOffsetZ + halfZ * 0.05),
-					material = Enum.Material.Neon,
+					material = ACCENT_MATERIAL,
 					color = ACCENT_COLOR,
 					canCollide = false,
 					parent = model,
@@ -445,7 +506,7 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		name = "FloorAccent",
 		size = Vector3.new(2, 0.05, def.size.Y - 8),
 		position = basePos + Vector3.new(0, 0.53, 1),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		transparency = 0.5,
 		canCollide = false,
@@ -459,15 +520,15 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 			name = "DisplayPlinth",
 			size = Vector3.new(2, 3, 2),
 			position = basePos + Vector3.new(x, 1.5, -halfZ * 0.35),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(45, 48, 56),
+			material = FURNITURE_MATERIAL,
+			color = FURNITURE_COLOR,
 			parent = model,
 		})
 		PartUtils.CreatePart({
 			name = "DisplayItem",
 			size = Vector3.new(1.2, 1.2, 1.2),
 			position = basePos + Vector3.new(x, 3.6, -halfZ * 0.35),
-			material = Enum.Material.Neon,
+			material = ACCENT_MATERIAL,
 			color = ACCENT_COLOR,
 			canCollide = false,
 			parent = model,
@@ -482,23 +543,23 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		name = "Counter",
 		size = Vector3.new(math.min(14, def.size.X - 8), 3.5, 2.5),
 		position = basePos + Vector3.new(0, 1.75, -halfZ + 4),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(50, 53, 62),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
 		parent = model,
 	})
 	PartUtils.CreatePart({
 		name = "CounterRegister",
 		size = Vector3.new(1.6, 1.2, 1.2),
 		position = basePos + Vector3.new(0, 4.1, -halfZ + 3.6),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(40, 43, 50),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
 		parent = model,
 	})
 	PartUtils.CreatePart({
 		name = "CounterRegisterScreen",
 		size = Vector3.new(1, 0.7, 0.1),
 		position = basePos + Vector3.new(0, 4.3, -halfZ + 3.05),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
@@ -522,15 +583,15 @@ local function addRewardsIdentity(def, model: Model)
 			name = "RewardTower" .. i,
 			size = Vector3.new(tier.size, tier.height, tier.size),
 			position = basePos + Vector3.new(0, y + tier.height / 2, 0),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(50, 53, 62),
+			material = FURNITURE_MATERIAL,
+			color = FURNITURE_COLOR,
 			parent = model,
 		})
 		PartUtils.CreatePart({
 			name = "RewardTowerTrim" .. i,
 			size = Vector3.new(tier.size + 0.3, 0.25, tier.size + 0.3),
 			position = basePos + Vector3.new(0, y + tier.height, 0),
-			material = Enum.Material.Neon,
+			material = ACCENT_MATERIAL,
 			color = ACCENT_COLOR,
 			canCollide = false,
 			parent = model,
@@ -572,7 +633,7 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 				name = "MilestonePanel" .. i,
 				size = Vector3.new(0.2, 2.4, 2.4),
 				position = basePos + Vector3.new(side * (halfX - 0.3), 5, offsetZ),
-				material = Enum.Material.Neon,
+				material = ACCENT_MATERIAL,
 				color = ACCENT_COLOR,
 				transparency = 0.2,
 				canCollide = false,
@@ -589,8 +650,8 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 			name = "MilestonePedestal" .. i,
 			size = Vector3.new(3, 2.5, 3),
 			position = basePos + Vector3.new(0, 1.25, offsetZ),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(48, 51, 60),
+			material = FURNITURE_MATERIAL,
+			color = FURNITURE_COLOR,
 			parent = model,
 		})
 		PartUtils.CreatePart({
@@ -609,7 +670,7 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 		name = "ProgressionWall",
 		size = Vector3.new(def.size.X - 6, def.height - 8, 0.3),
 		position = basePos + Vector3.new(0, def.height / 2, -halfZ + 1),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
@@ -632,8 +693,8 @@ local function addStatisticsIdentity(def, model: Model)
 		name = "DataSpire",
 		size = Vector3.new(1.6, spireHeight, 1.6),
 		position = basePos + Vector3.new(0, def.height + spireHeight / 2, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(55, 58, 66),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
 		canCollide = false,
 		parent = model,
 	})
@@ -645,7 +706,7 @@ local function addStatisticsIdentity(def, model: Model)
 			diameter = 3 + i * 0.6,
 			thickness = 0.3,
 			position = basePos + Vector3.new(0, ringY, 0),
-			material = Enum.Material.Neon,
+			material = ACCENT_MATERIAL,
 			color = ACCENT_COLOR,
 			canCollide = false,
 			parent = model,
@@ -656,7 +717,7 @@ local function addStatisticsIdentity(def, model: Model)
 		name = "SpireBeacon",
 		size = Vector3.new(1.4, 1.4, 1.4),
 		position = basePos + Vector3.new(0, spireTop + 0.7, 0),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		shape = Enum.PartType.Ball,
 		canCollide = false,
@@ -690,15 +751,15 @@ function BuildingInteriors.FurnishStatistics(def, model: Model)
 				name = "MonitorStand",
 				size = Vector3.new(0.4, 2.5, 1.6),
 				position = basePos + Vector3.new(side * (halfX - 1.5), 2.5, offsetZ),
-				material = Enum.Material.Metal,
-				color = Color3.fromRGB(45, 48, 56),
+				material = FURNITURE_MATERIAL,
+				color = FURNITURE_COLOR,
 				parent = model,
 			})
 			PartUtils.CreatePart({
 				name = "MonitorScreen",
 				size = Vector3.new(0.15, 1.6, 1.2),
 				position = basePos + Vector3.new(side * (halfX - 1.25), 2.9, offsetZ),
-				material = Enum.Material.Neon,
+				material = ACCENT_MATERIAL,
 				color = ACCENT_COLOR,
 				canCollide = false,
 				parent = model,
@@ -714,15 +775,15 @@ function BuildingInteriors.FurnishStatistics(def, model: Model)
 			name = "DataStation",
 			size = Vector3.new(3, 2.8, 1.4),
 			position = basePos + Vector3.new(0, 1.4, offsetZ),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(48, 51, 60),
+			material = FURNITURE_MATERIAL,
+			color = FURNITURE_COLOR,
 			parent = model,
 		})
 		PartUtils.CreatePart({
 			name = "DataStationScreen",
 			size = Vector3.new(2.2, 1.3, 0.15),
 			position = basePos + Vector3.new(0, 2.9, offsetZ - 0.6),
-			material = Enum.Material.Neon,
+			material = ACCENT_MATERIAL,
 			color = ACCENT_COLOR,
 			canCollide = false,
 			parent = model,
@@ -731,8 +792,8 @@ function BuildingInteriors.FurnishStatistics(def, model: Model)
 			name = "DataStationBench",
 			size = Vector3.new(2.6, 1, 1.2),
 			position = basePos + Vector3.new(0, 0.6, offsetZ + 1.6),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(45, 48, 56),
+			material = FURNITURE_MATERIAL,
+			color = FURNITURE_COLOR,
 			parent = model,
 		})
 	end
@@ -741,7 +802,7 @@ function BuildingInteriors.FurnishStatistics(def, model: Model)
 		name = "StatScreen",
 		size = Vector3.new(def.size.X - 8, def.height - 6, 0.3),
 		position = basePos + Vector3.new(0, def.height / 2, -halfZ + 1),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
@@ -765,8 +826,8 @@ local function addTutorialIdentity(def, model: Model)
 		size = Vector3.new(turretHeight, 6, 6),
 		orientation = Vector3.new(0, 0, 90),
 		position = basePos + Vector3.new(0, def.height + turretHeight / 2, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(50, 53, 62),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
 		canCollide = false,
 		parent = model,
 	})
@@ -775,7 +836,7 @@ local function addTutorialIdentity(def, model: Model)
 		diameter = 6.4,
 		thickness = 0.3,
 		position = basePos + Vector3.new(0, def.height + turretHeight, 0),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
@@ -785,7 +846,7 @@ local function addTutorialIdentity(def, model: Model)
 		name = "TutorialBeacon",
 		size = Vector3.new(2, 2, 2),
 		position = basePos + Vector3.new(0, def.height + turretHeight + 1.5, 0),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		shape = Enum.PartType.Ball,
 		canCollide = false,
@@ -819,15 +880,15 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 		name = "WelcomeDesk",
 		size = Vector3.new(8, 3, 2),
 		position = basePos + Vector3.new(0, 1.5, halfZ - 4),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(50, 53, 62),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
 		parent = model,
 	})
 	PartUtils.CreatePart({
 		name = "WelcomeSign",
 		size = Vector3.new(6, 1.4, 0.15),
 		position = basePos + Vector3.new(0, 3.6, halfZ - 4),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
@@ -840,7 +901,7 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 		name = "ExampleQuestionScreen",
 		size = Vector3.new(6, 3, 0.2),
 		position = basePos + Vector3.new(0, 3.2, 1),
-		material = Enum.Material.Neon,
+		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		transparency = 0.1,
 		canCollide = false,
@@ -851,8 +912,8 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 			name = "Chair",
 			size = Vector3.new(1.5, 1.5, 1.5),
 			position = basePos + Vector3.new(x, 0.75, 4),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(55, 58, 66),
+			material = FURNITURE_MATERIAL,
+			color = FURNITURE_COLOR,
 			parent = model,
 		})
 	end
@@ -863,7 +924,7 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 			name = "InfoPanel",
 			size = Vector3.new(0.2, 3, 4),
 			position = basePos + Vector3.new(side * (halfX - 0.3), 4, -halfZ * 0.4),
-			material = Enum.Material.Neon,
+			material = ACCENT_MATERIAL,
 			color = ACCENT_COLOR,
 			transparency = 0.25,
 			canCollide = false,

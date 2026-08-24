@@ -190,6 +190,8 @@ local function recomputeExpected(question: Question): number?
 			return d.length * d.width
 		elseif d.shape == "rectanglePerimeter" then
 			return 2 * (d.length + d.width)
+		elseif d.shape == "compoundRectangleArea" then
+			return (d.lengthA * d.widthA) + (d.lengthB * d.widthB)
 		else
 			return (d.base * d.height) / 2
 		end

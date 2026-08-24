@@ -105,20 +105,26 @@ end
 -- always wins if both are simultaneously trying to render.
 local activeSession: "Competitive" | "Practice" | nil = nil
 
-local function setVisible(turnActive: boolean, showLeavePractice: boolean, canAnswer: boolean)
+local function setVisible(turnActive: boolean, showLeavePractice: boolean, canAnswer: boolean, isSpectatingCompetitive: boolean?)
 	for _, face in ipairs(faces) do
 		face.idle.Visible = not turnActive
 		face.contestant.Visible = turnActive
 		face.question.Visible = turnActive
 		face.timer.Visible = turnActive
 		face.round.Visible = turnActive
-		-- Only the currently-active contestant/practicer (this client, for
-		-- itself) ever sees the input row - see the module doc comment on
-		-- why this is safe and doesn't leak to other clients.
-		face.answerBox.Visible = turnActive and canAnswer
+		-- The currently-active contestant/practicer sees a normal, editable
+		-- answer box (this client, for itself - see module doc comment on
+		-- why that's safe). Message 34 ("show the rest of the players what
+		-- they see on their working area"): a competitive SPECTATOR now also
+		-- sees the answer box, but read-only (TextEditable=false) - its Text
+		-- is mirrored from the active player's own typing via the
+		-- AnswerTypingUpdate relay below, never locally editable for anyone
+		-- but the active player.
+		face.answerBox.Visible = turnActive and (canAnswer or (isSpectatingCompetitive == true))
+		face.answerBox.TextEditable = canAnswer
 		face.submitButton.Visible = turnActive and canAnswer
 		face.leavePracticeButton.Visible = turnActive and showLeavePractice and canAnswer
-		if not (turnActive and canAnswer) then
+		if not turnActive then
 			face.answerBox.Text = ""
 		end
 	end
@@ -171,6 +177,14 @@ for _, face in ipairs(faces) do
 			Thickness = 3,
 		}):Play()
 	end)
+	-- Message 34: throttled relay of this client's own typed text to
+	-- spectators (via AnswerTypingUpdate), ONLY while this client is the
+	-- genuinely active competitive contestant (face.answerBox.TextEditable
+	-- is only ever true for the active player - see setVisible above).
+	-- Client-side min-interval check here is just to cut down on needless
+	-- network chatter on fast typing; the server independently throttles
+	-- and re-validates the sender regardless (CompetitionGameplay.lua).
+	local lastTypingRelayClock = 0
 	face.answerBox:GetPropertyChangedSignal("Text"):Connect(function()
 		-- A quick, subtle scale "tick" on every keystroke - immediate visual
 		-- confirmation that input is registering, without being distracting.
@@ -186,6 +200,14 @@ for _, face in ipairs(faces) do
 				Size = originalSize,
 			}):Play()
 		end)
+
+		if activeSession == "Competitive" and face.answerBox.TextEditable then
+			local now = os.clock()
+			if now - lastTypingRelayClock >= 0.12 then
+				lastTypingRelayClock = now
+				RemoteEvents.Get("AnswerTypingUpdate"):FireServer(face.answerBox.Text)
+			end
+		end
 	end)
 	face.answerBox.FocusLost:Connect(function()
 		TweenService:Create(face.answerBoxStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
@@ -298,6 +320,21 @@ local function flashResultBorder(isCorrect: boolean)
 	end
 end
 
+-- ===== Message 34: mirrors the active contestant's live-typed answer to
+-- every OTHER client (spectators only - the active player already sees
+-- their own typing locally, and the server never relays a message for
+-- anyone but the genuinely active contestant, see CompetitionGameplay.lua) =====
+RemoteEvents.Get("AnswerTypingUpdate").OnClientEvent:Connect(function(activePlayerUserId: number, text: string)
+	if activeSession ~= "Competitive" or activePlayerUserId == player.UserId then
+		return
+	end
+	for _, face in ipairs(faces) do
+		if face.answerBox.Visible and not face.answerBox.TextEditable then
+			face.answerBox.Text = text
+		end
+	end
+end)
+
 -- ===== Competitive match remote handlers =====
 
 RemoteEvents.Get("TurnStarted").OnClientEvent:Connect(function(payload)
@@ -319,7 +356,7 @@ RemoteEvents.Get("TurnStarted").OnClientEvent:Connect(function(payload)
 		("Round %d \u{2022} %d Left"):format(payload.round, payload.playersRemaining)
 	)
 	local isMyTurn = payload.playerUserId == player.UserId
-	setVisible(true, false, isMyTurn)
+	setVisible(true, false, isMyTurn, not isMyTurn)
 	startCountdown(payload.timerSeconds)
 end)
 
@@ -369,7 +406,17 @@ RemoteEvents.Get("PracticeQuestionStarted").OnClientEvent:Connect(function(paylo
 	end
 	setText("PRACTICE", payload.questionText, "Question " .. tostring(payload.questionNumber))
 	setVisible(true, true, true)
-	startCountdown(payload.timerSeconds)
+	-- Infinite Time practice: the server sends a negative sentinel instead
+	-- of a real duration (see PracticeSystem.INFINITE_TIME_SENTINEL) - show
+	-- an infinity symbol and never start a local countdown, rather than
+	-- trying to tick down from a negative number. The answer/submit flow
+	-- below is completely unaffected either way.
+	if payload.timerSeconds and payload.timerSeconds > 0 then
+		startCountdown(payload.timerSeconds)
+	else
+		stopCountdown()
+		setTimerText("\u{221E}", TIMER_GOLD)
+	end
 end)
 
 RemoteEvents.Get("PracticeQuestionResolved").OnClientEvent:Connect(function(payload)

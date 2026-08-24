@@ -31,22 +31,43 @@ local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
-local LobbyConfig = require(script.Parent.LobbyConfig)
+local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local BuildingSigns = {}
 
-local ACCENT_COLOR = LobbyConfig.NEON_COLOR
+local defaultTheme = LobbyTheme.Get()
+local ACCENT_COLOR = defaultTheme.buildingSignAccentColor
+
+--[[
+	Latches `theme`'s accent color for every subsequent BuildOne call.
+]]
+function BuildingSigns.SetTheme(theme: LobbyTheme.Theme)
+	ACCENT_COLOR = theme.buildingSignAccentColor
+end
 -- High enough to clear every building's tallest roof topper (the
 -- Statistics data spire is the tallest, at +16 above def.height) with
 -- clean room to spare.
 local SIGN_HEIGHT_ABOVE_BUILDING = 22
-local BILLBOARD_SIZE = Vector2.new(18, 5) -- studs, matching Sign.lua's own UDim2.fromOffset convention
+-- Message 33 ("names above the buildings significantly larger - maybe
+-- twice the size of the text on the buildings themselves"): doubled
+-- from the original (18, 5) - since the button's text uses TextScaled
+-- (always fills its container), doubling the billboard's own dimensions
+-- doubles the rendered text size to match, while keeping the same
+-- aspect ratio/proportions. MaxDistance raised to match - a sign this
+-- much larger stays legible from further away, so it's worth letting
+-- players read it from a greater distance too.
+local BILLBOARD_SIZE = Vector2.new(36, 10) -- studs, matching Sign.lua's own UDim2.fromOffset convention
 
 --[[
 	Builds one building's overhead sign + connector beam, parented into
-	`parent` (the Buildings folder). Returns the invisible anchor part.
+	`parent` (the Buildings folder). `mapId` is tagged onto the clickable
+	sign button ("MapId" attribute, alongside the existing "BuildingName")
+	so BuildingSignController.client.lua can tell BuildingTeleportSystem
+	WHICH map's copy of this building was actually clicked - two maps can
+	both have a building named "Shop", at two completely different world
+	positions. Returns the invisible anchor part.
 ]]
-function BuildingSigns.BuildOne(def, parent: Instance): BasePart
+function BuildingSigns.BuildOne(def, parent: Instance, mapId: string): BasePart
 	local topY = def.position.Y + def.height
 	local anchorY = topY + SIGN_HEIGHT_ABOVE_BUILDING
 
@@ -79,7 +100,7 @@ function BuildingSigns.BuildOne(def, parent: Instance): BasePart
 	billboard.Adornee = anchor
 	billboard.Size = UDim2.fromOffset(BILLBOARD_SIZE.X, BILLBOARD_SIZE.Y)
 	billboard.AlwaysOnTop = false
-	billboard.MaxDistance = 220 -- readable from a good distance, but not from clear across the whole map
+	billboard.MaxDistance = 320 -- readable from a good distance, but not from clear across the whole map
 	billboard.LightInfluence = 0
 	billboard.Parent = anchor
 
@@ -111,6 +132,7 @@ function BuildingSigns.BuildOne(def, parent: Instance): BasePart
 
 	CollectionService:AddTag(button, "BuildingSignButton")
 	button:SetAttribute("BuildingName", def.name)
+	button:SetAttribute("MapId", mapId)
 
 	local glow = Instance.new("PointLight")
 	glow.Color = ACCENT_COLOR

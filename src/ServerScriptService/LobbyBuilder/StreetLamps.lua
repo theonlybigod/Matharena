@@ -31,6 +31,17 @@ local StreetLampConfig = require(script.Parent.StreetLampConfig)
 local StreetLamps = {}
 
 --[[
+	Latches `theme` for every subsequent StreetLamps.Build call - delegates
+	straight to StreetLampConfig.SetTheme since every color/material this
+	module uses is already read live off the StreetLampConfig table below
+	(not copied into its own local constants), so mutating that shared
+	table is all that's needed.
+]]
+function StreetLamps.SetTheme(theme)
+	StreetLampConfig.SetTheme(theme)
+end
+
+--[[
 	Builds one lamp at `position`, with the neck/head fanned by
 	`yawDegrees` (the post and base are cylinders, symmetric around their
 	own vertical axis, so yaw only actually affects which way the arm/head
@@ -52,7 +63,7 @@ function StreetLamps.Build(position: Vector3, yawDegrees: number, parent: Instan
 		diameter = postRadius * 2 + 1,
 		thickness = 0.4,
 		position = position + Vector3.new(0, 0.2, 0),
-		material = Enum.Material.Metal,
+		material = StreetLampConfig.METAL_MATERIAL,
 		color = StreetLampConfig.METAL_COLOR,
 		parent = model,
 	})
@@ -74,7 +85,7 @@ function StreetLamps.Build(position: Vector3, yawDegrees: number, parent: Instan
 		diameter = postRadius * 2,
 		thickness = postHeight,
 		position = position + Vector3.new(0, postHeight / 2, 0),
-		material = Enum.Material.Metal,
+		material = StreetLampConfig.METAL_MATERIAL,
 		color = StreetLampConfig.METAL_COLOR,
 		parent = model,
 	})
@@ -104,7 +115,7 @@ function StreetLamps.Build(position: Vector3, yawDegrees: number, parent: Instan
 		name = "Neck",
 		size = Vector3.new(0.35, neckLength, 0.35),
 		cframe = neckTiltCFrame * CFrame.new(0, neckLength / 2, 0),
-		material = Enum.Material.Metal,
+		material = StreetLampConfig.METAL_MATERIAL,
 		color = StreetLampConfig.METAL_COLOR,
 		canCollide = false,
 		parent = model,
@@ -118,7 +129,7 @@ function StreetLamps.Build(position: Vector3, yawDegrees: number, parent: Instan
 		name = "Head",
 		size = StreetLampConfig.HEAD_SIZE,
 		position = headPosition,
-		material = Enum.Material.Metal,
+		material = StreetLampConfig.METAL_MATERIAL,
 		color = StreetLampConfig.METAL_COLOR,
 		canCollide = false,
 		parent = model,

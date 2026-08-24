@@ -55,8 +55,11 @@ local SettingsSystem = require(script.Parent.SettingsSystem)
 local CompetitionGameplay = require(script.Parent.CompetitionGameplay)
 local BuildingTeleportSystem = require(script.Parent.BuildingTeleportSystem)
 local DailyRewardsSystem = require(script.Parent.DailyRewardsSystem)
+local LifetimeRewardsSystem = require(script.Parent.LifetimeRewardsSystem)
+local QuestsSystem = require(script.Parent.QuestsSystem)
+local TutorialSystem = require(script.Parent.TutorialSystem)
 
-LobbyBuilder.Build()
+LobbyBuilder.BuildAllMaps()
 ArenaBuilder.Build()
 
 -- Always re-run the Lighting post-effect dedup, even when both builders
@@ -86,6 +89,9 @@ PracticeSystem.Init()
 CompetitionGameplay.Init()
 BuildingTeleportSystem.Init()
 DailyRewardsSystem.Init()
+LifetimeRewardsSystem.Init()
+QuestsSystem.Init()
+TutorialSystem.Init()
 GameManager.Init()
 
 print("MathArena server started!")

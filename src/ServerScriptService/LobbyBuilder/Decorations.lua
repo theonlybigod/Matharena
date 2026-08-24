@@ -46,8 +46,28 @@ local StreetLampConfig = require(script.Parent.StreetLampConfig)
 local Seating = require(script.Parent.Seating)
 local Trees = require(script.Parent.Trees)
 local TreeConfig = require(script.Parent.TreeConfig)
+local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local Decorations = {}
+
+local defaultTheme = LobbyTheme.Get()
+local GROUND_CLUSTER_COLORS = defaultTheme.groundClusterColors
+local PERIMETER_FILL_LIGHT_COLOR = defaultTheme.perimeterFillLightColor
+
+--[[
+	Latches `theme` for this module's own flower-bed/perimeter-light colors
+	AND cascades to every other themed decoration-construction module
+	(Trees, StreetLamps, Seating) - Decorations.lua already requires all
+	three, so this is the single call site LobbyBuilder needs for the whole
+	"decorations" family.
+]]
+function Decorations.SetTheme(theme: LobbyTheme.Theme)
+	GROUND_CLUSTER_COLORS = theme.groundClusterColors
+	PERIMETER_FILL_LIGHT_COLOR = theme.perimeterFillLightColor
+	Trees.SetTheme(theme)
+	StreetLamps.SetTheme(theme)
+	Seating.SetTheme(theme)
+end
 
 --[[
 	Deterministic per-position Random - the same world position always
@@ -130,14 +150,8 @@ local function radialRingPositions(
 	return positions
 end
 
-local FLOWER_COLORS = {
-	Color3.fromRGB(230, 60, 90),
-	Color3.fromRGB(250, 200, 40),
-	Color3.fromRGB(140, 90, 230),
-}
-
 local function createFlowerBed(position: Vector3, parent: Instance)
-	for i, color in ipairs(FLOWER_COLORS) do
+	for i, color in ipairs(GROUND_CLUSTER_COLORS) do
 		PartUtils.CreatePart({
 			name = "Flower" .. i,
 			size = Vector3.new(0.8, 0.8, 0.8),
@@ -162,7 +176,7 @@ local function createPerimeterFillLight(position: Vector3, parent: Instance)
 	}) :: BasePart
 
 	local light = Instance.new("PointLight")
-	light.Color = LightingConfig.OUTDOOR_AMBIENT_COLOR
+	light.Color = PERIMETER_FILL_LIGHT_COLOR
 	light.Range = LightingConfig.CORNER_FILL_RANGE
 	light.Brightness = LightingConfig.CORNER_FILL_BRIGHTNESS
 	light.Parent = anchor

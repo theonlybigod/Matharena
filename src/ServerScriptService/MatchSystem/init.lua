@@ -83,6 +83,9 @@ local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 local ProgressionSystem = require(ServerScriptService.ProgressionSystem)
 local RewardTrackSystem = require(ServerScriptService.RewardTrackSystem)
 local RemoteThrottle = require(ServerScriptService.RemoteThrottle)
+local DataSystem = require(ServerScriptService.DataSystem)
+local LeaderboardSystem = require(ServerScriptService.LeaderboardSystem)
+local QuestsSystem = require(ServerScriptService.QuestsSystem)
 
 local Queue = require(script.Queue)
 local Teleporter = require(script.Teleporter)
@@ -411,9 +414,31 @@ function MatchSystem.EndMatch(winner: Player?)
 			ProgressionSystem.AwardCoins(player, RewardsConfig.WIN_COINS)
 			ProgressionSystem.AwardGems(player, RewardsConfig.WIN_GEMS)
 			RewardTrackSystem.CheckForNewlyUnlocked(player)
+			-- Message 34: quest progress ("Champion" - win a match) moves via
+			-- AwardWin above - check right after, same reasoning as every
+			-- other CheckForNewlyCompleted call site.
+			QuestsSystem.CheckForNewlyCompleted(player)
 		else
 			ProgressionSystem.AwardXP(player, RewardsConfig.PARTICIPATION_XP)
 			ProgressionSystem.AwardCoins(player, RewardsConfig.PARTICIPATION_COINS)
+		end
+
+		-- Message 33 ("stats and leaderboards to actively update"): the
+		-- five global leaderboards (LeaderboardSystem) used to only be
+		-- written at the same cadence as a full profile save - autosave
+		-- (every 60s) or on-leave - so a match's outcome could sit
+		-- unreflected on the leaderboard for up to a minute, or until that
+		-- player happened to disconnect. Every stat that actually changed
+		-- above (Wins, XP/Level, GamesPlayed/Won, and - via
+		-- RecordQuestionAnswer during the match - Questions Solved/
+		-- Accuracy/Fastest Answer) is now pushed to the leaderboard
+		-- DataStores immediately when a match ends, the same natural,
+		-- already-rate-limited-by-being-once-per-match cadence a
+		-- leaderboard update belongs at - not spammed per-question, but
+		-- not stale for a minute either.
+		local profile = DataSystem.GetProfile(player)
+		if profile then
+			LeaderboardSystem.UpdateEntries(player, profile)
 		end
 	end
 

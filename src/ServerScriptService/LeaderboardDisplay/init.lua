@@ -1,10 +1,14 @@
 --[[
 	LeaderboardDisplay
 
-	Refreshes the five separate physical leaderboard boards built by
-	LobbyBuilder/LeaderboardBoards.lua (Workspace.Lobby.Buildings.
-	<Category>Leaderboard - e.g. WinsLeaderboard) with live standings from
-	LeaderboardSystem.
+	Refreshes every EXISTING map's physical leaderboard boards (built by
+	LobbyBuilder/LeaderboardBoards.lua - Workspace.<mapFolder>.Buildings.
+	<Category>Leaderboard, e.g. WinsLeaderboard) with live standings from
+	LeaderboardSystem. There is only one real global LeaderboardSystem/
+	DataStore - every map's boards show the SAME standings, so a category's
+	refresh simply updates however many board instances of that category
+	currently exist across every registered map (see MapsConfig.lua),
+	instead of assuming exactly one "Lobby" folder to look in.
 
 	Single centralized refresh loop - one timer, one pass per cycle that
 	iterates all five categories - rather than five independent polling
@@ -21,10 +25,12 @@
 ]]
 
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local LeaderboardSystem = require(ServerScriptService.LeaderboardSystem)
 local LeaderboardConfig = require(ServerScriptService.LeaderboardConfig)
+local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
 
 local LeaderboardDisplay = {}
 
@@ -32,38 +38,53 @@ local REFRESH_INTERVAL_SECONDS = 60
 
 local refreshLoopStarted = false
 
-local function findBoardScroll(boardName: string): ScrollingFrame?
-	local lobby = Workspace:FindFirstChild("Lobby")
-	local buildings = lobby and lobby:FindFirstChild("Buildings")
-	local board = buildings and buildings:FindFirstChild(boardName)
-	local base = board and board:FindFirstChild("Base")
-	local gui = base and base:FindFirstChild("BoardDisplay")
-	local root = gui and gui:FindFirstChild("Root")
-	local scroll = root and root:FindFirstChild("EntriesScroll")
-	return scroll :: ScrollingFrame?
+--[[
+	Returns every currently-existing board named `boardName` across every
+	registered map - usually one per map once all maps are built, but never
+	assumes any particular map's folder/board already exists (a map whose
+	Workspace folder or Buildings folder hasn't been built yet this server
+	start simply contributes nothing, rather than erroring).
+]]
+local function findBoardScrolls(boardName: string): { ScrollingFrame }
+	local scrolls = {}
+	for _, mapDef in ipairs(MapsConfig.MAPS) do
+		local lobby = Workspace:FindFirstChild(mapDef.workspaceFolderName)
+		local buildings = lobby and lobby:FindFirstChild("Buildings")
+		local board = buildings and buildings:FindFirstChild(boardName)
+		local base = board and board:FindFirstChild("Base")
+		local gui = base and base:FindFirstChild("BoardDisplay")
+		local root = gui and gui:FindFirstChild("Root")
+		local scroll = root and root:FindFirstChild("EntriesScroll")
+		if scroll then
+			table.insert(scrolls, scroll :: ScrollingFrame)
+		end
+	end
+	return scrolls
 end
 
 local function refreshCategory(category)
-	local scroll = findBoardScroll(category.boardName)
-	if not scroll then
-		warn(("[LeaderboardDisplay] Could not find %s - skipping this refresh."):format(category.boardName))
+	local scrolls = findBoardScrolls(category.boardName)
+	if #scrolls == 0 then
+		warn(("[LeaderboardDisplay] Could not find any %s board - skipping this refresh."):format(category.boardName))
 		return
 	end
 
 	local entries = LeaderboardSystem.GetTopEntries(category.id)
 
-	for rank = 1, LeaderboardConfig.TOP_LIMIT do
-		local row = scroll:FindFirstChild("Row" .. rank)
-		local nameLabel = row and row:FindFirstChild("NameLabel") :: TextLabel?
-		local valueLabel = row and row:FindFirstChild("ValueLabel") :: TextLabel?
-		if nameLabel and valueLabel then
-			local entry = entries[rank]
-			if entry then
-				nameLabel.Text = entry.name
-				valueLabel.Text = category.format(entry.value)
-			else
-				nameLabel.Text = "-"
-				valueLabel.Text = "-"
+	for _, scroll in ipairs(scrolls) do
+		for rank = 1, LeaderboardConfig.TOP_LIMIT do
+			local row = scroll:FindFirstChild("Row" .. rank)
+			local nameLabel = row and row:FindFirstChild("NameLabel") :: TextLabel?
+			local valueLabel = row and row:FindFirstChild("ValueLabel") :: TextLabel?
+			if nameLabel and valueLabel then
+				local entry = entries[rank]
+				if entry then
+					nameLabel.Text = entry.name
+					valueLabel.Text = category.format(entry.value)
+				else
+					nameLabel.Text = "-"
+					valueLabel.Text = "-"
+				end
 			end
 		end
 	end

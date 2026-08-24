@@ -1,12 +1,18 @@
 --[[
 	MatharenaSignController.client.lua
 
-	Drives the purely-visual bobbing motion for the lobby's MATHARENA
+	Drives the purely-visual bobbing motion for every map's MATHARENA
 	landmark sign (see ServerScriptService/LobbyBuilder/Sign.lua). This is
-	all this script does - the sign's actual size, text, and glow are all
+	all this script does - each sign's actual size, text, and glow are all
 	built server-side so every client sees the same static geometry; only
 	this one purely-visual motion is done here, client-side, so it costs
 	no server time or network replication per frame.
+
+	Multi-map support: every map registered in MapsConfig.lua gets its own
+	sign (same SignConfig.SIGN_NAME in every map's own Workspace folder,
+	just possibly a different glow color per LobbyTheme) - this script
+	independently finds and bobs EACH one, rather than assuming there's
+	only ever a single "Lobby" folder to look in.
 
 	Branding cleanup pass: the holographic ring and its client-side
 	rotation code have been removed entirely, matching Sign.lua no longer
@@ -23,10 +29,7 @@ local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 
 local SignConfig = require(ReplicatedStorage.Modules.SignConfig)
-
-local lobby = Workspace:WaitForChild("Lobby")
-local sign = lobby:WaitForChild(SignConfig.SIGN_NAME)
-local panel = sign:WaitForChild("SignPanel") :: BasePart
+local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
 
 local function startBobTween(targetPanel: BasePart): Tween
 	local basePosition = targetPanel.Position
@@ -45,19 +48,34 @@ local function startBobTween(targetPanel: BasePart): Tween
 	return tween
 end
 
-local bobTween = startBobTween(panel)
+--[[
+	Waits for `mapDef`'s own map folder + sign + panel, then starts (and
+	perpetually re-starts, across a LobbyBuilder.Rebuild()) the bob tween
+	for that one map's sign - independent of every other map's sign.
+]]
+local function watchMapSign(mapDef: MapsConfig.MapDef)
+	local lobby = Workspace:WaitForChild(mapDef.workspaceFolderName)
+	local sign = lobby:WaitForChild(SignConfig.SIGN_NAME)
+	local panel = sign:WaitForChild("SignPanel") :: BasePart
 
--- If the lobby is ever rebuilt (LobbyBuilder.Rebuild()), the old sign
--- instance gets destroyed and a new one built in its place. Re-anchor this
--- controller to the fresh instance so the animation keeps running instead
--- of silently tweening a destroyed part.
-sign.AncestryChanged:Connect(function(_, parent)
-	if parent == nil then
-		bobTween:Cancel()
+	local bobTween = startBobTween(panel)
 
-		local newSign = lobby:WaitForChild(SignConfig.SIGN_NAME)
-		local newPanel = newSign:WaitForChild("SignPanel") :: BasePart
+	-- If this map is ever rebuilt (LobbyBuilder.Rebuild()), the old sign
+	-- instance gets destroyed and a new one built in its place. Re-anchor
+	-- to the fresh instance so the animation keeps running instead of
+	-- silently tweening a destroyed part.
+	sign.AncestryChanged:Connect(function(_, newParent)
+		if newParent == nil then
+			bobTween:Cancel()
 
-		startBobTween(newPanel)
-	end
-end)
+			local newSign = lobby:WaitForChild(SignConfig.SIGN_NAME)
+			local newPanel = newSign:WaitForChild("SignPanel") :: BasePart
+
+			bobTween = startBobTween(newPanel)
+		end
+	end)
+end
+
+for _, mapDef in ipairs(MapsConfig.MAPS) do
+	task.spawn(watchMapSign, mapDef)
+end

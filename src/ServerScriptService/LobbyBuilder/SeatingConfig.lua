@@ -28,6 +28,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 local LobbyConfig = require(script.Parent.LobbyConfig)
 local MapConfig = require(script.Parent.MapConfig)
+local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local SeatingConfig = {}
 
@@ -62,7 +63,11 @@ export type SeatTypeDef = {
 	seatMaterial: Enum.Material,
 	seatColor: Color3,
 	accentColor: Color3,
+	frameMaterial: Enum.Material,
+	frameColor: Color3,
 }
+
+local defaultTheme = LobbyTheme.Get()
 
 -- Single upgraded bench design ("Classic Bench", rebuilt): the previous
 -- SeatTypeA silhouette (two leg supports, a modest backrest, no
@@ -79,10 +84,26 @@ SeatingConfig.SEAT_TYPE = {
 	id = "SeatTypeA",
 	seatSize = Vector3.new(10.5, 0.7, 3.8), -- was (7.5, 0.6, 2.7) - same ~2.78:1 length:depth ratio, scaled ~1.4x
 	backrestHeight = 3.6, -- was 2.5 - a taller, more substantial backrest
-	seatMaterial = Enum.Material.SmoothPlastic,
-	seatColor = Color3.fromRGB(235, 235, 240),
-	accentColor = LightingConfig.DECORATIVE,
+	seatMaterial = defaultTheme.seatMaterial,
+	seatColor = defaultTheme.seatColor,
+	accentColor = defaultTheme.seatAccentColor,
+	frameMaterial = defaultTheme.seatFrameMaterial,
+	frameColor = defaultTheme.seatFrameColor,
 }
+
+--[[
+	Latches `theme` onto SeatingConfig.SEAT_TYPE in place (mutating the
+	same table Seating.lua already holds a reference to) for every
+	subsequent Seating.BuildAll call.
+]]
+function SeatingConfig.SetTheme(theme: LobbyTheme.Theme)
+	local seatType = SeatingConfig.SEAT_TYPE
+	seatType.seatMaterial = theme.seatMaterial
+	seatType.seatColor = theme.seatColor
+	seatType.accentColor = theme.seatAccentColor
+	seatType.frameMaterial = theme.seatFrameMaterial
+	seatType.frameColor = theme.seatFrameColor
+end
 
 export type SeatPlacement = {
 	position: Vector3,

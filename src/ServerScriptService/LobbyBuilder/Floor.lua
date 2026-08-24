@@ -42,11 +42,49 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
-local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 local LobbyConfig = require(script.Parent.LobbyConfig)
 local MapConfig = require(script.Parent.MapConfig)
+local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local Floor = {}
+
+-- Theme-driven; latched via Floor.SetTheme(theme) once per map build,
+-- right before Floor.Build runs - see LobbyBuilder/init.lua. Defaults to
+-- the Futuristic palette so this module behaves exactly as before if
+-- SetTheme is somehow never called.
+local defaultTheme = LobbyTheme.Get()
+local FLOOR_MATERIAL = defaultTheme.floorMaterial
+local FLOOR_COLOR = defaultTheme.floorColor
+local CURB_MATERIAL = defaultTheme.curbMaterial
+local CURB_COLOR = defaultTheme.curbColor
+local CURB_TRIM_MATERIAL = defaultTheme.curbTrimMaterial
+local CURB_TRIM_COLOR = defaultTheme.curbTrimColor
+local GROUND_DESIGN_CENTER_COLOR = defaultTheme.groundDesignCenterColor
+local GROUND_DESIGN_MID_COLOR = defaultTheme.groundDesignMidColor
+local GROUND_DESIGN_SPOKE_COLOR = defaultTheme.groundDesignSpokeColor
+
+--[[
+	Latches `theme`'s ground/boundary/ground-design colors and materials
+	for every subsequent Floor.Build call, until the next SetTheme call -
+	see the module doc comment on LobbyBuilder/init.lua for why a mutable
+	module-level variable (rather than threading a theme parameter through
+	every private helper below) is the right pattern here: builds are
+	always synchronous/sequential (one map fully finishes before the next
+	map's SetTheme call happens), so every helper function below - which
+	already closes over these exact same local variables - automatically
+	picks up the new palette with no signature changes needed anywhere.
+]]
+function Floor.SetTheme(theme: LobbyTheme.Theme)
+	FLOOR_MATERIAL = theme.floorMaterial
+	FLOOR_COLOR = theme.floorColor
+	CURB_MATERIAL = theme.curbMaterial
+	CURB_COLOR = theme.curbColor
+	CURB_TRIM_MATERIAL = theme.curbTrimMaterial
+	CURB_TRIM_COLOR = theme.curbTrimColor
+	GROUND_DESIGN_CENTER_COLOR = theme.groundDesignCenterColor
+	GROUND_DESIGN_MID_COLOR = theme.groundDesignMidColor
+	GROUND_DESIGN_SPOKE_COLOR = theme.groundDesignSpokeColor
+end
 
 local FLOOR_THICKNESS = LobbyConfig.FLOOR_THICKNESS
 local FLOOR_TOP_Y = 0 -- the slab's top surface always sits at world Y=0, matching every other placement module's assumption
@@ -77,8 +115,8 @@ local function buildBoundarySegment(index: number, parent: Instance)
 		name = "BoundarySegment" .. index,
 		size = Vector3.new(curbThickness, curbHeight, length),
 		cframe = CFrame.new(midpoint + Vector3.new(0, curbHeight / 2, 0)) * CFrame.Angles(0, yaw, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(48, 51, 60),
+		material = CURB_MATERIAL,
+		color = CURB_COLOR,
 		canCollide = true,
 		parent = parent,
 	})
@@ -86,8 +124,8 @@ local function buildBoundarySegment(index: number, parent: Instance)
 		name = "BoundaryTrim" .. index,
 		size = Vector3.new(curbThickness + 0.2, 0.25, length),
 		cframe = CFrame.new(midpoint + Vector3.new(0, curbHeight + 0.15, 0)) * CFrame.Angles(0, yaw, 0),
-		material = Enum.Material.Neon,
-		color = LightingConfig.GROUND_PATH,
+		material = CURB_TRIM_MATERIAL,
+		color = CURB_TRIM_COLOR,
 		canCollide = false,
 		parent = parent,
 	})
@@ -187,10 +225,10 @@ local function buildGroundDesign(parent: Instance)
 	groundDesign.Parent = parent
 
 	-- Center medallion: a small accent ring right around the queue portal.
-	buildRing(14, 16, LightingConfig.CENTRAL_FEATURE, groundDesign, "CenterMedallion")
+	buildRing(14, 16, GROUND_DESIGN_CENTER_COLOR, groundDesign, "CenterMedallion")
 
 	-- A subtler mid-radius ring, roughly halfway out.
-	buildRing(90, 32, LightingConfig.DECORATIVE, groundDesign, "MidRing")
+	buildRing(90, 32, GROUND_DESIGN_MID_COLOR, groundDesign, "MidRing")
 
 	-- Radial spokes: every 3rd polygon vertex (30 / 3 = 10 spokes), from
 	-- just outside the medallion out to just inside the usable radius.
@@ -211,7 +249,7 @@ local function buildGroundDesign(parent: Instance)
 			size = Vector3.new(0.25, 0.15, length),
 			cframe = CFrame.new(midpoint + Vector3.new(0, groundY(), 0)) * CFrame.Angles(0, yaw, 0),
 			material = Enum.Material.Neon,
-			color = LightingConfig.DECORATIVE,
+			color = GROUND_DESIGN_SPOKE_COLOR,
 			canCollide = false,
 			parent = spokesFolder,
 		})
@@ -228,8 +266,8 @@ function Floor.Build(lobby: Instance)
 		diameter = groundDiameter,
 		thickness = FLOOR_THICKNESS,
 		position = Vector3.new(0, -FLOOR_THICKNESS / 2, 0),
-		material = Enum.Material.Concrete,
-		color = LobbyConfig.FLOOR_COLOR,
+		material = FLOOR_MATERIAL,
+		color = FLOOR_COLOR,
 		parent = lobby,
 	})
 	ground:SetAttribute(MapConfig.GROUND_ATTRIBUTE, true)

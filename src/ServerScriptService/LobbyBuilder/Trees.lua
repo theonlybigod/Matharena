@@ -23,8 +23,29 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local TreeConfig = require(script.Parent.TreeConfig)
+local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local Trees = {}
+
+local defaultTheme = LobbyTheme.Get()
+local TRUNK_MATERIAL = defaultTheme.treeTrunkMaterial
+local TRUNK_COLOR_BASE = defaultTheme.treeTrunkColor
+local FOLIAGE_MATERIAL = defaultTheme.treeFoliageMaterial
+local FOLIAGE_COLOR_BASE = defaultTheme.treeFoliageColor
+
+--[[
+	Latches `theme`'s trunk/foliage material+base-color for every
+	subsequently-built tree - the small per-tree deterministic color shift
+	(buildTrunk/Trees.Build below) is still applied ON TOP of whichever
+	base color is currently latched, so trees keep their existing subtle
+	per-tree variation under every theme, not just one flat color.
+]]
+function Trees.SetTheme(theme: LobbyTheme.Theme)
+	TRUNK_MATERIAL = theme.treeTrunkMaterial
+	TRUNK_COLOR_BASE = theme.treeTrunkColor
+	FOLIAGE_MATERIAL = theme.treeFoliageMaterial
+	FOLIAGE_COLOR_BASE = theme.treeFoliageColor
+end
 
 --[[
 	Places a block whose long axis points outward from `origin` at
@@ -71,7 +92,11 @@ local function buildTrunk(position: Vector3, rng: Random, model: Model): Vector3
 	local leanDegrees = rng:NextNumber(-TreeConfig.LEAN_DEGREES_MAX, TreeConfig.LEAN_DEGREES_MAX)
 	local leanAxis = if rng:NextNumber() < 0.5 then Vector3.new(1, 0, 0) else Vector3.new(0, 0, 1)
 	local trunkShift = rng:NextInteger(-12, 12)
-	local woodColor = Color3.fromRGB(90 + trunkShift, 60 + trunkShift * 0.6, 40 + trunkShift * 0.4)
+	local woodColor = Color3.new(
+		math.clamp(TRUNK_COLOR_BASE.R + trunkShift / 255, 0, 1),
+		math.clamp(TRUNK_COLOR_BASE.G + (trunkShift * 0.6) / 255, 0, 1),
+		math.clamp(TRUNK_COLOR_BASE.B + (trunkShift * 0.4) / 255, 0, 1)
+	)
 
 	local leanOffset = leanAxis * math.sin(math.rad(leanDegrees)) * trunkHeight
 	local lowerHeight = trunkHeight * 0.55
@@ -84,7 +109,7 @@ local function buildTrunk(position: Vector3, rng: Random, model: Model): Vector3
 		name = "Trunk",
 		size = Vector3.new(trunkWidth, lowerHeight, trunkWidth),
 		cframe = lowerCFrame,
-		material = Enum.Material.Wood,
+		material = TRUNK_MATERIAL,
 		color = woodColor,
 		parent = model,
 	})
@@ -96,7 +121,7 @@ local function buildTrunk(position: Vector3, rng: Random, model: Model): Vector3
 		name = "TrunkUpper",
 		size = Vector3.new(upperWidth, upperHeight, upperWidth),
 		cframe = upperCFrame,
-		material = Enum.Material.Wood,
+		material = TRUNK_MATERIAL,
 		color = woodColor,
 		canCollide = false,
 		parent = model,
@@ -141,7 +166,7 @@ local function buildSpireCanopy(canopyBase: Vector3, rng: Random, model: Model, 
 			size = Vector3.new(tierWidth, actualTierHeight, tierWidth),
 			cframe = CFrame.new(canopyBase.X, nextTierBottom + actualTierHeight / 2, canopyBase.Z)
 				* CFrame.Angles(0, math.rad(rotationY + (i - 1) * 18), 0),
-			material = Enum.Material.Grass,
+			material = FOLIAGE_MATERIAL,
 			color = foliageColor,
 			canCollide = false,
 			parent = model,
@@ -156,7 +181,7 @@ local function buildSpireCanopy(canopyBase: Vector3, rng: Random, model: Model, 
 			35,
 			canopyWidth * 0.55,
 			0.7,
-			Enum.Material.Grass,
+			FOLIAGE_MATERIAL,
 			foliageColor,
 			model,
 			"SpireFin"
@@ -180,7 +205,7 @@ local function buildCanopyBurstCanopy(canopyBase: Vector3, rng: Random, model: M
 		name = "BurstCore",
 		size = Vector3.new(coreSize, canopyHeight * 0.6, coreSize),
 		cframe = CFrame.new(canopyBase + Vector3.new(0, canopyHeight * 0.3, 0)) * CFrame.Angles(0, math.rad(rotationY), 0),
-		material = Enum.Material.Grass,
+		material = FOLIAGE_MATERIAL,
 		color = foliageColor,
 		canCollide = false,
 		parent = model,
@@ -197,7 +222,7 @@ local function buildCanopyBurstCanopy(canopyBase: Vector3, rng: Random, model: M
 			pitch,
 			length,
 			length * 0.35,
-			Enum.Material.Grass,
+			FOLIAGE_MATERIAL,
 			foliageColor,
 			model,
 			"BurstShard" .. i
@@ -226,8 +251,8 @@ local function buildTwinBoughCanopy(canopyBase: Vector3, rng: Random, model: Mod
 			pitch,
 			boughLength,
 			1.1,
-			Enum.Material.Wood,
-			Color3.fromRGB(95, 65, 45),
+			TRUNK_MATERIAL,
+			TRUNK_COLOR_BASE,
 			model,
 			"Bough" .. i
 		)
@@ -237,7 +262,7 @@ local function buildTwinBoughCanopy(canopyBase: Vector3, rng: Random, model: Mod
 			name = "BoughCanopy" .. i,
 			size = Vector3.new(blockSize, blockSize * 0.8, blockSize),
 			cframe = boughEnd.CFrame * CFrame.new(boughLength / 2, 0, 0) * CFrame.Angles(0, math.rad(rng:NextNumber(0, 40)), 0),
-			material = Enum.Material.Grass,
+			material = FOLIAGE_MATERIAL,
 			color = foliageColor,
 			canCollide = false,
 			parent = model,
@@ -271,7 +296,7 @@ local function buildCrystalClusterCanopy(canopyBase: Vector3, rng: Random, model
 		name = "CoreMass",
 		size = Vector3.new(coreWidth, canopyHeight * 1.05, coreWidth),
 		cframe = CFrame.new(canopyBase + Vector3.new(0, canopyHeight * 1.05 / 2 - canopyHeight * 0.25, 0)),
-		material = Enum.Material.Grass,
+		material = FOLIAGE_MATERIAL,
 		color = foliageColor,
 		canCollide = false,
 		parent = model,
@@ -290,7 +315,7 @@ local function buildCrystalClusterCanopy(canopyBase: Vector3, rng: Random, model
 			pitch,
 			length,
 			length * 0.5,
-			Enum.Material.Grass,
+			FOLIAGE_MATERIAL,
 			foliageColor,
 			model,
 			"CrystalBlock" .. i
@@ -322,7 +347,11 @@ function Trees.Build(position: Vector3, variantId: string, parent: Instance): Mo
 	local canopyBasePosition = buildTrunk(position, rng, model)
 
 	local greenShift = rng:NextInteger(-18, 14)
-	local foliageColor = Color3.fromRGB(45 + greenShift * 0.3, 118 + greenShift, 60 + greenShift * 0.3)
+	local foliageColor = Color3.new(
+		math.clamp(FOLIAGE_COLOR_BASE.R + (greenShift * 0.3) / 255, 0, 1),
+		math.clamp(FOLIAGE_COLOR_BASE.G + greenShift / 255, 0, 1),
+		math.clamp(FOLIAGE_COLOR_BASE.B + (greenShift * 0.3) / 255, 0, 1)
+	)
 
 	local builder = CANOPY_BUILDERS[variantId] or buildSpireCanopy
 	builder(canopyBasePosition, rng, model, foliageColor)

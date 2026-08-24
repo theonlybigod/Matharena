@@ -31,8 +31,9 @@ local function wireButton(button: Instance)
 
 	button.MouseButton1Click:Connect(function()
 		local buildingName = button:GetAttribute("BuildingName")
+		local mapId = button:GetAttribute("MapId")
 		if typeof(buildingName) == "string" then
-			requestTeleportToBuildingEvent:FireServer(buildingName)
+			requestTeleportToBuildingEvent:FireServer(buildingName, mapId)
 		end
 	end)
 end

@@ -38,6 +38,11 @@
       "Lobby": {
         "$className": "Folder",
         "$ignoreUnknownInstances": true
+      },
+
+      "LobbyLava": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true
       }
     },
 

@@ -195,6 +195,86 @@ function GameplayCameraController.FocusOnScreen(platformIndex: number?, transiti
 end
 
 --[[
+	Message 34 ("camera pans to the next player on their platform and
+	says 'next player: username'"): a brief ESTABLISHING shot of the newly-
+	active contestant's own platform, used for a short beat at the start of
+	their turn BEFORE GameplayCameraController.FocusOnScreen takes back over
+	for the actual question/timer/answer viewing. This does not change the
+	"main visual focus should be the board/screen" requirement documented
+	above for the actual gameplay period - it's a short transition
+	announcement, not a replacement for the screen-focused view.
+
+	Same clipping-safety pattern as FocusOnScreen: the large, arbitrary-
+	distance jump from wherever the camera currently is to near this
+	platform is an INSTANT CUT (nothing rendered mid-flight to clip through
+	solid geometry); only a short final push-in is tweened, entirely within
+	the open air around the platform.
+]]
+function GameplayCameraController.FocusOnPlatform(platformIndex: number?, transitionSeconds: number?)
+	if not platformIndex then
+		return
+	end
+
+	local arena = Workspace:FindFirstChild("Arena")
+	local platforms = arena and arena:FindFirstChild("Platforms")
+	local platform = platforms and platforms:FindFirstChild("Platform" .. platformIndex)
+	local base = platform and platform:FindFirstChild("Base")
+	if not (base and base:IsA("BasePart")) then
+		return
+	end
+
+	-- Stand just outside the platform, on the OUTWARD side (away from the
+	-- arena's center), looking back in toward the contestant - a genuine
+	-- "broadcast camera on this platform" angle rather than a straight
+	-- overhead snapshot. Arena center is (0,0, arena-local Y), same origin
+	-- convention used throughout ArenaBuilder/LobbyConfig.
+	local platformPosition = base.Position
+	local outwardDirection = (Vector3.new(platformPosition.X, 0, platformPosition.Z)).Unit
+	if outwardDirection.Magnitude ~= outwardDirection.Magnitude then -- NaN guard (platform exactly at origin)
+		outwardDirection = Vector3.new(0, 0, 1)
+	end
+
+	local lookTarget = platformPosition + Vector3.new(0, 4, 0) -- roughly chest height of the standing contestant
+	local finalPosition = platformPosition + outwardDirection * 14 + Vector3.new(0, 9, 0)
+	local startPosition = platformPosition + outwardDirection * 24 + Vector3.new(0, 14, 0)
+
+	local toCFrame = CFrame.new(finalPosition, lookTarget)
+	local fromCFrame = CFrame.new(startPosition, lookTarget)
+
+	stopActiveTweens()
+
+	camera.CameraType = Enum.CameraType.Scriptable
+	camera.CFrame = fromCFrame
+	cameraActive = true
+
+	local seconds = transitionSeconds or 0.5
+	if seconds <= 0 then
+		camera.CFrame = toCFrame
+		return
+	end
+
+	local tweenTarget = Instance.new("CFrameValue")
+	tweenTarget.Value = fromCFrame
+	activeTweenTarget = tweenTarget
+
+	local tween = TweenService:Create(tweenTarget, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Value = toCFrame,
+	})
+	activeTween = tween
+
+	local connection: RBXScriptConnection
+	connection = tweenTarget:GetPropertyChangedSignal("Value"):Connect(function()
+		if cameraActive then
+			camera.CFrame = tweenTarget.Value
+		end
+	end)
+	tween.Completed:Connect(function()
+		connection:Disconnect()
+	end)
+	tween:Play()
+end
+
+--[[
 	Restores the normal player-controlled lobby camera (and default
 	FieldOfView). Safe to call even if the camera isn't currently under
 	this module's control. This is also always an instant cut back to

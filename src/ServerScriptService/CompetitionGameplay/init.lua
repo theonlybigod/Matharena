@@ -29,6 +29,8 @@ local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 
 local MatchSystem = require(ServerScriptService.MatchSystem)
 local ProgressionSystem = require(ServerScriptService.ProgressionSystem)
+local RemoteThrottle = require(ServerScriptService.RemoteThrottle)
+local QuestsSystem = require(ServerScriptService.QuestsSystem)
 
 local QuestionGenerator = require(script.QuestionGenerator)
 local Elimination = require(script.Elimination)
@@ -39,11 +41,13 @@ local turnStartedEvent = RemoteEvents.Get("TurnStarted")
 local turnResolvedEvent = RemoteEvents.Get("TurnResolved")
 local submitAnswerEvent = RemoteEvents.Get("SubmitAnswer")
 local rosterUpdatedEvent = RemoteEvents.Get("RosterUpdated")
+local answerTypingUpdateEvent = RemoteEvents.Get("AnswerTypingUpdate")
 
 local roundActive = false
 local alivePlayers: { Player } = {}
 local currentTurnIndex = 0
 local roundNumber = 1
+local currentTierId: number? = nil -- the queue tier this match was launched from - caps how far roundNumber is ever allowed to climb, see GameplayConfig.AdvanceRoundForTier
 local turnGeneration = 0
 
 local activePlayer: Player? = nil
@@ -123,7 +127,11 @@ local function beginTurnAt(index: number)
 	turnStartClock = os.clock()
 
 	local difficulty = GameplayConfig.GetDifficultyForRound(roundNumber)
-	local timerSeconds = GameplayConfig.TIMER_SECONDS[difficulty]
+	-- Timer now comes from round+category (GameplayConfig.GetTimerSeconds) -
+	-- a smooth per-round decay plus a per-category complexity bonus, rather
+	-- than one flat value per difficulty tier (see that function's doc
+	-- comment). `difficulty` is still sent below as a display label.
+	local timerSeconds = GameplayConfig.GetTimerSeconds(roundNumber, question.category)
 	turnTimerSeconds = timerSeconds
 	local platform = MatchSystem.GetPlatformForPlayer(player)
 
@@ -178,7 +186,11 @@ local function advanceAndBeginNextTurn(currentAlreadyRemoved: boolean)
 	end
 	if currentTurnIndex > #alivePlayers then
 		currentTurnIndex = 1
-		roundNumber += 1
+		-- Capped by the match's own queue tier (Easy Mode stays Easy Mode for
+		-- its whole duration, however long the elimination runs - it can get
+		-- harder WITHIN its own band, but never spill into a harder tier's
+		-- categories, e.g. Exponents, just because the match ran long).
+		roundNumber = GameplayConfig.AdvanceRoundForTier(roundNumber, currentTierId)
 	end
 
 	beginTurnAt(currentTurnIndex)
@@ -208,6 +220,13 @@ resolveTurn = function(isCorrect: boolean, timedOut: boolean, myGeneration: numb
 	})
 
 	ProgressionSystem.RecordQuestionAnswer(player, isCorrect, if isCorrect then elapsed else nil)
+
+	-- Message 34: quest progress ("Quick Thinker" - combined correct
+	-- answers) moves via the exact same RecordQuestionAnswer call above -
+	-- check right after, so an accepted quest that just became claimable
+	-- notifies the player immediately rather than waiting for their next
+	-- quest-box poll.
+	QuestsSystem.CheckForNewlyCompleted(player)
 
 	-- Correct-answer economy (Message 9): base reward every time, plus a
 	-- fast-answer bonus if it came in under a fraction of the turn's
@@ -255,6 +274,7 @@ local function startRound()
 	-- normally happen - MatchSystem always claims a tier before a match can
 	-- ever reach Playing).
 	local tierId = MatchSystem.GetCurrentTier()
+	currentTierId = tierId
 	roundNumber = if tierId then GameplayConfig.GetQueueTier(tierId).startingRound else 1
 	Elimination.RestoreAllPlatformColors()
 	QuestionGenerator.ResetUsedQuestions()
@@ -338,8 +358,39 @@ local function onSubmitAnswer(player: Player, rawAnswer: unknown)
 	resolveTurn(isCorrect, false, myGeneration)
 end
 
+--[[
+	Message 34 ("show the rest of the players what they see on their
+	working area"): relays the ACTIVE contestant's live-typed answer text
+	(not yet submitted) to every other client, so spectators watching the
+	shared arena screen see the same digits appear in real time, matching
+	what the active player is actually typing - without ever exposing
+	correctness/validation info (this only ever carries the raw typed
+	text, nothing about whether it's right, and CheckAnswer/the correct
+	answer are never part of this payload).
+
+	Server-validated, not just relayed blindly: only ever relays a message
+	from whoever this server ALREADY considers the genuinely active
+	contestant (player == activePlayer) - a non-active client's attempt to
+	spoof typing text for someone else is silently ignored, same defensive
+	posture as onSubmitAnswer above. Same length cap and throttle pattern
+	as everywhere else client input is trusted.
+]]
+local function onAnswerTypingUpdate(player: Player, rawText: unknown)
+	if not roundActive or player ~= activePlayer then
+		return
+	end
+	if typeof(rawText) ~= "string" or #rawText > 32 then
+		return
+	end
+	if not RemoteThrottle.Check(player, "AnswerTypingUpdate", 0.1) then
+		return
+	end
+	answerTypingUpdateEvent:FireAllClients(player.UserId, rawText)
+end
+
 function CompetitionGameplay.Init()
 	submitAnswerEvent.OnServerEvent:Connect(onSubmitAnswer)
+	answerTypingUpdateEvent.OnServerEvent:Connect(onAnswerTypingUpdate)
 
 	MatchSystem.OnStateChanged(function(newState: string)
 		if newState == MatchConfig.GameState.Playing then

@@ -17,6 +17,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
+local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local StreetLampConfig = {}
 
@@ -42,12 +43,26 @@ StreetLampConfig.NECK_ANGLE_DEGREES = 55 -- tilt from vertical
 StreetLampConfig.HEAD_SIZE = Vector3.new(2.2, 1.1, 1.4)
 StreetLampConfig.BULB_SIZE = 0.9
 
-StreetLampConfig.METAL_COLOR = Color3.fromRGB(55, 58, 66)
-StreetLampConfig.ACCENT_COLOR = LightingConfig.STREET_LAMP_ACCENT -- small trim/ring accents only
+local defaultTheme = LobbyTheme.Get()
+StreetLampConfig.METAL_COLOR = defaultTheme.lampMetalColor
+StreetLampConfig.METAL_MATERIAL = defaultTheme.lampMetalMaterial
+StreetLampConfig.ACCENT_COLOR = defaultTheme.lampAccentColor -- small trim/ring accents only
 -- Soft, slightly cool white-blue - a believable "modern LED streetlamp"
 -- glow, deliberately distinct from the saturated brand-blue neon trims
--- so the light itself doesn't read as a decorative neon sphere.
-StreetLampConfig.GLOW_COLOR = LightingConfig.STREET_LAMP_GLOW
+-- so the light itself doesn't read as a decorative neon sphere. Under the
+-- Lava theme this becomes a genuine warm brazier-flame glow instead.
+StreetLampConfig.GLOW_COLOR = defaultTheme.lampGlowColor
+
+--[[
+	Latches `theme`'s metal/accent/glow colors (and metal material) for
+	every subsequent StreetLamps.Build call.
+]]
+function StreetLampConfig.SetTheme(theme: LobbyTheme.Theme)
+	StreetLampConfig.METAL_COLOR = theme.lampMetalColor
+	StreetLampConfig.METAL_MATERIAL = theme.lampMetalMaterial
+	StreetLampConfig.ACCENT_COLOR = theme.lampAccentColor
+	StreetLampConfig.GLOW_COLOR = theme.lampGlowColor
+end
 
 -- Kept modest on purpose - "soft illumination", not an oversized glow
 -- that would wash out or compete with the floating sign/leaderboards.

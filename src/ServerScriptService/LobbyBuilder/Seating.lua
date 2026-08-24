@@ -47,6 +47,16 @@ local SeatingConfig = require(script.Parent.SeatingConfig)
 local Seating = {}
 
 --[[
+	Latches `theme` for every subsequent Seating.BuildAll call - delegates
+	to SeatingConfig.SetTheme since every color/material this module uses
+	comes from `def` (SeatingConfig.SEAT_TYPE), read live, not copied into
+	its own local constants.
+]]
+function Seating.SetTheme(theme)
+	SeatingConfig.SetTheme(theme)
+end
+
+--[[
 	Computes the yaw (degrees) that makes a part's default -Z-facing
 	orientation (zero rotation) point exactly from `fromPos` toward
 	`toPos`, ignoring height. Same validated convention used for spawn
@@ -104,8 +114,8 @@ local function buildBench(cframe: CFrame, model: Model, def: SeatingConfig.SeatT
 			name = "Leg",
 			size = Vector3.new(legWidth, legHeight, def.seatSize.Z - 0.2),
 			cframe = cframe * CFrame.new(side * (def.seatSize.X / 2 - 0.6), legHeight / 2, 0),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(60, 63, 70),
+			material = def.frameMaterial,
+			color = def.frameColor,
 			parent = model,
 		})
 	end
@@ -117,8 +127,8 @@ local function buildBench(cframe: CFrame, model: Model, def: SeatingConfig.SeatT
 		name = "CrossBrace",
 		size = Vector3.new(def.seatSize.X - 1.2, 0.25, 0.25),
 		cframe = cframe * CFrame.new(0, legHeight * 0.35, def.seatSize.Z / 2 - 0.15),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(60, 63, 70),
+		material = def.frameMaterial,
+		color = def.frameColor,
 		canCollide = false,
 		parent = model,
 	})
@@ -147,8 +157,8 @@ local function buildBench(cframe: CFrame, model: Model, def: SeatingConfig.SeatT
 			cframe = cframe
 				* CFrame.new(side * (def.seatSize.X / 2 - 0.1), seatY + def.backrestHeight + 0.15, backrestZ)
 				* CFrame.Angles(0, math.rad(side == -1 and 90 or -90), 0),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(60, 63, 70),
+			material = def.frameMaterial,
+			color = def.frameColor,
 			canCollide = false,
 			parent = model,
 		})

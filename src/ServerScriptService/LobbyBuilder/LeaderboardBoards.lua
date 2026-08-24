@@ -38,8 +38,26 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 local LeaderboardConfig = require(ServerScriptService.LeaderboardConfig)
+local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local LeaderboardBoards = {}
+
+-- Theme-driven: the PLINTH/support-post structure only - each category's
+-- own accentColor (LeaderboardConfig.CATEGORIES) stays exactly the same
+-- across every map/theme, since that's meaningful branding/color-coding
+-- (Wins vs XP vs Accuracy, etc.), not a decorative surface to reskin.
+local defaultTheme = LobbyTheme.Get()
+local STRUCTURE_MATERIAL = defaultTheme.leaderboardStructureMaterial
+local STRUCTURE_COLOR = defaultTheme.leaderboardStructureColor
+
+--[[
+	Latches `theme`'s plinth/support-post material+color for every
+	subsequent BuildAll call.
+]]
+function LeaderboardBoards.SetTheme(theme: LobbyTheme.Theme)
+	STRUCTURE_MATERIAL = theme.leaderboardStructureMaterial
+	STRUCTURE_COLOR = theme.leaderboardStructureColor
+end
 
 -- Tag used by StarterPlayerScripts/LeaderboardPodiumGlowController.client.lua
 -- to find every board's 1st-place rank badge without hardcoding five paths.
@@ -236,8 +254,8 @@ local function buildOneBoard(category, angleDegrees: number, arcCenter: Vector3,
 		name = "Plinth",
 		size = Vector3.new(width + 2, 1, plinthDepth),
 		cframe = baseCFrame * CFrame.new(0, plinthY, 0),
-		material = Enum.Material.Metal,
-		color = Color3.fromRGB(45, 48, 56),
+		material = STRUCTURE_MATERIAL,
+		color = STRUCTURE_COLOR,
 		parent = model,
 	})
 	PartUtils.CreatePart({
@@ -259,8 +277,8 @@ local function buildOneBoard(category, angleDegrees: number, arcCenter: Vector3,
 			name = "SupportPost",
 			size = Vector3.new(1, postHeight, 1),
 			cframe = baseCFrame * CFrame.new(side * (width / 2 - 1), plinthY + postHeight / 2, 0),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(45, 48, 56),
+			material = STRUCTURE_MATERIAL,
+			color = STRUCTURE_COLOR,
 			canCollide = false,
 			parent = model,
 		})
@@ -270,7 +288,7 @@ local function buildOneBoard(category, angleDegrees: number, arcCenter: Vector3,
 		name = "Base",
 		size = Vector3.new(width, height, 1),
 		cframe = baseCFrame * CFrame.new(0, panelBottomY + height / 2, 0),
-		material = Enum.Material.Metal,
+		material = STRUCTURE_MATERIAL,
 		color = Color3.fromRGB(20, 22, 28),
 		parent = model,
 	})

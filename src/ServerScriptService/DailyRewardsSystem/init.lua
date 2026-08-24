@@ -14,15 +14,17 @@
 	SAME UTC day as the last claim is rejected (AlreadyClaimedToday).
 	Claiming on the very NEXT UTC day continues the streak (advances to
 	the next DailyRewardsConfig.DAY_TRACK entry, wrapping 7 -> 1). Claiming
-	after skipping one or more days resets the streak back to day 1 -
-	consistent with a normal daily-login-streak design, and simple to
-	reason about without timezone-of-day edge cases (a UTC-day boundary,
-	not "24 hours since last claim", so the exact reset moment is the same
-	for every player regardless of when in the day they usually play).
+	after skipping one or more days resets the streak back to day 1.
 
 	Persistence: profile.dailyRewards (DataSystem.lua) - lastClaimUnix,
-	streakDay, totalClaims - saves/loads through the existing autosave/
-	on-leave/DataStore path, no separate store.
+	streakDay, totalClaims, and a capped claim `history` log - saves/loads
+	through the existing autosave/on-leave/DataStore path, no separate
+	store.
+
+	Claim history is deliberately kept SHORT ("keep the claim history
+	pretty short... maybe one week back at most, nothing more than that")
+	- MAX_HISTORY_ENTRIES caps it at 7, since there's at most one real
+	claim per day.
 
 	Duplicate-claim safety: same pattern as RewardTrackSystem.ClaimMilestone
 	- the profile is mutated (lastClaimUnix/streakDay/totalClaims all set)
@@ -44,6 +46,7 @@ local RemoteThrottle = require(ServerScriptService.RemoteThrottle)
 local DailyRewardsSystem = {}
 
 local SECONDS_PER_DAY = 86400
+local MAX_HISTORY_ENTRIES = 7 -- keep history "pretty short" - about a week back, since there's at most one claim per real day
 
 local getDailyRewardSnapshotFunction = RemoteFunctions.Get("GetDailyRewardSnapshot")
 local claimDailyRewardFunction = RemoteFunctions.Get("ClaimDailyReward")
@@ -56,8 +59,10 @@ end
 	Builds the full snapshot for the Daily Rewards UI: whether today's
 	reward is still claimable, the current streak day, seconds until the
 	next UTC day boundary (for a "come back in..." countdown), the whole
-	7-day track (so "see your progress in bigger things" is always
-	visible, not just today's single reward), and lifetime total claims.
+	7-day track (a rolling window starting at today, not a fixed
+	Day1..Day7 layout - "see your progress in bigger things"), lifetime
+	total claims, and the capped claim history (most-recent-first, for
+	"scroll back to further days you've had").
 ]]
 function DailyRewardsSystem.BuildSnapshot(player: Player)
 	local profile = DataSystem.GetProfile(player)
@@ -78,14 +83,35 @@ function DailyRewardsSystem.BuildSnapshot(player: Player)
 		elseif streakContinues then (state.streakDay % DailyRewardsConfig.CYCLE_LENGTH) + 1
 		else 1
 
+	-- "Collected" days THIS pass through the 7-day ring: if the player has
+	-- already claimed today, every day up to and including streakDay is
+	-- done. If they haven't claimed yet today but the streak is continuing
+	-- from a previous day, every day BEFORE nextClaimDay is already
+	-- collected. A fresh/reset streak (nextClaimDay==1 with nothing
+	-- claimed yet) correctly shows nothing as collected.
+	local collectedThreshold = if not canClaimToday then state.streakDay
+		elseif streakContinues then nextClaimDay - 1
+		else 0
+
+	-- The "next seven days" view the client renders, REORDERED to start at
+	-- today/nextClaimDay rather than always showing the fixed Day1..Day7
+	-- layout regardless of where the player actually is in the cycle.
 	local track = {}
-	for _, entry in ipairs(DailyRewardsConfig.DAY_TRACK) do
-		table.insert(track, {
-			day = entry.day,
-			label = entry.label,
-			isToday = canClaimToday and entry.day == nextClaimDay,
-			isPastCurrentStreak = not canClaimToday and entry.day <= state.streakDay,
-		})
+	for offset = 0, DailyRewardsConfig.CYCLE_LENGTH - 1 do
+		local day = ((nextClaimDay - 1 + offset) % DailyRewardsConfig.CYCLE_LENGTH) + 1
+		local entry = DailyRewardsConfig.GetDay(day)
+		if entry then
+			table.insert(track, {
+				day = entry.day,
+				label = entry.label,
+				offsetFromToday = offset, -- 0 = today/next claim, 1 = tomorrow, etc.
+				isToday = canClaimToday and offset == 0,
+				-- "Collected" this pass: either today's slot but already claimed,
+				-- or an earlier day in the ring while the streak is continuing.
+				isCollected = (offset == 0 and not canClaimToday)
+					or (offset > 0 and day <= collectedThreshold and streakContinues),
+			})
+		end
 	end
 
 	local secondsUntilNextDay = ((todayNumber + 1) * SECONDS_PER_DAY) - now
@@ -97,6 +123,15 @@ function DailyRewardsSystem.BuildSnapshot(player: Player)
 		secondsUntilNextDay = secondsUntilNextDay,
 		totalClaims = state.totalClaims,
 		track = track,
+		-- Most-recent-first, for the "scroll back to further days you've
+		-- had" history view - capped at MAX_HISTORY_ENTRIES (about a week).
+		history = (function()
+			local reversed = {}
+			for i = #state.history, 1, -1 do
+				table.insert(reversed, state.history[i])
+			end
+			return reversed
+		end)(),
 	}
 end
 
@@ -130,6 +165,14 @@ function DailyRewardsSystem.ClaimDaily(player: Player): (boolean, string?)
 
 	local entry = DailyRewardsConfig.GetDay(claimDay)
 	if entry then
+		-- Append to the scroll-back history log, capped so a very long-
+		-- lived profile doesn't grow this unboundedly in DataStore and so
+		-- the history view stays "pretty short" (about a week back).
+		table.insert(state.history, { unixTime = now, day = claimDay, label = entry.label })
+		if #state.history > MAX_HISTORY_ENTRIES then
+			table.remove(state.history, 1)
+		end
+
 		if entry.coins then
 			ProgressionSystem.AwardCoins(player, entry.coins)
 		end

@@ -22,11 +22,30 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local LobbyConfig = require(script.Parent.LobbyConfig)
+local LobbyTheme = require(script.Parent.LobbyTheme)
 local BuildingInteriors = require(script.Parent.BuildingInteriors)
 local BuildingSigns = require(script.Parent.BuildingSigns)
 local LeaderboardBoards = require(script.Parent.LeaderboardBoards)
 
 local Buildings = {}
+
+local defaultTheme = LobbyTheme.Get()
+local ACCENT_MATERIAL = defaultTheme.buildingAccentMaterial
+local ACCENT_COLOR = defaultTheme.buildingAccentColor
+
+--[[
+	Latches `theme` for this module's own trim-band color/material AND
+	cascades to every other themed building-construction module
+	(BuildingInteriors, BuildingSigns) - Buildings.lua already requires
+	both, so this is the single call site LobbyBuilder needs for the whole
+	"building" family rather than three separate calls.
+]]
+function Buildings.SetTheme(theme: LobbyTheme.Theme)
+	ACCENT_MATERIAL = theme.buildingAccentMaterial
+	ACCENT_COLOR = theme.buildingAccentColor
+	BuildingInteriors.SetTheme(theme)
+	BuildingSigns.SetTheme(theme)
+end
 
 local function addSign(basePart: BasePart, text: string)
 	local gui = Instance.new("SurfaceGui")
@@ -43,7 +62,7 @@ local function addSign(basePart: BasePart, text: string)
 	label.Parent = gui
 end
 
-local function buildOne(def, parent: Instance): Model
+local function buildOne(def, parent: Instance, mapId: string): Model
 	local model = Instance.new("Model")
 	model.Name = def.name
 	model.Parent = parent
@@ -54,8 +73,8 @@ local function buildOne(def, parent: Instance): Model
 		name = "TrimBand",
 		size = Vector3.new(def.size.X + 0.4, 0.6, def.size.Y + 0.4),
 		position = def.position + Vector3.new(0, def.height - 1, 0),
-		material = Enum.Material.Neon,
-		color = LobbyConfig.NEON_COLOR,
+		material = ACCENT_MATERIAL,
+		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
 	})
@@ -79,19 +98,22 @@ local function buildOne(def, parent: Instance): Model
 	-- Message 32: floating overhead sign above every building (distinct
 	-- from the door-side plaque `addSign` above builds), clickable to
 	-- teleport right to the building's entrance - see BuildingSigns.lua.
-	BuildingSigns.BuildOne(def, model)
+	-- Tagged with which map it belongs to (mapId) so a click can resolve
+	-- the CORRECT map's copy of this building - see BuildingSigns.BuildOne
+	-- and BuildingTeleportSystem.lua.
+	BuildingSigns.BuildOne(def, model, mapId)
 
 	model.PrimaryPart = base
 	return model
 end
 
-function Buildings.BuildAll(parent: Instance): Folder
+function Buildings.BuildAll(parent: Instance, mapId: string): Folder
 	local folder = Instance.new("Folder")
 	folder.Name = "Buildings"
 	folder.Parent = parent
 
 	for _, def in ipairs(LobbyConfig.BUILDINGS) do
-		buildOne(def, folder)
+		buildOne(def, folder, mapId)
 	end
 
 	-- Message 18: leaderboard region relocated out of the building row

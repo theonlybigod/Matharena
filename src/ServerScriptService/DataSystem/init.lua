@@ -1,32 +1,18 @@
 --[[
 	DataSystem
 
-	Owns player data persistence. As of Message 11 this is real
-	DataStore-backed storage (previously in-memory only, per the original
-	design note that this interface was already shaped for the swap).
-	Every other system (ProgressionSystem, ShopSystem, ...) reads/writes
-	profile fields through the SAME Profile table returned by GetProfile -
-	nothing else talks to DataStoreService directly, per this message's
-	"single schema" instruction.
+	Owns player data persistence. Real DataStore-backed storage. Every
+	other system (ProgressionSystem, ShopSystem, QuestsSystem, ...) reads/
+	writes profile fields through the SAME Profile table returned by
+	GetProfile - nothing else talks to DataStoreService directly, per the
+	"single schema" rule.
 
 	What's saved: the entire Profile table - wins, coins, gems, xp, level,
-	rank, statistics, ownedCosmetics, equippedCosmetics, and settings (see
-	the Profile type below). This covers everything the message asks for
-	(Coins/XP/Wins/Rank directly; Inventory+Cosmetics via owned/equipped
-	cosmetics, since cosmetics are the only inventory concept that exists
-	in this project; Statistics via the statistics table) plus gems,
-	which obviously needs to persist alongside coins even though it
-	wasn't named explicitly.
+	rank, statistics, ownedCosmetics, equippedCosmetics, settings,
+	dailyRewards (streak + capped claim history), claimedLifetimeMilestones,
+	quests (slot-based quest state), tutorialCompleted, totalPlayTimeSeconds.
 
-	Settings note: no Settings system exists yet (Message 8 left the
-	Settings button as a "coming soon" placeholder with no backing data).
-	`settings` is a generic, empty, extensible table here so persistence
-	is ready for whatever a future Settings message stores in it, without
-	this message inventing specific settings values that weren't asked
-	for.
-
-	Save safety (the race-condition/duplicate-loop hazard this message
-	calls out):
+	Save safety (race-condition/duplicate-loop hazards):
 		- LoadProfile retries GetAsync (see PersistenceRetry). If every
 		  attempt fails, the player gets an in-memory-only default
 		  profile for this session and is NEVER auto/leave-saved (see
@@ -41,7 +27,9 @@
 		- A single shared autosave loop (task.spawn'd once from Init)
 		  iterates every currently-loaded profile every 60s - there is
 		  deliberately no per-player timer, so nothing can double-schedule
-		  a save loop for the same player.
+		  a save loop for the same player. This same loop is also where
+		  totalPlayTimeSeconds accumulates (once per tick, for every
+		  profile currently loaded - i.e. the player is actually online).
 ]]
 
 local DataStoreService = game:GetService("DataStoreService")
@@ -77,17 +65,36 @@ export type PracticeStatistics = {
 	bestStreak: number,
 }
 
--- Daily-login streak state (DailyRewardsSystem/DailyRewardsConfig) -
--- entirely separate from claimedRewardMilestones below (that's the
--- win-based track; this is real-calendar-day-based). lastClaimUnix = 0
--- means "never claimed". streakDay is which DailyRewardsConfig.DAY_TRACK
--- entry was most recently claimed (1-7); DailyRewardsSystem decides
--- whether the NEXT claim continues the streak or resets to day 1 by
--- comparing lastClaimUnix's calendar day to the current one.
+-- One real calendar-day claim, kept in a short capped log so the Daily
+-- Rewards UI can show "further days you've had" beyond the current 7-day
+-- ring - see DailyRewardsSystem.MAX_HISTORY_ENTRIES ("keep history
+-- pretty short... maybe one week back at most, nothing more than that").
+export type DailyClaimRecord = {
+	unixTime: number,
+	day: number, -- which DAY_TRACK entry (1-7) was claimed
+	label: string, -- the reward label at the time of claim, so re-labeling DAY_TRACK later doesn't rewrite history
+}
+
 export type DailyRewardsState = {
 	lastClaimUnix: number,
 	streakDay: number,
 	totalClaims: number,
+	history: { DailyClaimRecord }, -- most-recent-last log of real claims, capped
+}
+
+-- Per-SLOT state for the repeatable quest loop (QuestsConfig/QuestsSystem)
+-- - keyed by SlotDef.slotId ("Standard1"/"Standard2"/"Daily"), NOT by
+-- quest id, since a slot's assigned quest changes every claim/refresh.
+export type QuestState = {
+	questId: string, -- which QuestsConfig quest is CURRENTLY assigned to this slot
+	effectiveKind: string, -- "standard" | "daily" | "challenge" - what's actually rolled in right now
+	accepted: boolean,
+	snapshotValue: number, -- the quest's metric value AT THE MOMENT it was accepted
+	nextAvailableAt: number, -- unix time this slot's quest becomes offerable (0 = immediately)
+	notifiedReady: boolean, -- whether the "New Quest Available" banner has already fired for the current cooldown expiry
+	lastDayNumber: number?, -- daily slot only: which UTC day number was last rolled
+	refreshesUsed: number, -- standard slots only: how many of today's REFRESHES_PER_DAY have been used
+	refreshDayNumber: number, -- which UTC day refreshesUsed is counted against (resets to 0 on a new day)
 }
 
 export type Profile = {
@@ -98,13 +105,17 @@ export type Profile = {
 	level: number,
 	rank: string,
 	currentStreak: number, -- not replicated directly; used to derive longestStreak
+	totalPlayTimeSeconds: number, -- accumulated in DataSystem's autosave loop while a profile is loaded; backs the Lifetime Rewards "time played" category
 	statistics: Statistics,
-	ownedCosmetics: { [string]: boolean }, -- set of owned CosmeticsConfig item ids (Message 10)
+	ownedCosmetics: { [string]: boolean }, -- set of owned CosmeticsConfig item ids
 	equippedCosmetics: { [string]: string }, -- CosmeticsConfig category -> equipped item id
-	settings: { [string]: any }, -- generic/extensible; no Settings system exists yet to populate this
-	claimedRewardMilestones: { [string]: boolean }, -- win-based Rewards track: set of claimed winsRequired milestones, KEYED BY STRING (tostring(winsRequired)) since DataStore round-trips turn numeric table keys into strings anyway
+	settings: { [string]: any }, -- generic/extensible
+	claimedRewardMilestones: { [string]: boolean }, -- win-based Rewards track: set of claimed winsRequired milestones, KEYED BY STRING since DataStore round-trips numeric table keys into strings anyway
 	practiceStatistics: PracticeStatistics,
 	dailyRewards: DailyRewardsState,
+	claimedLifetimeMilestones: { [string]: boolean }, -- LifetimeRewardsConfig: set of claimed milestone ids
+	quests: { [string]: QuestState }, -- QuestsConfig SlotDef.slotId -> state
+	tutorialCompleted: boolean, -- whether the player has ever finished the guided first-time Play Tutorial - gates whether it auto-starts again; replaying from the Tutorial Building always works regardless of this flag
 }
 
 local PROFILE_STORE_NAME = "MathArena_PlayerProfiles_v1"
@@ -161,14 +172,18 @@ local function createDefaultProfile(): Profile
 			lastClaimUnix = 0,
 			streakDay = 0,
 			totalClaims = 0,
+			history = {},
 		},
+		claimedLifetimeMilestones = {},
+		quests = {},
+		totalPlayTimeSeconds = 0,
+		tutorialCompleted = false,
 	}
 end
 
 --[[
 	Merges a freshly-loaded saved table onto a brand-new default profile,
-	so a save written before a field existed (e.g. before Message 9 added
-	gems, or Message 10 added cosmetics) safely fills in defaults for
+	so a save written before a field existed safely fills in defaults for
 	whatever's missing instead of erroring or leaving nil fields.
 ]]
 local function reconcileWithDefaults(saved: { [string]: any }): Profile
@@ -182,6 +197,14 @@ local function reconcileWithDefaults(saved: { [string]: any }): Profile
 				else profile.dailyRewards
 			for statKey, statValue in pairs(value) do
 				(target :: any)[statKey] = statValue
+			end
+		elseif key == "claimedLifetimeMilestones" and typeof(value) == "table" then
+			for claimKey, claimValue in pairs(value) do
+				profile.claimedLifetimeMilestones[claimKey] = claimValue
+			end
+		elseif key == "quests" and typeof(value) == "table" then
+			for slotId, questState in pairs(value) do
+				profile.quests[slotId] = questState
 			end
 		else
 			(profile :: any)[key] = value
@@ -302,9 +325,14 @@ end
 	(task.spawn) so one slow DataStore call can't delay everyone else's.
 ]]
 local function autosaveAll()
-	for userId in pairs(profiles) do
+	for userId, profile in pairs(profiles) do
 		local player = Players:GetPlayerByUserId(userId)
 		if player then
+			-- Playtime accumulates here (once per AUTOSAVE_INTERVAL_SECONDS
+			-- tick, for every profile currently loaded - i.e. the player is
+			-- actually online right now) rather than a separate timer, so
+			-- there is exactly one place that advances it.
+			profile.totalPlayTimeSeconds = (profile.totalPlayTimeSeconds or 0) + AUTOSAVE_INTERVAL_SECONDS
 			task.spawn(DataSystem.SaveProfile, player, "autosave")
 		end
 	end

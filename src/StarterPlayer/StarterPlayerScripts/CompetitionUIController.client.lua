@@ -22,6 +22,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
@@ -179,6 +180,66 @@ RemoteEvents.Get("RosterUpdated").OnClientEvent:Connect(rebuildRoster)
 -- since PracticeUIController needed the identical behavior; duplicating
 -- it a third time wasn't worth it.
 
+-- ===== "Next Player" banner (Message 34) =====
+-- A brief announcement shown at the start of EVERY competitive turn,
+-- alongside a short camera pan to that contestant's own platform -
+-- before the camera hands back off to GameplayCameraController.FocusOnScreen
+-- for the actual question/timer/answer viewing (see that module's own
+-- doc comment on why the screen stays the primary gameplay focus).
+
+local nextPlayerBanner = Instance.new("TextLabel")
+nextPlayerBanner.Name = "NextPlayerBanner"
+nextPlayerBanner.Size = UDim2.fromOffset(560, 90)
+nextPlayerBanner.Position = UDim2.new(0.5, -280, 0.12, 0)
+nextPlayerBanner.BackgroundColor3 = Color3.new(0, 0, 0)
+nextPlayerBanner.BackgroundTransparency = 0.35
+nextPlayerBanner.Font = Enum.Font.GothamBlack
+nextPlayerBanner.TextScaled = true
+nextPlayerBanner.TextColor3 = UITheme.COLORS.Accent
+nextPlayerBanner.TextStrokeTransparency = 0.4
+nextPlayerBanner.Text = ""
+nextPlayerBanner.Visible = false
+nextPlayerBanner.ZIndex = 30
+nextPlayerBanner.Parent = mainUI
+UITheme.ApplyCorner(nextPlayerBanner)
+
+-- Generation guard: if turns advance faster than this sequence's own
+-- waits (e.g. a very fast answer immediately followed by another turn),
+-- an in-flight banner/pan sequence must not keep running past its own
+-- turn and stomp on the next one's camera work.
+local nextPlayerGeneration = 0
+
+local function announceNextPlayer(playerName: string, platformIndex: number?)
+	nextPlayerGeneration += 1
+	local myGeneration = nextPlayerGeneration
+
+	nextPlayerBanner.Text = ("NEXT PLAYER: %s"):format(playerName:upper())
+	nextPlayerBanner.Visible = true
+	nextPlayerBanner.BackgroundTransparency = 0.35
+	nextPlayerBanner.TextTransparency = 0
+
+	GameplayCameraController.FocusOnPlatform(platformIndex, 0.5)
+
+	task.delay(1.1, function()
+		if nextPlayerGeneration ~= myGeneration then
+			return -- superseded by a newer turn already
+		end
+
+		local fadeTween = TweenService:Create(nextPlayerBanner, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {
+			BackgroundTransparency = 1,
+			TextTransparency = 1,
+		})
+		fadeTween:Play()
+		fadeTween.Completed:Connect(function()
+			if nextPlayerGeneration == myGeneration then
+				nextPlayerBanner.Visible = false
+			end
+		end)
+
+		GameplayCameraController.FocusOnScreen(platformIndex, 1)
+	end)
+end
+
 -- ===== Remote handlers =====
 -- Question/answer/timer state is entirely the arena screen's job now
 -- (ArenaScreenController.client.lua) - this script only still cares
@@ -187,10 +248,12 @@ RemoteEvents.Get("RosterUpdated").OnClientEvent:Connect(rebuildRoster)
 
 RemoteEvents.Get("TurnStarted").OnClientEvent:Connect(function(payload)
 	if not payload then
+		nextPlayerGeneration += 1 -- cancel any in-flight banner/pan sequence
+		nextPlayerBanner.Visible = false
 		GameplayCameraController.Release()
 		return
 	end
-	GameplayCameraController.FocusOnScreen(payload.platformIndex, 1)
+	announceNextPlayer(payload.playerName, payload.platformIndex)
 end)
 
 RemoteEvents.Get("GameStateChanged").OnClientEvent:Connect(function(state: string)

@@ -1,26 +1,57 @@
 --[[
 	LobbyBuilder
 
-	Procedurally constructs the entire lobby (floor, buildings, spawns,
-	queue portal, decorations, lighting) under Workspace.Lobby, from
-	source-controlled data in LobbyConfig.
+	Procedurally constructs a lobby map (floor, buildings, spawns, queue
+	portal, decorations) under its own Workspace folder, from source-
+	controlled data in LobbyConfig/MapConfig plus a visual theme
+	(LobbyTheme.lua) - see MapsConfig.lua (ReplicatedStorage/Modules) for
+	the registry of every map this builds.
 
-	Rerun policy (decided by design, see project history):
-		- Build() is safe to call every server start. If Workspace.Lobby
-		  is already marked built (via the "MathArenaBuilt" attribute),
-		  it does nothing.
-		- Rebuild() forces a full rebuild, destroying and regenerating
-		  everything currently under Workspace.Lobby. It prints a warning
-		  stating exactly what will be destroyed before doing so.
+	Multi-map support: every construction module (Floor/Buildings/
+	BuildingInteriors/BuildingSigns/Decorations/Trees/StreetLamps/Seating/
+	SpawnsAndPortal/LeaderboardBoards/Sign) still builds everything
+	assuming it's working in its own LOCAL space, exactly as before a
+	second map ever existed - none of them know or care where in the
+	world their finished map ends up. A map's THEME (color/material
+	palette) is latched via each themed module's SetTheme(theme) call,
+	made once per map right before that module builds anything, so every
+	one of its (otherwise completely unchanged) construction functions
+	picks up the right palette without needing a theme parameter threaded
+	through every call. A map's WORLD POSITION is handled the exact same
+	way GROUND_ELEVATION always was (see applyMapTransform below) - a
+	single bulk translation applied to every already-built BasePart at
+	the very end, rather than threading a world-offset through every
+	position calculation in every module. This is what lets two (or more)
+	maps coexist in the same Workspace, at different world locations,
+	using the exact same source files, with zero risk of one map's
+	geometry drifting into another's.
 
-	To (re)build the lobby by hand from Roblox Studio (Edit mode or Play
-	mode command bar):
-		require(game.ServerScriptService.LobbyBuilder).Build()   -- build if not already built
-		require(game.ServerScriptService.LobbyBuilder).Rebuild() -- force full rebuild
+	Rerun policy (decided by design, see project history) - per MAP:
+		- Build(mapDef) is safe to call every server start. If that map's
+		  root Workspace folder is already marked built (via the
+		  "MathArenaBuilt" attribute), it does nothing.
+		- Rebuild(mapDef) forces a full rebuild of that one map, destroying
+		  and regenerating everything currently under its root folder. It
+		  prints a warning stating exactly what will be destroyed before
+		  doing so.
+		- BuildAllMaps()/RebuildAllMaps() do the above for every map in
+		  MapsConfig.MAPS - this is what Main.server.lua actually calls at
+		  server start.
+
+	Backward-compatible no-arg calls: `Build()`/`Rebuild()` with no
+	argument default to MapsConfig.GetDefaultMap() (the existing
+	futuristic map) - the exact same map/behavior as before multi-map
+	support existed, for any manual Studio command-bar usage:
+		require(game.ServerScriptService.LobbyBuilder).Build()   -- default map, build if not already built
+		require(game.ServerScriptService.LobbyBuilder).Rebuild() -- default map, force full rebuild
+		require(game.ServerScriptService.LobbyBuilder).Build(require(game.ReplicatedStorage.Modules.MapsConfig).GetMap("Lava"))
 ]]
 
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
+local LobbyTheme = require(script.LobbyTheme)
 local MapConfig = require(script.MapConfig)
 local Buildings = require(script.Buildings)
 local Decorations = require(script.Decorations)
@@ -28,61 +59,96 @@ local SpawnsAndPortal = require(script.SpawnsAndPortal)
 local Floor = require(script.Floor)
 local LobbyLighting = require(script.LobbyLighting)
 local Sign = require(script.Sign)
+local LeaderboardBoards = require(script.LeaderboardBoards)
 
 local LobbyBuilder = {}
 
 --[[
-	Message 22, section 1: applies MapConfig.GROUND_ELEVATION as a single
-	bulk vertical translation to every BasePart already built under
-	`lobby`, run once at the end of Build(). Every construction module
-	(Floor/Buildings/Decorations/SpawnsAndPortal/Sign/LeaderboardBoards)
-	still builds everything assuming the ground sits at its own local Y=0 -
-	this is what actually raises the whole finished lobby afterward, rather
-	than threading a global elevation offset through every module's
-	internal math. Shifting .Position (not re-deriving each CFrame) leaves
-	every part's existing rotation untouched - a pure vertical translation.
+	Applies MapConfig.GROUND_ELEVATION (vertical) AND mapDef.origin
+	(horizontal, world-space) as a single bulk translation to every
+	BasePart already built under `root`, run once at the end of
+	Build(mapDef). Every construction module still builds everything
+	assuming it's working at its own local origin (0, 0, 0) - this is
+	what actually places the finished map at its real world position
+	afterward, rather than threading a world-offset through every
+	module's internal position math. Shifting .Position (not re-deriving
+	each CFrame) leaves every part's existing rotation untouched - a pure
+	translation.
 ]]
-local function applyGroundElevation(lobby: Instance)
-	if MapConfig.GROUND_ELEVATION == 0 then
+local function applyMapTransform(root: Instance, mapDef: MapsConfig.MapDef)
+	local offset = mapDef.origin + Vector3.new(0, MapConfig.GROUND_ELEVATION, 0)
+	if offset.Magnitude == 0 then
 		return
 	end
 
-	local offset = Vector3.new(0, MapConfig.GROUND_ELEVATION, 0)
-	for _, descendant in ipairs(lobby:GetDescendants()) do
+	for _, descendant in ipairs(root:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.Position += offset
 		end
 	end
 end
 
-function LobbyBuilder.Build(force: boolean?)
-	local lobby = Workspace:WaitForChild("Lobby")
+function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?)
+	local def = mapDef or MapsConfig.GetDefaultMap()
+	local root = Workspace:FindFirstChild(def.workspaceFolderName)
+	if not root then
+		-- Every map's root folder is declared in default.project.json (so
+		-- Rojo owns creating it, same as the original "Lobby"/"Arena"
+		-- folders) - this fallback only matters if that sync hasn't
+		-- happened yet for some reason; it never creates a competing,
+		-- Studio-only instance that Rojo doesn't know about.
+		root = Instance.new("Folder")
+		root.Name = def.workspaceFolderName
+		root.Parent = Workspace
+	end
 
-	local alreadyBuilt = lobby:GetAttribute("MathArenaBuilt") == true
+	local alreadyBuilt = root:GetAttribute("MathArenaBuilt") == true
 	if alreadyBuilt and not force then
-		print("[LobbyBuilder] Lobby already built; skipping. Call LobbyBuilder.Rebuild() to force a full rebuild.")
+		print(("[LobbyBuilder] %s already built; skipping. Call LobbyBuilder.Rebuild() to force a full rebuild."):format(def.id))
 		return
 	end
 
 	if alreadyBuilt and force then
 		warn(
-			("[LobbyBuilder] Rebuilding lobby: destroying %d existing top-level instance(s) under Workspace.Lobby (and everything inside them)."):format(
-				#lobby:GetChildren()
+			("[LobbyBuilder] Rebuilding %s: destroying %d existing top-level instance(s) under Workspace.%s (and everything inside them)."):format(
+				def.id,
+				#root:GetChildren(),
+				def.workspaceFolderName
 			)
 		)
 	end
 
-	for _, child in ipairs(lobby:GetChildren()) do
+	for _, child in ipairs(root:GetChildren()) do
 		child:Destroy()
 	end
 
-	LobbyLighting.Apply()
-	Floor.Build(lobby)
-	Buildings.BuildAll(lobby)
-	SpawnsAndPortal.BuildSpawns(lobby)
-	SpawnsAndPortal.BuildQueuePortal(lobby)
-	Decorations.BuildAll(lobby)
-	Sign.Build(lobby)
+	local theme = LobbyTheme.Get(def.themeId)
+	Floor.SetTheme(theme)
+	Buildings.SetTheme(theme)
+	Decorations.SetTheme(theme)
+	SpawnsAndPortal.SetTheme(theme)
+	LeaderboardBoards.SetTheme(theme)
+	Sign.SetTheme(theme)
+
+	if def.isDefault then
+		-- Only the default map re-applies the GLOBAL Lighting service
+		-- post-effects. Lighting/Atmosphere/Bloom/ColorCorrection are
+		-- children of the single shared Lighting service, not of any
+		-- individual map's Workspace folder - they can't meaningfully
+		-- differ per-map while multiple maps coexist in one server, so
+		-- only the default map's build path touches them (matches
+		-- Main.server.lua's own unconditional LobbyLighting.Apply() call
+		-- immediately after this, which is what actually keeps it
+		-- self-healing on every server start regardless of build state).
+		LobbyLighting.Apply()
+	end
+
+	Floor.Build(root)
+	Buildings.BuildAll(root, def.id)
+	SpawnsAndPortal.BuildSpawns(root, def.isDefault == true)
+	SpawnsAndPortal.BuildQueuePortal(root)
+	Decorations.BuildAll(root)
+	Sign.Build(root)
 	-- CentralBoard was manually deleted directly in Studio - no longer
 	-- built here so a future Rebuild() reproduces that deletion instead of
 	-- silently re-creating it. CentralBoard.lua/CentralBoardConfig.lua
@@ -90,22 +156,46 @@ function LobbyBuilder.Build(force: boolean?)
 	-- file-delete capability, so removing them from disk entirely needs a
 	-- manual step outside this pipeline if you want them gone for good.
 
-	applyGroundElevation(lobby)
+	applyMapTransform(root, def)
 
-	lobby:SetAttribute("MathArenaBuilt", true)
-	lobby:SetAttribute("MathArenaBuiltAt", DateTime.now().UnixTimestamp)
+	root:SetAttribute("MathArenaBuilt", true)
+	root:SetAttribute("MathArenaBuiltAt", DateTime.now().UnixTimestamp)
+	root:SetAttribute("MathArenaMapId", def.id)
 
-	print("[LobbyBuilder] Lobby build complete.")
+	print(("[LobbyBuilder] %s build complete."):format(def.id))
 end
 
 --[[
-	Forces a full rebuild, destroying and regenerating everything currently
-	under Workspace.Lobby. Intended to be run manually, e.g. from the
-	Studio command bar:
+	Forces a full rebuild of `mapDef` (default map if omitted), destroying
+	and regenerating everything currently under its root Workspace folder.
+	Intended to be run manually, e.g. from the Studio command bar:
 		require(game.ServerScriptService.LobbyBuilder).Rebuild()
 ]]
-function LobbyBuilder.Rebuild()
-	return LobbyBuilder.Build(true)
+function LobbyBuilder.Rebuild(mapDef: MapsConfig.MapDef?)
+	return LobbyBuilder.Build(mapDef, true)
+end
+
+--[[
+	Builds every map registered in MapsConfig.MAPS - this is what
+	Main.server.lua actually calls at server start. Each map is
+	independently safe-to-rerun (see Build's own rerun policy above), so
+	calling this on every server start is exactly as cheap as the
+	original single-map Build() always was once every map is already
+	built.
+]]
+function LobbyBuilder.BuildAllMaps()
+	for _, def in ipairs(MapsConfig.MAPS) do
+		LobbyBuilder.Build(def)
+	end
+end
+
+--[[
+	Forces a full rebuild of every map registered in MapsConfig.MAPS.
+]]
+function LobbyBuilder.RebuildAllMaps()
+	for _, def in ipairs(MapsConfig.MAPS) do
+		LobbyBuilder.Rebuild(def)
+	end
 end
 
 return LobbyBuilder

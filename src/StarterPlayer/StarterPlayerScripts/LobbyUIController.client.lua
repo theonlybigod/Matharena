@@ -48,8 +48,11 @@ local mainUI = playerGui:WaitForChild("MainUI")
 
 local buttonBar = Instance.new("Frame")
 buttonBar.Name = "LobbyButtonBar"
-buttonBar.Size = UDim2.fromOffset(760, 92)
-buttonBar.Position = UDim2.new(0.5, -380, 1, -112)
+-- Message 33: widened from 760 to 880 (and re-centered to match) to fit
+-- the new 7th button (Daily) without crowding - 7 buttons * 112 wide +
+-- 6 gaps * 14 padding = 868, so 880 leaves a little breathing room.
+buttonBar.Size = UDim2.fromOffset(880, 92)
+buttonBar.Position = UDim2.new(0.5, -440, 1, -112)
 buttonBar.BackgroundTransparency = 1
 buttonBar.Parent = mainUI
 
@@ -81,6 +84,16 @@ local shopButton = createButton("ShopButton", "\u{1F6D2}", "Shop", 3)
 local statsButton = createButton("StatsButton", "\u{1F4CA}", "Stats", 4)
 local settingsButton = createButton("SettingsButton", "\u{2699}", "Settings", 5)
 local dailyRewardsButton = createButton("RewardsButton", "\u{1F3C6}", "Rewards", 6)
+-- Message 33 ("a daily reward section in the bottom tab that shows
+-- you today's daily reward and lets you claim it, as well as the next
+-- 6 days"): a SEVENTH bottom-bar button, distinct from RewardsButton
+-- above (that one is the win-based track's quick-claim button, hidden
+-- unless something's currently claimable - see RewardsUIController's
+-- own doc comment). This one always shows, and opens the SAME 7-day
+-- streak panel the Daily Rewards building's terminal opens - see
+-- DailyRewardsUIController.client.lua, which owns this button's click
+-- handling (same handoff pattern as ShopButton/PracticeButton below).
+local dailyButton = createButton("DailyButton", "\u{1F4C5}", "Daily", 7)
 
 -- ===== Generic modal (reused by Settings/Stats) =====
 -- Message 26: upgraded to the premium panel style (gradient + glowing
@@ -191,6 +204,12 @@ dailyRewardsButton.MouseButton1Click:Connect(function()
 	-- Intentionally not handled here - RewardsUIController.client.lua owns
 	-- this button's click handling and opens the real win-based Rewards
 	-- track panel, same handoff pattern as ShopButton above.
+end)
+
+dailyButton.MouseButton1Click:Connect(function()
+	-- Intentionally not handled here - DailyRewardsUIController.client.lua
+	-- owns this button's click handling and opens the real 7-day daily
+	-- streak panel, same handoff pattern as ShopButton above.
 end)
 
 -- ===== Stats panel (real data, Message 4) =====

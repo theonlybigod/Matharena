@@ -65,8 +65,24 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local SignConfig = require(ReplicatedStorage.Modules.SignConfig)
+local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local Sign = {}
+
+-- Theme-driven glow color ONLY - text/position/size/font stay identical
+-- across every map (SignConfig is shared with the client-side bob-motion
+-- controller, which only reads position/bob timing, never color, so
+-- overriding the glow color here doesn't affect that script). Defaults
+-- to SignConfig's own value so this module behaves exactly as before if
+-- SetTheme is never called.
+local GLOW_COLOR = SignConfig.GLOW_COLOR
+
+--[[
+	Latches `theme`'s sign glow color for every subsequent Sign.Build call.
+]]
+function Sign.SetTheme(theme: LobbyTheme.Theme)
+	GLOW_COLOR = theme.signGlowColor
+end
 
 --[[
 	Builds the BillboardGui + TitleLabel on `anchor`. No background panel/
@@ -92,7 +108,7 @@ local function createBillboard(anchor: BasePart)
 	label.Text = SignConfig.TEXT
 	label.TextColor3 = SignConfig.TEXT_COLOR
 	label.TextStrokeTransparency = SignConfig.TEXT_STROKE_TRANSPARENCY
-	label.TextStrokeColor3 = SignConfig.GLOW_COLOR
+	label.TextStrokeColor3 = GLOW_COLOR
 	label.Parent = billboard
 
 	-- Subtle top-to-bottom sheen on the lettering itself - the "shiny/
@@ -131,7 +147,7 @@ function Sign.Build(parent: Instance): Model
 	createBillboard(anchor)
 
 	local glow = Instance.new("PointLight")
-	glow.Color = SignConfig.GLOW_COLOR
+	glow.Color = GLOW_COLOR
 	glow.Brightness = SignConfig.GLOW_BRIGHTNESS
 	glow.Range = SignConfig.GLOW_RANGE
 	glow.Parent = anchor
@@ -139,7 +155,7 @@ function Sign.Build(parent: Instance): Model
 	-- Restrained sparkle - low rate so it reads as a soft accent, not a
 	-- distraction from the text.
 	local sparkle = Instance.new("ParticleEmitter")
-	sparkle.Color = ColorSequence.new(SignConfig.GLOW_COLOR)
+	sparkle.Color = ColorSequence.new(GLOW_COLOR)
 	sparkle.Lifetime = NumberRange.new(1.5, 2.5)
 	sparkle.Rate = SignConfig.PARTICLE_RATE
 	sparkle.Speed = NumberRange.new(0.5, 1.5)
