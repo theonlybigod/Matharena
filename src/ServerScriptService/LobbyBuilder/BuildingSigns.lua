@@ -46,17 +46,21 @@ function BuildingSigns.SetTheme(theme: LobbyTheme.Theme)
 end
 -- High enough to clear every building's tallest roof topper (the
 -- Statistics data spire is the tallest, at +16 above def.height) with
--- clean room to spare.
-local SIGN_HEIGHT_ABOVE_BUILDING = 22
--- Message 33 ("names above the buildings significantly larger - maybe
--- twice the size of the text on the buildings themselves"): doubled
--- from the original (18, 5) - since the button's text uses TextScaled
--- (always fills its container), doubling the billboard's own dimensions
--- doubles the rendered text size to match, while keeping the same
--- aspect ratio/proportions. MaxDistance raised to match - a sign this
--- much larger stays legible from further away, so it's worth letting
--- players read it from a greater distance too.
-local BILLBOARD_SIZE = Vector2.new(36, 10) -- studs, matching Sign.lua's own UDim2.fromOffset convention
+-- clean room to spare - bumped from 22 to give the much-larger
+-- billboard below more air above the roofline.
+local SIGN_HEIGHT_ABOVE_BUILDING = 28
+-- "Much much larger... extremely easy to read from a reasonable
+-- distance" - doubled again from the previous (36, 10) pass. Verified
+-- against LobbyConfig.BUILDINGS' actual positions (scaled by
+-- MapConfig.SCALE_FACTOR): the CLOSEST pair of adjacent building centers
+-- (DailyRewards <-> TutorialBuilding) is ~88.4 studs apart. At this size,
+-- each sign's half-width is 36 studs, so two adjacent signs need at most
+-- 72 combined studs of width to clear each other - leaving a genuine
+-- ~16-stud gap even for the tightest pair, so a much bigger sign still
+-- never visually overlaps its neighbor. Going any larger (e.g. a further
+-- doubling to 144 wide) would close that gap entirely and risk exactly
+-- the "text clipping or overlap" this pass is required to avoid.
+local BILLBOARD_SIZE = Vector2.new(72, 20) -- studs, matching Sign.lua's own UDim2.fromOffset convention
 
 --[[
 	Builds one building's overhead sign + connector beam, parented into
@@ -100,7 +104,7 @@ function BuildingSigns.BuildOne(def, parent: Instance, mapId: string): BasePart
 	billboard.Adornee = anchor
 	billboard.Size = UDim2.fromOffset(BILLBOARD_SIZE.X, BILLBOARD_SIZE.Y)
 	billboard.AlwaysOnTop = false
-	billboard.MaxDistance = 320 -- readable from a good distance, but not from clear across the whole map
+	billboard.MaxDistance = 450 -- scaled up to match the much larger sign - readable from further away, but not from clear across the whole map
 	billboard.LightInfluence = 0
 	billboard.Parent = anchor
 

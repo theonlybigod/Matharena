@@ -76,6 +76,48 @@ MapsConfig.MAPS = {
 		difficultyId = nil,
 		isDefault = false,
 	},
+	{
+		id = "Space",
+		displayName = "Space Arena",
+		workspaceFolderName = "LobbySpace",
+		themeId = "Space",
+		-- Offset along -Z (not +X like Lava) so the two non-default maps
+		-- never sit collinear with each other or with the default map -
+		-- same MAP_SPACING_STUDS distance-from-origin convention as Lava,
+		-- just along a different axis, giving every map its own clear
+		-- quadrant to expand into later. The Space map also builds a large
+		-- (but bounded) surrounding starfield dome (see SpaceEnvironment.lua)
+		-- - this spacing keeps that dome's radius comfortably clear of both
+		-- the origin map (Futuristic/Arena) and the Lava map's own footprint;
+		-- see SpaceEnvironment.lua's module doc for the exact radius check.
+		origin = Vector3.new(0, 0, -MAP_SPACING_STUDS),
+		difficultyId = nil,
+		isDefault = false,
+	},
+	{
+		id = "UnderTheSea",
+		displayName = "Under the Sea Arena",
+		workspaceFolderName = "LobbyUnderTheSea",
+		themeId = "UnderTheSea",
+		-- Mirrors Lava's own axis (-X instead of +X) so all four non-origin
+		-- maps sit on their own cardinal direction from the shared
+		-- Futuristic/Arena origin, none of them collinear with each other:
+		-- Lava (+X), UnderTheSea (-X), Space (-Z), IceAge (+Z).
+		origin = Vector3.new(-MAP_SPACING_STUDS, 0, 0),
+		difficultyId = nil,
+		isDefault = false,
+	},
+	{
+		id = "IceAge",
+		displayName = "Ice Age Arena",
+		workspaceFolderName = "LobbyIceAge",
+		themeId = "IceAge",
+		-- Mirrors Space's own axis (+Z instead of -Z) - see the UnderTheSea
+		-- entry's comment above for the full four-cardinal-direction layout.
+		origin = Vector3.new(0, 0, MAP_SPACING_STUDS),
+		difficultyId = nil,
+		isDefault = false,
+	},
 } :: { MapDef }
 
 --[[

@@ -60,6 +60,10 @@ local Floor = require(script.Floor)
 local LobbyLighting = require(script.LobbyLighting)
 local Sign = require(script.Sign)
 local LeaderboardBoards = require(script.LeaderboardBoards)
+local SpaceEnvironment = require(script.SpaceEnvironment)
+local UnderTheSeaEnvironment = require(script.UnderTheSeaEnvironment)
+local IceAgeEnvironment = require(script.IceAgeEnvironment)
+local LavaEnvironment = require(script.LavaEnvironment)
 
 local LobbyBuilder = {}
 
@@ -149,6 +153,24 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?)
 	SpawnsAndPortal.BuildQueuePortal(root)
 	Decorations.BuildAll(root)
 	Sign.Build(root)
+
+	-- Per-theme surrounding backdrop (starfield dome for Space, water
+	-- volume for Under the Sea, whiteout sky for Ice Age, etc.) - see each
+	-- module's own doc comment for why this is genuinely new geometry
+	-- rather than something every theme can express through LobbyTheme
+	-- alone, and why it's safe to build unconditionally in local space
+	-- here (applyMapTransform below carries it to the right world position
+	-- along with everything else). Every map WITHOUT a matching branch
+	-- below is completely untouched by this dispatch.
+	if def.themeId == "Space" then
+		SpaceEnvironment.BuildAll(root)
+	elseif def.themeId == "UnderTheSea" then
+		UnderTheSeaEnvironment.BuildAll(root)
+	elseif def.themeId == "IceAge" then
+		IceAgeEnvironment.BuildAll(root)
+	elseif def.themeId == "Lava" then
+		LavaEnvironment.BuildAll(root)
+	end
 	-- CentralBoard was manually deleted directly in Studio - no longer
 	-- built here so a future Rebuild() reproduces that deletion instead of
 	-- silently re-creating it. CentralBoard.lua/CentralBoardConfig.lua

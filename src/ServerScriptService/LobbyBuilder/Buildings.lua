@@ -32,6 +32,7 @@ local Buildings = {}
 local defaultTheme = LobbyTheme.Get()
 local ACCENT_MATERIAL = defaultTheme.buildingAccentMaterial
 local ACCENT_COLOR = defaultTheme.buildingAccentColor
+local CURRENT_THEME_ID = defaultTheme.id
 
 --[[
 	Latches `theme` for this module's own trim-band color/material AND
@@ -43,6 +44,7 @@ local ACCENT_COLOR = defaultTheme.buildingAccentColor
 function Buildings.SetTheme(theme: LobbyTheme.Theme)
 	ACCENT_MATERIAL = theme.buildingAccentMaterial
 	ACCENT_COLOR = theme.buildingAccentColor
+	CURRENT_THEME_ID = theme.id
 	BuildingInteriors.SetTheme(theme)
 	BuildingSigns.SetTheme(theme)
 end
@@ -69,15 +71,22 @@ local function buildOne(def, parent: Instance, mapId: string): Model
 
 	local base = BuildingInteriors.BuildShell(def, model)
 
-	PartUtils.CreatePart({
-		name = "TrimBand",
-		size = Vector3.new(def.size.X + 0.4, 0.6, def.size.Y + 0.4),
-		position = def.position + Vector3.new(0, def.height - 1, 0),
-		material = ACCENT_MATERIAL,
-		color = ACCENT_COLOR,
-		canCollide = false,
-		parent = model,
-	})
+	-- Roofline trim band is exterior box dressing too - skipped for the
+	-- three custom-exterior themes (see BuildingInteriors.HasCustomExterior)
+	-- since the dome/volcano/hull body already wraps clean past the
+	-- building's own roofline; this band would otherwise be the one
+	-- remaining strip of the old prism shell peeking through the wrap.
+	if not BuildingInteriors.HasCustomExterior(CURRENT_THEME_ID) then
+		PartUtils.CreatePart({
+			name = "TrimBand",
+			size = Vector3.new(def.size.X + 0.4, 0.6, def.size.Y + 0.4),
+			position = def.position + Vector3.new(0, def.height - 1, 0),
+			material = ACCENT_MATERIAL,
+			color = ACCENT_COLOR,
+			canCollide = false,
+			parent = model,
+		})
+	end
 
 	if def.name == "Shop" then
 		addSign(base, def.displayName)

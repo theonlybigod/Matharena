@@ -32,6 +32,7 @@ local TRUNK_MATERIAL = defaultTheme.treeTrunkMaterial
 local TRUNK_COLOR_BASE = defaultTheme.treeTrunkColor
 local FOLIAGE_MATERIAL = defaultTheme.treeFoliageMaterial
 local FOLIAGE_COLOR_BASE = defaultTheme.treeFoliageColor
+local CURRENT_THEME_ID = defaultTheme.id
 
 --[[
 	Latches `theme`'s trunk/foliage material+base-color for every
@@ -45,6 +46,7 @@ function Trees.SetTheme(theme: LobbyTheme.Theme)
 	TRUNK_COLOR_BASE = theme.treeTrunkColor
 	FOLIAGE_MATERIAL = theme.treeFoliageMaterial
 	FOLIAGE_COLOR_BASE = theme.treeFoliageColor
+	CURRENT_THEME_ID = theme.id
 end
 
 --[[
@@ -331,6 +333,233 @@ local CANOPY_BUILDERS = {
 }
 
 --[[
+	Theme-signature canopy overrides: Tundra/Lava/Under the Sea each get
+	ONE distinct, genuinely different silhouette instead of picking from
+	the four generic angular variants above - "moderately different
+	designs", not the same shapes recolored. Futuristic and Space keep the
+	four generic variants (already varied enough, and explicitly liked as-
+	is), so this table only covers the three themes that needed real
+	differentiation.
+]]
+
+--[[
+	"Snowy Pine" (Ice Age): a clean tapering stack of pine-like tiers
+	(no twist/fins, unlike Spire) with an opaque white Ice "snow cap" rim
+	sitting on top of every tier - the glowing icy foliage color reads as
+	frost-covered needles, while the solid white caps are what actually
+	sells "snow-covered branches".
+]]
+local function buildSnowyPineCanopy(canopyBase: Vector3, rng: Random, model: Model, foliageColor: Color3)
+	local canopyHeight = rng:NextNumber(TreeConfig.CANOPY_HEIGHT_MIN, TreeConfig.CANOPY_HEIGHT_MAX)
+	local canopyWidth = rng:NextNumber(TreeConfig.CANOPY_WIDTH_MIN, TreeConfig.CANOPY_WIDTH_MAX)
+	local snowColor = Color3.fromRGB(240, 246, 251)
+
+	local tierCount = 5
+	local tierHeight = (canopyHeight / tierCount) * 0.9
+	local nextTierBottom = canopyBase.Y
+	for i = 1, tierCount do
+		local tierWidth = canopyWidth * (1 - (i - 1) * 0.16)
+		local tierY = nextTierBottom + tierHeight / 2
+
+		PartUtils.CreatePart({
+			name = "PineTier" .. i,
+			size = Vector3.new(tierWidth, tierHeight, tierWidth),
+			position = Vector3.new(canopyBase.X, tierY, canopyBase.Z),
+			material = FOLIAGE_MATERIAL,
+			color = foliageColor,
+			canCollide = false,
+			parent = model,
+		})
+		PartUtils.CreateDisc({
+			name = "SnowCap" .. i,
+			diameter = tierWidth * 1.08,
+			thickness = 0.4,
+			position = Vector3.new(canopyBase.X, nextTierBottom + tierHeight, canopyBase.Z),
+			material = Enum.Material.Ice,
+			color = snowColor,
+			canCollide = false,
+			parent = model,
+		})
+		nextTierBottom += tierHeight
+	end
+
+	PartUtils.CreatePart({
+		name = "PinePeak",
+		size = Vector3.new(1, 1.6, 1),
+		position = Vector3.new(canopyBase.X, nextTierBottom + 0.8, canopyBase.Z),
+		material = Enum.Material.Ice,
+		color = snowColor,
+		canCollide = false,
+		parent = model,
+	})
+end
+
+--[[
+	"Scorched Branches" (Lava): NO solid canopy mass at all - just several
+	bare, irregular angled branches radiating outward (reusing the trunk's
+	own material/color, i.e. charred wood, not foliage-colored), each
+	ending in a small glowing ember, plus 1-2 smaller secondary twigs per
+	branch. Reads as "leafless, scorched, molten" rather than a recolored
+	solid canopy.
+
+	Connectivity fix: every branch used to originate from a bare point
+	(canopyBase + Vector3.new(0, yOffset, 0)) along the trunk's own
+	central axis - for any yOffset greater than 0, that point sits ABOVE
+	the real trunk's top surface, in empty air, with nothing solid there
+	for the branch to actually connect to (the same floating-geometry bug
+	CrystalCluster's CoreMass already fixed for a different variant). The
+	CharredCore below is a genuine continuation of the trunk running up
+	through the entire branch zone, so every branch (and every twig,
+	which now originates from a point along ITS OWN parent branch's
+	length rather than independently) always starts from solid geometry.
+]]
+local function buildScorchedBranchCanopy(canopyBase: Vector3, rng: Random, model: Model, foliageColor: Color3)
+	local canopyHeight = rng:NextNumber(TreeConfig.CANOPY_HEIGHT_MIN, TreeConfig.CANOPY_HEIGHT_MAX)
+	local canopyWidth = rng:NextNumber(TreeConfig.CANOPY_WIDTH_MIN, TreeConfig.CANOPY_WIDTH_MAX)
+	local branchCount = rng:NextInteger(6, 8)
+
+	-- Charred core spike: a continuation of the trunk running up through
+	-- the whole branch zone, tapering slightly narrower than the trunk
+	-- itself - this is what every branch below actually connects to,
+	-- instead of originating from empty air above the trunk's real top.
+	local coreTopY = canopyHeight * 0.68
+	local coreWidth = math.max(0.6, canopyWidth * 0.09)
+	PartUtils.CreatePart({
+		name = "CharredCore",
+		size = Vector3.new(coreWidth, coreTopY + 0.6, coreWidth),
+		position = canopyBase + Vector3.new(0, coreTopY / 2, 0),
+		material = TRUNK_MATERIAL,
+		color = TRUNK_COLOR_BASE,
+		canCollide = false,
+		parent = model,
+	})
+
+	for i = 1, branchCount do
+		local yaw = rng:NextNumber(0, 360)
+		local pitch = rng:NextNumber(20, 60)
+		local heightFraction = (i - 1) / (branchCount - 1)
+		local yOffset = canopyHeight * heightFraction * 0.65
+		local length = canopyWidth * rng:NextNumber(0.35, 0.6) * (1 - heightFraction * 0.3)
+		local crossSection = 0.35 + rng:NextNumber(0, 0.3)
+
+		-- Origin now always lands ON the CharredCore (yOffset tops out at
+		-- canopyHeight*0.65, comfortably under the core's own
+		-- canopyHeight*0.68 top), so the branch is always physically fused
+		-- to solid geometry regardless of height.
+		local branchOrigin = canopyBase + Vector3.new(0, yOffset, 0)
+		local branch = angledBlock(
+			branchOrigin,
+			yaw,
+			pitch,
+			length,
+			crossSection,
+			TRUNK_MATERIAL,
+			TRUNK_COLOR_BASE,
+			model,
+			"ScorchedBranch" .. i
+		)
+
+		-- One or two smaller secondary twigs branching OFF the main branch -
+		-- each originates from a point ALONG THE PARENT BRANCH'S OWN
+		-- LENGTH (branch.CFrame.RightVector is the branch's long axis), so
+		-- every twig is physically attached to solid parent geometry, never
+		-- floating independently - "irregular branch structures" from real
+		-- damage, not a duplicated procedural pattern.
+		local twigCount = rng:NextInteger(1, 2)
+		for t = 1, twigCount do
+			local alongFraction = rng:NextNumber(0.35, 0.8)
+			local twigOrigin = branch.Position + branch.CFrame.RightVector * (length * (alongFraction - 0.5))
+			local twigYaw = yaw + rng:NextNumber(-55, 55)
+			local twigPitch = pitch + rng:NextNumber(-30, 30)
+			local twigLength = length * rng:NextNumber(0.25, 0.45)
+			local twig = angledBlock(
+				twigOrigin,
+				twigYaw,
+				twigPitch,
+				twigLength,
+				crossSection * 0.6,
+				TRUNK_MATERIAL,
+				TRUNK_COLOR_BASE,
+				model,
+				("ScorchedTwig%d_%d"):format(i, t)
+			)
+			PartUtils.CreatePart({
+				name = ("EmberTwigTip%d_%d"):format(i, t),
+				size = Vector3.new(0.45, 0.45, 0.45),
+				position = twig.Position + twig.CFrame.RightVector * (twigLength / 2),
+				material = Enum.Material.Neon,
+				color = foliageColor,
+				shape = Enum.PartType.Ball,
+				canCollide = false,
+				parent = model,
+			})
+		end
+
+		-- Ember tip at the main branch's far end - branch.CFrame.RightVector is
+		-- the branch's own long axis (angledBlock translates along local
+		-- X, i.e. RightVector, by length/2 from the origin).
+		PartUtils.CreatePart({
+			name = "EmberTip" .. i,
+			size = Vector3.new(0.65, 0.65, 0.65),
+			position = branch.Position + branch.CFrame.RightVector * (length / 2),
+			material = Enum.Material.Neon,
+			color = foliageColor,
+			shape = Enum.PartType.Ball,
+			canCollide = false,
+			parent = model,
+		})
+	end
+end
+
+--[[
+	"Large Coral" (Under the Sea): a thick, rounded central mass with 8
+	organic branches radiating outward at varied angles - noticeably
+	bigger and bushier than every other theme's trees, reading as a large
+	brain-coral/fan-coral formation rather than an angular "tree".
+]]
+local function buildLargeCoralCanopy(canopyBase: Vector3, rng: Random, model: Model, foliageColor: Color3)
+	local canopyHeight = rng:NextNumber(TreeConfig.CANOPY_HEIGHT_MIN, TreeConfig.CANOPY_HEIGHT_MAX) * 1.3
+	local canopyWidth = rng:NextNumber(TreeConfig.CANOPY_WIDTH_MIN, TreeConfig.CANOPY_WIDTH_MAX) * 1.4
+	local coreWidth = canopyWidth * 0.4
+
+	PartUtils.CreatePart({
+		name = "CoralCore",
+		size = Vector3.new(coreWidth, canopyHeight * 0.7, coreWidth),
+		position = canopyBase + Vector3.new(0, canopyHeight * 0.35, 0),
+		material = FOLIAGE_MATERIAL,
+		color = foliageColor,
+		shape = Enum.PartType.Ball,
+		canCollide = false,
+		parent = model,
+	})
+
+	local branchCount = 8
+	for i = 1, branchCount do
+		local yaw = rng:NextNumber(0, 360)
+		local pitch = rng:NextNumber(25, 55)
+		local yOffset = canopyHeight * rng:NextNumber(0.2, 0.75)
+		local length = canopyWidth * rng:NextNumber(0.35, 0.6)
+		angledBlock(
+			canopyBase + Vector3.new(0, yOffset, 0),
+			yaw,
+			pitch,
+			length,
+			length * 0.3,
+			FOLIAGE_MATERIAL,
+			foliageColor,
+			model,
+			"CoralBranch" .. i
+		)
+	end
+end
+
+local THEME_CANOPY_OVERRIDES = {
+	IceAge = buildSnowyPineCanopy,
+	Lava = buildScorchedBranchCanopy,
+	UnderTheSea = buildLargeCoralCanopy,
+}
+
+--[[
 	Builds one tree at `position`, parented into `parent`. `variantId` is
 	optional - if omitted, one is chosen from a seeded roll (see
 	Decorations.lua for the actual per-tree variant selection, which adds
@@ -353,7 +582,7 @@ function Trees.Build(position: Vector3, variantId: string, parent: Instance): Mo
 		math.clamp(FOLIAGE_COLOR_BASE.B + (greenShift * 0.3) / 255, 0, 1)
 	)
 
-	local builder = CANOPY_BUILDERS[variantId] or buildSpireCanopy
+	local builder = THEME_CANOPY_OVERRIDES[CURRENT_THEME_ID] or CANOPY_BUILDERS[variantId] or buildSpireCanopy
 	builder(canopyBasePosition, rng, model, foliageColor)
 
 	model.Parent = parent

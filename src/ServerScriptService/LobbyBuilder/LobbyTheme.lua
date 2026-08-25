@@ -110,6 +110,16 @@ export type Theme = {
 	-- The floating landmark sign's glow only (Sign.lua) - text/position/
 	-- size are unaffected by theme.
 	signGlowColor: Color3,
+
+	-- Optional themed "backing panel" behind the floating landmark sign's
+	-- text (Sign.lua) - a large, soft-edged translucent sheet reading as
+	-- "a panel of water" or "a block of ice" the MATHARENA title floats in
+	-- front of. nil (the default, Futuristic/Lava/Space) means no panel at
+	-- all - preserves the existing borderless-glowing-text look exactly as
+	-- it already was before this field existed for every theme that
+	-- doesn't set it.
+	signBackingColor: Color3?,
+	signBackingTransparency: number?,
 }
 
 local FUTURISTIC: Theme = {
@@ -259,9 +269,296 @@ local LAVA: Theme = {
 	signGlowColor = Color3.fromRGB(255, 100, 25),
 }
 
+-- Deep-space station: dark metal hull plating instead of smooth painted
+-- concrete/basalt, electric cyan + violet Neon accents instead of a single
+-- blue family, tinted viewport Glass (reading as "looking out into the
+-- void") instead of clear/lava-vent glass, and Neon-lit
+-- crystal/energy-formation "foliage" instead of grass or molten rock -
+-- every structural material below is a genuine different material
+-- combination (Metal/DiamondPlate/Neon/Glass) from BOTH other themes, not
+-- a recolor of either. Trees keep their exact existing angular silhouettes
+-- (Spire/CanopyBurst/TwinBough/CrystalCluster - see Trees.lua) but read as
+-- glowing crystalline energy spires here, the same "material swap, not a
+-- new shape" technique the Lava theme already established for its molten
+-- canopies. The map's own surrounding deep-space backdrop (starfield dome,
+-- distant planets, floating asteroids) is NOT part of this theme table -
+-- it's built by SpaceEnvironment.lua, called directly by LobbyBuilder for
+-- the Space map only, since it's genuinely new geometry (not a color/
+-- material swap of something every map already builds).
+local SPACE: Theme = {
+	id = "Space",
+
+	floorMaterial = Enum.Material.Metal,
+	floorColor = Color3.fromRGB(20, 22, 30), -- dark station deck plating
+	curbMaterial = Enum.Material.Metal,
+	curbColor = Color3.fromRGB(14, 15, 21),
+	curbTrimMaterial = Enum.Material.Neon,
+	curbTrimColor = Color3.fromRGB(80, 220, 255), -- electric cyan
+	groundDesignCenterColor = Color3.fromRGB(190, 110, 255), -- violet focal accent
+	groundDesignMidColor = Color3.fromRGB(80, 220, 255),
+	groundDesignSpokeColor = Color3.fromRGB(80, 220, 255),
+
+	buildingWallMaterial = Enum.Material.Metal,
+	buildingExteriorWallColor = Color3.fromRGB(32, 35, 46), -- dark hull plating
+	buildingInteriorWallColor = Color3.fromRGB(24, 26, 34),
+	buildingInteriorFloorColor = Color3.fromRGB(18, 19, 25),
+	buildingCeilingColor = Color3.fromRGB(30, 32, 42),
+	buildingRoofCapColor = Color3.fromRGB(26, 28, 37),
+	buildingAccentMaterial = Enum.Material.Neon,
+	buildingAccentColor = Color3.fromRGB(80, 220, 255),
+	-- Windows become dark observation viewports looking out into the void -
+	-- a genuinely different tint/transparency treatment from the
+	-- futuristic theme's bright sky-blue glass, not the same pane recolored.
+	buildingGlassMaterial = Enum.Material.Glass,
+	buildingGlassColor = Color3.fromRGB(30, 45, 80),
+	buildingGlassTransparency = 0.2,
+	buildingHeaderColor = Color3.fromRGB(28, 30, 39),
+	buildingCanopyColor = Color3.fromRGB(28, 30, 39),
+	buildingFurnitureMaterial = Enum.Material.Metal,
+	buildingFurnitureColor = Color3.fromRGB(36, 39, 50),
+
+	buildingSignAccentColor = Color3.fromRGB(190, 110, 255),
+
+	-- Trees: same angular silhouettes, reinterpreted as glowing crystalline
+	-- energy spires - a dark metal "mast" instead of a wood trunk, Neon
+	-- "canopy" instead of grass/lava foliage.
+	treeTrunkMaterial = Enum.Material.Metal,
+	treeTrunkColor = Color3.fromRGB(40, 42, 52),
+	treeFoliageMaterial = Enum.Material.Neon,
+	treeFoliageColor = Color3.fromRGB(120, 90, 255), -- violet-blue energy glow
+
+	lampMetalMaterial = Enum.Material.Metal,
+	lampMetalColor = Color3.fromRGB(30, 32, 42),
+	lampAccentColor = Color3.fromRGB(80, 220, 255),
+	lampGlowColor = Color3.fromRGB(190, 220, 255), -- cool starlight-white glow
+
+	seatMaterial = Enum.Material.Metal,
+	seatColor = Color3.fromRGB(34, 37, 48),
+	seatAccentColor = Color3.fromRGB(80, 220, 255),
+	seatFrameMaterial = Enum.Material.Metal,
+	seatFrameColor = Color3.fromRGB(24, 26, 34),
+
+	spawnPadMaterial = Enum.Material.Metal,
+	spawnPadColor = Color3.fromRGB(22, 24, 32),
+	portalAccentColor = Color3.fromRGB(190, 110, 255),
+
+	leaderboardStructureMaterial = Enum.Material.Metal,
+	leaderboardStructureColor = Color3.fromRGB(28, 30, 39),
+
+	-- "Energy/crystal clusters" instead of flower beds - same construction
+	-- code (createFlowerBed), a cyan/violet/starlight palette instead of
+	-- bright florals or warm embers, fitting the space-station setting.
+	groundClusterColors = {
+		Color3.fromRGB(80, 220, 255),
+		Color3.fromRGB(170, 90, 255),
+		Color3.fromRGB(230, 235, 255),
+	},
+	perimeterFillLightColor = Color3.fromRGB(120, 150, 255),
+
+	signGlowColor = Color3.fromRGB(190, 110, 255),
+}
+
+-- Underwater world: rock/coral instead of smooth metal or basalt,
+-- vivid bioluminescent coral-pink/teal Neon accents instead of a single
+-- blue family, tinted aqua "porthole" glass instead of clear/lava-vent/
+-- viewport glass, and glowing coral/anemone "foliage" instead of grass,
+-- lava-canopy, or crystal energy. Every structural material below is a
+-- genuine different material combination (Slate/Rock/Wood/Neon/Glass)
+-- from every other theme, not a recolor of any of them. Trees keep their
+-- exact existing angular silhouettes (Spire/CanopyBurst/TwinBough/
+-- CrystalCluster - see Trees.lua) but read as coral formations/anemone
+-- clusters/kelp fronds here, the same "material swap, not a new shape"
+-- technique the Lava and Space themes already established. The map's own
+-- surrounding underwater backdrop (enclosing water-volume walls, bubble
+-- streams, coral reef clusters, drifting fish) is NOT part of this theme
+-- table - it's built by UnderTheSeaEnvironment.lua, called directly by
+-- LobbyBuilder for the Under the Sea map only, mirroring exactly how
+-- SpaceEnvironment.lua is wired in for the Space map (see that module's
+-- doc comment for why this kind of backdrop can't be a shared
+-- Lighting.Sky change).
+local UNDER_THE_SEA: Theme = {
+	id = "UnderTheSea",
+
+	floorMaterial = Enum.Material.Sand,
+	floorColor = Color3.fromRGB(168, 150, 108), -- sandy seabed, muted by deep water
+	curbMaterial = Enum.Material.Slate,
+	curbColor = Color3.fromRGB(22, 40, 50),
+	curbTrimMaterial = Enum.Material.Neon,
+	curbTrimColor = Color3.fromRGB(80, 230, 210), -- bioluminescent teal
+	groundDesignCenterColor = Color3.fromRGB(255, 130, 140), -- coral-pink focal accent
+	groundDesignMidColor = Color3.fromRGB(80, 230, 210),
+	groundDesignSpokeColor = Color3.fromRGB(80, 230, 210),
+
+	buildingWallMaterial = Enum.Material.Slate,
+	buildingExteriorWallColor = Color3.fromRGB(70, 90, 100), -- weathered shell/coral-rock
+	buildingInteriorWallColor = Color3.fromRGB(48, 64, 72),
+	buildingInteriorFloorColor = Color3.fromRGB(38, 52, 58),
+	buildingCeilingColor = Color3.fromRGB(55, 72, 80),
+	buildingRoofCapColor = Color3.fromRGB(50, 66, 74),
+	buildingAccentMaterial = Enum.Material.Neon,
+	buildingAccentColor = Color3.fromRGB(80, 230, 210),
+	-- Windows become aqua-tinted "portholes" looking out into the water -
+	-- a genuinely different tint/transparency treatment from every other
+	-- theme's glass, not the same pane recolored.
+	buildingGlassMaterial = Enum.Material.Glass,
+	buildingGlassColor = Color3.fromRGB(100, 200, 210),
+	buildingGlassTransparency = 0.35,
+	buildingHeaderColor = Color3.fromRGB(46, 62, 70),
+	buildingCanopyColor = Color3.fromRGB(46, 62, 70),
+	-- Weathered driftwood furniture, not metal/rock - a genuine material
+	-- difference from every other theme's interior fixtures.
+	buildingFurnitureMaterial = Enum.Material.Wood,
+	buildingFurnitureColor = Color3.fromRGB(72, 60, 52),
+
+	buildingSignAccentColor = Color3.fromRGB(80, 230, 210),
+
+	-- Trees: same angular silhouettes, reinterpreted as coral formations/
+	-- anemone clusters/kelp fronds - a rock "base" instead of a wood trunk,
+	-- Neon coral-pink "canopy" instead of grass/lava/crystal foliage.
+	treeTrunkMaterial = Enum.Material.Rock,
+	treeTrunkColor = Color3.fromRGB(110, 85, 90),
+	treeFoliageMaterial = Enum.Material.Neon,
+	treeFoliageColor = Color3.fromRGB(255, 120, 130), -- vivid bioluminescent coral-pink
+
+	lampMetalMaterial = Enum.Material.Slate,
+	lampMetalColor = Color3.fromRGB(38, 55, 64),
+	lampAccentColor = Color3.fromRGB(80, 230, 210),
+	lampGlowColor = Color3.fromRGB(150, 220, 255), -- soft bioluminescent blue-white
+
+	seatMaterial = Enum.Material.Rock,
+	seatColor = Color3.fromRGB(80, 62, 70),
+	seatAccentColor = Color3.fromRGB(80, 230, 210),
+	seatFrameMaterial = Enum.Material.Slate,
+	seatFrameColor = Color3.fromRGB(34, 50, 58),
+
+	spawnPadMaterial = Enum.Material.Slate,
+	spawnPadColor = Color3.fromRGB(40, 60, 70),
+	portalAccentColor = Color3.fromRGB(90, 240, 220),
+
+	leaderboardStructureMaterial = Enum.Material.Slate,
+	leaderboardStructureColor = Color3.fromRGB(38, 55, 64),
+
+	-- "Coral/anemone clusters" instead of flower beds - same construction
+	-- code (createFlowerBed), a coral-reef palette instead of bright
+	-- florals, embers, or crystal shards.
+	groundClusterColors = {
+		Color3.fromRGB(255, 130, 150),
+		Color3.fromRGB(255, 200, 90),
+		Color3.fromRGB(120, 230, 255),
+	},
+	perimeterFillLightColor = Color3.fromRGB(100, 190, 230),
+
+	signGlowColor = Color3.fromRGB(90, 220, 230),
+	-- "A large panel of water" behind the MATHARENA title - a soft, deep
+	-- teal translucent sheet (see Sign.lua's createBillboard).
+	signBackingColor = Color3.fromRGB(20, 90, 110),
+	signBackingTransparency = 0.35,
+}
+
+-- Frozen world: packed ice/glacier instead of smooth metal, basalt, rock,
+-- or hull-plating, pale icy-cyan Neon accents instead of any other
+-- theme's accent family, frosted ice "windows" instead of glass/lava-
+-- vent/viewport panes, and glowing frost-blue "foliage" instead of
+-- grass, lava-canopy, crystal energy, or coral. Every structural material
+-- below is a genuine different material combination (Ice/Glacier/Metal/
+-- Neon) from every other theme, not a recolor of any of them. Trees keep
+-- their exact existing angular silhouettes but read as frozen ice-
+-- crystal formations here. Lamps deliberately keep a WARM glow
+-- (lampGlowColor) rather than an icy one - a cozy lantern glow against
+-- the cold surroundings reads as more intentional than everything being
+-- uniformly cold. The map's own surrounding frozen backdrop (enclosing
+-- whiteout-sky walls, falling snow, distant frozen peaks, icicle
+-- clusters, aurora streaks) is NOT part of this theme table - it's built
+-- by IceAgeEnvironment.lua, called directly by LobbyBuilder for the Ice
+-- Age map only, mirroring exactly how SpaceEnvironment.lua is wired in
+-- for the Space map.
+local ICE_AGE: Theme = {
+	id = "IceAge",
+
+	floorMaterial = Enum.Material.Glacier,
+	floorColor = Color3.fromRGB(205, 222, 235), -- packed snow/ice sheet
+	curbMaterial = Enum.Material.Ice,
+	curbColor = Color3.fromRGB(180, 208, 225),
+	curbTrimMaterial = Enum.Material.Neon,
+	curbTrimColor = Color3.fromRGB(160, 225, 255),
+	groundDesignCenterColor = Color3.fromRGB(190, 205, 255), -- pale aurora-violet focal accent
+	groundDesignMidColor = Color3.fromRGB(160, 225, 255),
+	groundDesignSpokeColor = Color3.fromRGB(160, 225, 255),
+
+	buildingWallMaterial = Enum.Material.Glacier,
+	buildingExteriorWallColor = Color3.fromRGB(225, 235, 242), -- packed-snow/igloo walls
+	buildingInteriorWallColor = Color3.fromRGB(205, 218, 228),
+	buildingInteriorFloorColor = Color3.fromRGB(195, 210, 222),
+	buildingCeilingColor = Color3.fromRGB(215, 228, 238),
+	buildingRoofCapColor = Color3.fromRGB(210, 224, 235),
+	buildingAccentMaterial = Enum.Material.Neon,
+	buildingAccentColor = Color3.fromRGB(140, 210, 255),
+	-- Frosted ice panes instead of glass - a genuine different material
+	-- (Ice, not Glass) from every other theme's windows.
+	buildingGlassMaterial = Enum.Material.Ice,
+	buildingGlassColor = Color3.fromRGB(200, 228, 245),
+	buildingGlassTransparency = 0.25,
+	buildingHeaderColor = Color3.fromRGB(200, 214, 226),
+	buildingCanopyColor = Color3.fromRGB(200, 214, 226),
+	-- Frost-covered metal fixtures - a genuine material difference from
+	-- every other theme's interior furniture.
+	buildingFurnitureMaterial = Enum.Material.Metal,
+	buildingFurnitureColor = Color3.fromRGB(150, 165, 178),
+
+	buildingSignAccentColor = Color3.fromRGB(140, 210, 255),
+
+	-- Trees: same angular silhouettes, reinterpreted as glowing frozen
+	-- ice-crystal formations - a frost-pale "trunk" instead of wood/metal/
+	-- rock, glowing icy-cyan Neon "canopy" instead of every other theme's
+	-- foliage material.
+	treeTrunkMaterial = Enum.Material.Wood,
+	treeTrunkColor = Color3.fromRGB(95, 105, 115), -- bare frost-greyed bark
+	treeFoliageMaterial = Enum.Material.Neon,
+	treeFoliageColor = Color3.fromRGB(170, 220, 255), -- glowing frost-blue ice crystal
+
+	lampMetalMaterial = Enum.Material.Metal,
+	lampMetalColor = Color3.fromRGB(75, 85, 98),
+	lampAccentColor = Color3.fromRGB(150, 215, 255),
+	-- Deliberately warm (not icy) - a cozy lantern-flame glow contrasting
+	-- against the cold surroundings, see the theme's own doc comment above.
+	lampGlowColor = Color3.fromRGB(255, 200, 140),
+
+	seatMaterial = Enum.Material.Ice,
+	seatColor = Color3.fromRGB(210, 226, 238),
+	seatAccentColor = Color3.fromRGB(150, 215, 255),
+	seatFrameMaterial = Enum.Material.Metal,
+	seatFrameColor = Color3.fromRGB(80, 90, 102),
+
+	spawnPadMaterial = Enum.Material.Glacier,
+	spawnPadColor = Color3.fromRGB(210, 224, 236),
+	portalAccentColor = Color3.fromRGB(170, 205, 255),
+
+	leaderboardStructureMaterial = Enum.Material.Ice,
+	leaderboardStructureColor = Color3.fromRGB(195, 215, 230),
+
+	-- "Ice crystal clusters" instead of flower beds - same construction
+	-- code (createFlowerBed), a pale icy-blue/white palette instead of
+	-- bright florals, embers, or coral tones.
+	groundClusterColors = {
+		Color3.fromRGB(170, 220, 255),
+		Color3.fromRGB(220, 240, 255),
+		Color3.fromRGB(140, 180, 255),
+	},
+	perimeterFillLightColor = Color3.fromRGB(170, 200, 230),
+
+	signGlowColor = Color3.fromRGB(150, 210, 255),
+	-- "A block of ice" behind the MATHARENA title - a pale, frosted
+	-- translucent sheet (see Sign.lua's createBillboard).
+	signBackingColor = Color3.fromRGB(190, 220, 240),
+	signBackingTransparency = 0.4,
+}
+
 LobbyTheme.THEMES = {
 	Futuristic = FUTURISTIC,
 	Lava = LAVA,
+	Space = SPACE,
+	UnderTheSea = UNDER_THE_SEA,
+	IceAge = ICE_AGE,
 }
 
 LobbyTheme.DEFAULT_THEME_ID = "Futuristic"

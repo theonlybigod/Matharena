@@ -77,17 +77,33 @@ local Sign = {}
 -- SetTheme is never called.
 local GLOW_COLOR = SignConfig.GLOW_COLOR
 
+-- Optional themed backing panel (see LobbyTheme.Theme's
+-- signBackingColor/signBackingTransparency doc comment) - nil for every
+-- theme that doesn't set one (Futuristic/Lava/Space), which preserves
+-- the exact borderless-glowing-text look those maps have always had.
+local BACKING_COLOR: Color3? = nil
+local BACKING_TRANSPARENCY: number? = nil
+
 --[[
-	Latches `theme`'s sign glow color for every subsequent Sign.Build call.
+	Latches `theme`'s sign glow color (and optional backing panel) for
+	every subsequent Sign.Build call.
 ]]
 function Sign.SetTheme(theme: LobbyTheme.Theme)
 	GLOW_COLOR = theme.signGlowColor
+	BACKING_COLOR = theme.signBackingColor
+	BACKING_TRANSPARENCY = theme.signBackingTransparency
 end
 
 --[[
 	Builds the BillboardGui + TitleLabel on `anchor`. No background panel/
-	frame behind the text - the glow comes from the text stroke, plus the
-	shared PointLight/ParticleEmitter on the anchor part.
+	frame behind the text on the default themes - the glow comes from the
+	text stroke, plus the shared PointLight/ParticleEmitter on the anchor
+	part. Themes that set signBackingColor (Under the Sea's "panel of
+	water", Ice Age's "block of ice") get one extra soft-edged translucent
+	sheet behind the lettering instead - still the exact same BillboardGui/
+	TitleLabel the client controller and every other theme already expect,
+	just with one additional purely-decorative Frame + UICorner + UIGradient
+	sandwiched between the billboard's root and the text.
 ]]
 local function createBillboard(anchor: BasePart)
 	local billboard = Instance.new("BillboardGui")
@@ -99,10 +115,43 @@ local function createBillboard(anchor: BasePart)
 	billboard.LightInfluence = 0 -- text reads as its own glowing typography, not affected by ambient/dusk lighting
 	billboard.Parent = anchor
 
+	if BACKING_COLOR then
+		-- Sized/inset relative to the billboard, not the full frame - reads
+		-- as a distinct panel the text floats in front of, not a background
+		-- that touches the billboard's own edges.
+		local backing = Instance.new("Frame")
+		backing.Name = "BackingPanel"
+		backing.AnchorPoint = Vector2.new(0.5, 0.5)
+		backing.Position = UDim2.fromScale(0.5, 0.5)
+		backing.Size = UDim2.fromScale(1.08, 1.35)
+		backing.BackgroundColor3 = BACKING_COLOR
+		backing.BackgroundTransparency = BACKING_TRANSPARENCY or 0.35
+		backing.BorderSizePixel = 0
+		backing.ZIndex = 1
+		backing.Parent = billboard
+
+		local backingCorner = Instance.new("UICorner")
+		backingCorner.CornerRadius = UDim.new(0.15, 0)
+		backingCorner.Parent = backing
+
+		-- A soft top-to-bottom sheen so the panel reads as a translucent
+		-- sheet/slab (light water/ice) rather than a flat solid color card.
+		local backingGradient = Instance.new("UIGradient")
+		backingGradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+			ColorSequenceKeypoint.new(0.5, BACKING_COLOR),
+			ColorSequenceKeypoint.new(1, Color3.new(0, 0, 0)),
+		})
+		backingGradient.Rotation = 90
+		backingGradient.Transparency = NumberSequence.new(0.3)
+		backingGradient.Parent = backing
+	end
+
 	local label = Instance.new("TextLabel")
 	label.Name = "TitleLabel"
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
+	label.ZIndex = 2
 	label.Font = SignConfig.TEXT_FONT
 	label.TextScaled = true
 	label.Text = SignConfig.TEXT

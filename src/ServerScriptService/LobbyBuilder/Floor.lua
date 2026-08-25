@@ -62,6 +62,21 @@ local CURB_TRIM_COLOR = defaultTheme.curbTrimColor
 local GROUND_DESIGN_CENTER_COLOR = defaultTheme.groundDesignCenterColor
 local GROUND_DESIGN_MID_COLOR = defaultTheme.groundDesignMidColor
 local GROUND_DESIGN_SPOKE_COLOR = defaultTheme.groundDesignSpokeColor
+local CURRENT_THEME_ID = defaultTheme.id
+
+-- Themes with their own dedicated environment module (IceAgeEnvironment/
+-- LavaEnvironment/UnderTheSeaEnvironment) build their OWN ground terrain
+-- pattern (see each module's buildGroundPattern) instead of the generic
+-- ring/spoke/medallion pattern below - "avoid copying the futuristic
+-- map's ground pattern" was an explicit direction, and reusing the same
+-- rings-and-spokes medallion (just recolored) under every theme was
+-- exactly that. Futuristic/Space keep the original generic pattern
+-- unchanged.
+local THEMES_WITH_OWN_GROUND_PATTERN = {
+	IceAge = true,
+	Lava = true,
+	UnderTheSea = true,
+}
 
 --[[
 	Latches `theme`'s ground/boundary/ground-design colors and materials
@@ -84,6 +99,7 @@ function Floor.SetTheme(theme: LobbyTheme.Theme)
 	GROUND_DESIGN_CENTER_COLOR = theme.groundDesignCenterColor
 	GROUND_DESIGN_MID_COLOR = theme.groundDesignMidColor
 	GROUND_DESIGN_SPOKE_COLOR = theme.groundDesignSpokeColor
+	CURRENT_THEME_ID = theme.id
 end
 
 local FLOOR_THICKNESS = LobbyConfig.FLOOR_THICKNESS
@@ -225,7 +241,17 @@ local function buildGroundDesign(parent: Instance)
 	groundDesign.Parent = parent
 
 	-- Center medallion: a small accent ring right around the queue portal.
+	-- Kept for every theme (it's a small focal accent around a shared
+	-- gameplay landmark, not "the futuristic map's ground pattern").
 	buildRing(14, 16, GROUND_DESIGN_CENTER_COLOR, groundDesign, "CenterMedallion")
+
+	-- The generic mid-ring + 10 radial spokes are Futuristic/Space-only -
+	-- see THEMES_WITH_OWN_GROUND_PATTERN's doc comment above for why the
+	-- three themed maps skip this and build their own ground pattern
+	-- instead (in their own environment module).
+	if THEMES_WITH_OWN_GROUND_PATTERN[CURRENT_THEME_ID] then
+		return
+	end
 
 	-- A subtler mid-radius ring, roughly halfway out.
 	buildRing(90, 32, GROUND_DESIGN_MID_COLOR, groundDesign, "MidRing")
