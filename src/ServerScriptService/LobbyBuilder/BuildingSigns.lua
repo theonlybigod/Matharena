@@ -35,6 +35,50 @@ local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local BuildingSigns = {}
 
+--[[
+	Tag + attribute contract shared by every clickable teleport target.
+
+	WHY CLICKDETECTORS: the overhead sign's clickable element used to be a
+	TextButton inside a BillboardGui, and that turned out to be an
+	unreliable foundation. A BillboardGui parented to a Workspace part is
+	not in the GUI input pipeline at all, and even once hosted in PlayerGui
+	its hit-testing proved inconsistent in practice. A ClickDetector on a
+	real Part has none of those problems: it is raycast against actual
+	geometry, and critically its MouseClick fires ON THE SERVER with the
+	clicking Player passed in - so the teleport is server-authoritative by
+	construction, with no client GUI, no RemoteEvent, and no client trust
+	involved in the click itself.
+]]
+BuildingSigns.TELEPORT_TARGET_TAG = "BuildingTeleportTarget"
+
+--[[
+	Marks `part` as a clickable "go to this building" target: records which
+	building and which map it belongs to, gives it a ClickDetector, and tags
+	it so BuildingTeleportSystem can wire it up on the server.
+
+	Used for BOTH clickable surfaces, so a player's instinct lands
+	somewhere real either way:
+	  - the overhead floating sign above the building, and
+	  - the building's own facade name plate ("the writing right in front
+	    of the building", which players reported clicking).
+]]
+function BuildingSigns.MakeTeleportTarget(part: BasePart, buildingName: string, mapId: string, maxDistance: number?)
+	part:SetAttribute("BuildingName", buildingName)
+	part:SetAttribute("MapId", mapId)
+
+	-- A ClickDetector only fires for parts the mouse can actually raycast
+	-- against, so the part must stay queryable even when it is invisible.
+	part.CanQuery = true
+
+	local detector = Instance.new("ClickDetector")
+	detector.Name = "TeleportClickDetector"
+	detector.MaxActivationDistance = maxDistance or 1000
+	detector.CursorIcon = ""
+	detector.Parent = part
+
+	CollectionService:AddTag(part, BuildingSigns.TELEPORT_TARGET_TAG)
+end
+
 local defaultTheme = LobbyTheme.Get()
 local ACCENT_COLOR = defaultTheme.buildingSignAccentColor
 
@@ -44,23 +88,47 @@ local ACCENT_COLOR = defaultTheme.buildingSignAccentColor
 function BuildingSigns.SetTheme(theme: LobbyTheme.Theme)
 	ACCENT_COLOR = theme.buildingSignAccentColor
 end
--- High enough to clear every building's tallest roof topper (the
--- Statistics data spire is the tallest, at +16 above def.height) with
--- clean room to spare - bumped from 22 to give the much-larger
--- billboard below more air above the roofline.
-local SIGN_HEIGHT_ABOVE_BUILDING = 28
--- "Much much larger... extremely easy to read from a reasonable
--- distance" - doubled again from the previous (36, 10) pass. Verified
--- against LobbyConfig.BUILDINGS' actual positions (scaled by
--- MapConfig.SCALE_FACTOR): the CLOSEST pair of adjacent building centers
--- (DailyRewards <-> TutorialBuilding) is ~88.4 studs apart. At this size,
--- each sign's half-width is 36 studs, so two adjacent signs need at most
--- 72 combined studs of width to clear each other - leaving a genuine
--- ~16-stud gap even for the tightest pair, so a much bigger sign still
--- never visually overlaps its neighbor. Going any larger (e.g. a further
--- doubling to 144 wide) would close that gap entirely and risk exactly
--- the "text clipping or overlap" this pass is required to avoid.
-local BILLBOARD_SIZE = Vector2.new(72, 20) -- studs, matching Sign.lua's own UDim2.fromOffset convention
+--[[
+	Clearance ABOVE THE REAL TOP OF THE BUILT EXTERIOR, not above
+	def.height.
+
+	This used to be a flat +28 over def.position.Y + def.height, which was
+	written when every building was a box whose tallest topper was the
+	Statistics spire at +16. It is badly wrong for the custom exteriors:
+	the Lava volcano's cap alone rises ~1.6x the building's half-diagonal
+	above the roofline (roughly +32 on a typical building), so the sign
+	anchor sat INSIDE the volcano. A BillboardGui buried in geometry is
+	both invisible and unclickable - which is exactly why the teleport
+	button could not be seen or used on that map.
+
+	BuildingInteriors.GetExteriorTopY now reports each theme's true peak,
+	and this is the clean air kept above it.
+]]
+local SIGN_CLEARANCE_ABOVE_EXTERIOR = 20
+--[[
+	SIZE UNITS: a BillboardGui's Size Offset is in PIXELS, not studs, and
+	does NOT shrink with distance. Verified live: AbsoluteSize stayed
+	exactly (80, 26) at both 221 studs and 70 studs from the sign.
+
+	The previous value and its comment were written on the assumption that
+	Offset was studs - it reasoned about "half-width is 36 studs" and
+	whether adjacent signs 88 studs apart would overlap. None of that math
+	applied, and the real consequence was that every teleport sign rendered
+	as a fixed 80x26 PIXEL badge - about 5% of a 1636px-wide viewport, and
+	a correspondingly tiny click target.
+
+	At pixel scale the sign is screen-constant, so this only has to be sized
+	once for readability rather than balanced against building spacing.
+]]
+local BILLBOARD_SIZE = Vector2.new(200, 66) -- PIXELS (see above)
+
+--[[
+	Readable from anywhere a player can stand. MapConfig.USABLE_RADIUS is
+	the walkable half-width of a map, so twice it comfortably covers the
+	longest sightline across one map while still falling off well before a
+	neighbouring map 1050 studs away.
+]]
+local SIGN_MAX_DISTANCE = 900
 
 --[[
 	Builds one building's overhead sign + connector beam, parented into
@@ -71,18 +139,25 @@ local BILLBOARD_SIZE = Vector2.new(72, 20) -- studs, matching Sign.lua's own UDi
 	both have a building named "Shop", at two completely different world
 	positions. Returns the invisible anchor part.
 ]]
-function BuildingSigns.BuildOne(def, parent: Instance, mapId: string): BasePart
-	local topY = def.position.Y + def.height
-	local anchorY = topY + SIGN_HEIGHT_ABOVE_BUILDING
+function BuildingSigns.BuildOne(def, parent: Instance, mapId: string, exteriorTopY: number?): BasePart
+	-- `exteriorTopY` is the real top of the built exterior for this map's
+	-- theme (Buildings.lua supplies it from
+	-- BuildingInteriors.GetExteriorTopY). Falling back to the old
+	-- roofline-only estimate keeps this callable standalone.
+	local topY = exteriorTopY or (def.position.Y + def.height + 16)
+	local anchorY = topY + SIGN_CLEARANCE_ABOVE_EXTERIOR
 
-	-- Connector beam: a short glowing line from the sign down to the
-	-- building's roofline - "points to where it is", distinct from the
-	-- main MATHARENA sign (which has no such connector).
-	local beamHeight = SIGN_HEIGHT_ABOVE_BUILDING - 3
+	-- Connector beam: a glowing line from the sign down to the top of the
+	-- structure - "points to where it is", distinct from the main MATHARENA
+	-- sign (which has no such connector). Spans from the real exterior peak
+	-- up to the sign, so on a volcano it starts at the crater rim rather
+	-- than somewhere inside the mountain.
+	local beamBottom = def.position.Y + def.height
+	local beamHeight = math.max(4, anchorY - 4 - beamBottom)
 	PartUtils.CreatePart({
 		name = "SignConnector",
-		size = Vector3.new(0.3, beamHeight, 0.3),
-		position = Vector3.new(def.position.X, topY + beamHeight / 2, def.position.Z),
+		size = Vector3.new(0.5, beamHeight, 0.5),
+		position = Vector3.new(def.position.X, beamBottom + beamHeight / 2, def.position.Z),
 		material = Enum.Material.Neon,
 		color = ACCENT_COLOR,
 		transparency = 0.3,
@@ -90,53 +165,84 @@ function BuildingSigns.BuildOne(def, parent: Instance, mapId: string): BasePart
 		parent = parent,
 	})
 
+	--[[
+		The anchor is invisible, but it is now also the overhead sign's real
+		CLICK TARGET, so it is sized to roughly match the sign's visual
+		footprint instead of the old 2x2x2 nub. A 2-stud cube was far smaller
+		than the sign drawn over it, so even a click that visually landed dead
+		centre on the words had no geometry behind it to hit.
+	]]
 	local anchor = PartUtils.CreatePart({
 		name = def.name .. "SignAnchor",
-		size = Vector3.new(2, 2, 2),
+		size = Vector3.new(26, 9, 2),
 		position = Vector3.new(def.position.X, anchorY, def.position.Z),
 		transparency = 1,
 		canCollide = false,
 		parent = parent,
 	})
 
+	BuildingSigns.MakeTeleportTarget(anchor, def.name, mapId, SIGN_MAX_DISTANCE + 100)
+
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "BuildingSignBillboard"
 	billboard.Adornee = anchor
 	billboard.Size = UDim2.fromOffset(BILLBOARD_SIZE.X, BILLBOARD_SIZE.Y)
-	billboard.AlwaysOnTop = false
-	billboard.MaxDistance = 450 -- scaled up to match the much larger sign - readable from further away, but not from clear across the whole map
+	--[[
+		AlwaysOnTop guarantees the two things this sign exists for: it stays
+		VISIBLE over the terrain, trees and volcano peaks that now crowd the
+		skyline, and it stays CLICKABLE - a BillboardGui occluded by geometry
+		does not receive input, which is how the teleport button could look
+		present but do nothing. The anchor is already placed in clear air
+		above the structure, so this is belt-and-braces rather than the sign
+		punching through a building it sits inside.
+	]]
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = SIGN_MAX_DISTANCE
 	billboard.LightInfluence = 0
 	billboard.Parent = anchor
 
-	local button = Instance.new("TextButton")
-	button.Name = "SignButton"
-	button.Size = UDim2.fromScale(1, 1)
-	button.BackgroundTransparency = 1
-	button.AutoButtonColor = false
-	button.Font = Enum.Font.GothamBlack
-	button.TextScaled = true
-	button.Text = def.displayName
-	button.TextColor3 = Color3.fromRGB(255, 255, 255)
-	button.TextStrokeTransparency = 0.15
-	button.TextStrokeColor3 = ACCENT_COLOR
-	button.Parent = billboard
+	--[[
+		The sign is now PURELY VISUAL - a Frame, not a TextButton.
 
-	-- Small "click to visit" hint beneath the name, so a player
-	-- understands the sign is interactive rather than pure decoration.
+		Clicking is handled entirely by the ClickDetector on the anchor Part
+		(see MakeTeleportTarget). Keeping a transparent GuiButton here would
+		actively BREAK that: a GUI element under the cursor absorbs the click
+		and stops the mouse from reaching world geometry, so the button and
+		the ClickDetector would fight each other and neither would reliably
+		win. Exactly one thing owns the click now.
+	]]
+	local container = Instance.new("Frame")
+	container.Name = "SignContent"
+	container.Size = UDim2.fromScale(1, 1)
+	container.BackgroundTransparency = 1
+	container.Parent = billboard
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "SignName"
+	nameLabel.Size = UDim2.new(1, 0, 0.72, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Font = Enum.Font.GothamBlack
+	nameLabel.TextScaled = true
+	nameLabel.Text = def.displayName
+	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	nameLabel.TextStrokeTransparency = 0.15
+	nameLabel.TextStrokeColor3 = ACCENT_COLOR
+	nameLabel.Parent = container
+
+	-- "click to visit" hint beneath the name, so a player understands the
+	-- sign is interactive rather than pure decoration.
 	local hint = Instance.new("TextLabel")
 	hint.Name = "ClickHint"
-	hint.Size = UDim2.new(1, 0, 0, 14)
-	hint.Position = UDim2.new(0, 0, 1, -2)
+	hint.Size = UDim2.new(1, 0, 0.24, 0)
+	hint.Position = UDim2.new(0, 0, 0.74, 0)
 	hint.BackgroundTransparency = 1
-	hint.Font = Enum.Font.Gotham
+	hint.Font = Enum.Font.GothamBold
 	hint.TextScaled = true
 	hint.TextColor3 = ACCENT_COLOR
+	hint.TextStrokeTransparency = 0.4
+	hint.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 	hint.Text = "click to visit"
-	hint.Parent = button
-
-	CollectionService:AddTag(button, "BuildingSignButton")
-	button:SetAttribute("BuildingName", def.name)
-	button:SetAttribute("MapId", mapId)
+	hint.Parent = container
 
 	local glow = Instance.new("PointLight")
 	glow.Color = ACCENT_COLOR

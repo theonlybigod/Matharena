@@ -116,12 +116,23 @@ local function buildTrunk(position: Vector3, rng: Random, model: Model): Vector3
 		parent = model,
 	})
 
-	local upperOrigin = position + Vector3.new(0, lowerHeight, 0) + leanOffset * 0.6
-	local upperCFrame = CFrame.new(upperOrigin + Vector3.new(0, upperHeight / 2, 0))
+	--[[
+		The upper trunk deliberately OVERLAPS the lower segment rather than
+		starting where it ends. Because both segments are leaned by rotating
+		about their own centres, the lower segment's true top face does not
+		land exactly at y = lowerHeight, so butting them end-to-end left a
+		visible notch at the joint on every leaned tree. Extending the upper
+		segment down into the lower one by a share of its own height makes
+		the join solid at any lean angle.
+	]]
+	local trunkJointOverlap = math.max(1.2, upperHeight * 0.22)
+	local upperSegmentHeight = upperHeight + trunkJointOverlap
+	local upperOrigin = position + Vector3.new(0, lowerHeight - trunkJointOverlap, 0) + leanOffset * 0.6
+	local upperCFrame = CFrame.new(upperOrigin + Vector3.new(0, upperSegmentHeight / 2, 0))
 		* CFrame.fromAxisAngle(leanAxis, math.rad(leanDegrees))
 	PartUtils.CreatePart({
 		name = "TrunkUpper",
-		size = Vector3.new(upperWidth, upperHeight, upperWidth),
+		size = Vector3.new(upperWidth, upperSegmentHeight, upperWidth),
 		cframe = upperCFrame,
 		material = TRUNK_MATERIAL,
 		color = woodColor,
@@ -343,51 +354,179 @@ local CANOPY_BUILDERS = {
 ]]
 
 --[[
-	"Snowy Pine" (Ice Age): a clean tapering stack of pine-like tiers
-	(no twist/fins, unlike Spire) with an opaque white Ice "snow cap" rim
-	sitting on top of every tier - the glowing icy foliage color reads as
-	frost-covered needles, while the solid white caps are what actually
-	sells "snow-covered branches".
+	"Snowy Pine" (Ice Age).
+
+	REBUILT for connectivity. The old version was a stack of free-floating
+	boxes: each tier was a plain cube centred on the canopy axis with a
+	thin disc balanced on top of it, and NOTHING structural ran through
+	them. There was no trunk inside the canopy at all (buildTrunk stops at
+	canopyBase), so the tiers hovered in a column with visible daylight
+	between them and no visible branches anywhere - which is exactly the
+	"disconnected pieces, no visible branches or trunk" problem.
+
+	The rebuild gives the tree a real armature:
+
+	  1. A CENTRAL LEADER - a genuine continuation of the trunk running the
+	     full height of the canopy, tapering as it rises. Everything else
+	     attaches to it, so no canopy element is ever unsupported.
+
+	  2. REAL BRANCHES - each whorl is a ring of angled branch limbs that
+	     START on the leader's surface (their origin is the leader axis, so
+	     the angledBlock helper grows them outward from inside the wood)
+	     and slope downward as they extend, the way conifer boughs do.
+	     Every branch is visibly a separate limb, which is what was asked
+	     for, but each one is rooted in solid geometry.
+
+	  3. NEEDLE MASS ON the branches - foliage blocks are placed along each
+	     branch's own length rather than as one floating cube, so the
+	     needles read as carried by the branch.
+
+	  4. SNOW ON TOP OF the branches - snow slabs sit directly on each
+	     branch's upper surface, sized to overlap along the limb, so the
+	     accumulation is attached to the bough it is resting on.
+
+	Whorls overlap vertically (spacing is less than the branch droop plus
+	needle depth), so the silhouette reads as one continuous conical tree
+	rather than separate floating layers.
 ]]
 local function buildSnowyPineCanopy(canopyBase: Vector3, rng: Random, model: Model, foliageColor: Color3)
 	local canopyHeight = rng:NextNumber(TreeConfig.CANOPY_HEIGHT_MIN, TreeConfig.CANOPY_HEIGHT_MAX)
 	local canopyWidth = rng:NextNumber(TreeConfig.CANOPY_WIDTH_MIN, TreeConfig.CANOPY_WIDTH_MAX)
 	local snowColor = Color3.fromRGB(240, 246, 251)
+	local barkColor = Color3.fromRGB(78, 62, 52)
 
-	local tierCount = 5
-	local tierHeight = (canopyHeight / tierCount) * 0.9
-	local nextTierBottom = canopyBase.Y
-	for i = 1, tierCount do
-		local tierWidth = canopyWidth * (1 - (i - 1) * 0.16)
-		local tierY = nextTierBottom + tierHeight / 2
-
+	-- 1. Central leader: the trunk continuing up through the whole canopy.
+	-- Built in overlapping segments so it tapers without ever stepping
+	-- apart. It starts BELOW canopyBase so it intersects the trunk top.
+	--[[
+		The leader is deliberately THICK and dark enough to read as the
+		trunk continuing up through the canopy from the outside. A thin
+		leader disappears behind the needle mass, which is what made these
+		look like floating layers with no tree inside them. It also starts
+		further below canopyBase so it visibly merges with the trunk proper.
+	]]
+	local leaderSegments = 5
+	local leaderBottom = canopyBase.Y - 3
+	local leaderSpan = canopyHeight + 3
+	for i = 0, leaderSegments - 1 do
+		local t = i / leaderSegments
+		local segBottom = leaderBottom + leaderSpan * t
+		local segHeight = (leaderSpan / leaderSegments) * 1.6 -- overlaps the next segment
+		local segWidth = math.max(0.9, canopyWidth * 0.26 * (1 - t * 0.5))
 		PartUtils.CreatePart({
-			name = "PineTier" .. i,
-			size = Vector3.new(tierWidth, tierHeight, tierWidth),
-			position = Vector3.new(canopyBase.X, tierY, canopyBase.Z),
-			material = FOLIAGE_MATERIAL,
-			color = foliageColor,
+			name = "PineLeader" .. (i + 1),
+			size = Vector3.new(segWidth, segHeight, segWidth),
+			position = Vector3.new(canopyBase.X, segBottom + segHeight / 2, canopyBase.Z),
+			material = TRUNK_MATERIAL,
+			color = barkColor,
 			canCollide = false,
 			parent = model,
 		})
-		PartUtils.CreateDisc({
-			name = "SnowCap" .. i,
-			diameter = tierWidth * 1.08,
-			thickness = 0.4,
-			position = Vector3.new(canopyBase.X, nextTierBottom + tierHeight, canopyBase.Z),
-			material = Enum.Material.Ice,
-			color = snowColor,
-			canCollide = false,
-			parent = model,
-		})
-		nextTierBottom += tierHeight
 	end
 
+	-- 2-4. Whorls of real branches carrying needles and snow.
+	-- Whorls are spaced closer than a single bough's own vertical reach, so
+	-- consecutive layers interlock into one continuous conical mass rather
+	-- than leaving bands of bare leader showing between them.
+	local whorlCount = 7
+	local whorlSpacing = canopyHeight / (whorlCount + 0.6)
+	for whorl = 1, whorlCount do
+		local t = (whorl - 1) / whorlCount
+		local whorlY = canopyBase.Y + whorlSpacing * (whorl - 1) + whorlSpacing * 0.4
+		-- Lower whorls are longest - a conifer's classic cone silhouette.
+		local branchLength = (canopyWidth / 2) * (1 - t * 0.62)
+		-- Thicker limbs so each bough is individually legible against the
+		-- needle mass instead of vanishing inside it - the "more obvious
+		-- branches" this pass calls for.
+		local branchThickness = math.max(0.7, 1.35 * (1 - t * 0.4))
+		local branchCount = math.max(4, 7 - whorl)
+		local whorlPhase = rng:NextNumber(0, math.pi * 2)
+
+		for b = 1, branchCount do
+			local yaw = math.deg(whorlPhase + (2 * math.pi / branchCount) * b) + rng:NextNumber(-8, 8)
+			-- Boughs angle downward; upper whorls droop less.
+			local pitch = -rng:NextNumber(14, 26) * (1 - t * 0.4)
+
+			-- The limb itself, originating ON the leader's axis so its inner
+			-- end is always embedded in solid wood. Built slightly longer
+			-- than the needle mass it carries, so the bare woody tip pokes
+			-- out past the foliage and the branch is unmistakably visible.
+			angledBlock(
+				Vector3.new(canopyBase.X, whorlY, canopyBase.Z),
+				yaw,
+				pitch,
+				branchLength * 1.12,
+				branchThickness,
+				TRUNK_MATERIAL,
+				barkColor,
+				model,
+				("PineBranchW%dB%d"):format(whorl, b)
+			)
+
+			-- Needle mass carried along the limb: three overlapping blocks
+			-- stepped out from the leader to the branch tip, each sized
+			-- larger than its step so consecutive clumps intersect.
+			local needleSteps = 3
+			for s = 1, needleSteps do
+				local along = branchLength * (s / (needleSteps + 0.35))
+				-- Deliberately larger than the step between clumps, so
+				-- consecutive clumps along one bough always intersect, and
+				-- tall enough to close the gap up to the whorl above.
+				local clumpSize = (branchLength / needleSteps) * 1.75 * (1 - (s - 1) * 0.16)
+				local yawRad = math.rad(yaw)
+				local pitchRad = math.rad(pitch)
+				-- Must match angledBlock's own axis convention exactly
+				-- (yaw about Y, then pitch about the yawed Z, long axis
+				-- along local X) or the needles drift off the limb they are
+				-- supposed to be sitting on.
+				local pos = Vector3.new(
+					canopyBase.X + math.cos(pitchRad) * math.cos(yawRad) * along,
+					whorlY + math.sin(pitchRad) * along,
+					canopyBase.Z - math.cos(pitchRad) * math.sin(yawRad) * along
+				)
+				PartUtils.CreatePart({
+					name = ("PineNeedlesW%dB%dS%d"):format(whorl, b, s),
+					size = Vector3.new(clumpSize, clumpSize * 0.62, clumpSize),
+					cframe = CFrame.new(pos) * CFrame.Angles(0, yawRad, math.rad(pitch * 0.6)),
+					material = FOLIAGE_MATERIAL,
+					color = foliageColor,
+					canCollide = false,
+					parent = model,
+				})
+				-- Snow resting on the upper face of this needle clump. Kept
+				-- narrower than the clump it sits on so the needles and the
+				-- bough underneath stay visible from the side rather than
+				-- being buried under an unbroken white slab.
+				PartUtils.CreatePart({
+					name = ("PineSnowW%dB%dS%d"):format(whorl, b, s),
+					size = Vector3.new(clumpSize * 0.74, 0.45, clumpSize * 0.74),
+					cframe = CFrame.new(pos + Vector3.new(0, clumpSize * 0.3, 0))
+						* CFrame.Angles(0, yawRad, math.rad(pitch * 0.6)),
+					material = Enum.Material.Snow,
+					color = snowColor,
+					canCollide = false,
+					parent = model,
+				})
+			end
+		end
+	end
+
+	-- Leading shoot and its snow cap, overlapping the top leader segment.
+	local peakBase = canopyBase.Y + canopyHeight * 0.92
+	PartUtils.CreatePart({
+		name = "PineCrown",
+		size = Vector3.new(canopyWidth * 0.24, canopyHeight * 0.2, canopyWidth * 0.24),
+		position = Vector3.new(canopyBase.X, peakBase, canopyBase.Z),
+		material = FOLIAGE_MATERIAL,
+		color = foliageColor,
+		canCollide = false,
+		parent = model,
+	})
 	PartUtils.CreatePart({
 		name = "PinePeak",
-		size = Vector3.new(1, 1.6, 1),
-		position = Vector3.new(canopyBase.X, nextTierBottom + 0.8, canopyBase.Z),
-		material = Enum.Material.Ice,
+		size = Vector3.new(canopyWidth * 0.16, 1.8, canopyWidth * 0.16),
+		position = Vector3.new(canopyBase.X, peakBase + canopyHeight * 0.13, canopyBase.Z),
+		material = Enum.Material.Snow,
 		color = snowColor,
 		canCollide = false,
 		parent = model,
@@ -533,11 +672,24 @@ local function buildLargeCoralCanopy(canopyBase: Vector3, rng: Random, model: Mo
 		parent = model,
 	})
 
+	--[[
+		Branch origins are constrained to lie INSIDE the core mass.
+
+		Roblox renders a Ball at the SMALLEST of its three dimensions, so
+		the core's true radius is set by min(coreWidth, canopyHeight * 0.7),
+		not by its nominal height. Branches used to originate anywhere from
+		0.2 to 0.75 of canopyHeight up the axis, which for a squat core put
+		the highest ones outside the sphere entirely - they grew from empty
+		water with a visible gap back to the coral. Rooting them within the
+		core's real radius means every branch starts embedded in the mass.
+	]]
+	local coreCenterY = canopyHeight * 0.35
+	local coreRadius = math.min(coreWidth, canopyHeight * 0.7) / 2
 	local branchCount = 8
 	for i = 1, branchCount do
 		local yaw = rng:NextNumber(0, 360)
 		local pitch = rng:NextNumber(25, 55)
-		local yOffset = canopyHeight * rng:NextNumber(0.2, 0.75)
+		local yOffset = coreCenterY + rng:NextNumber(-coreRadius * 0.55, coreRadius * 0.55)
 		local length = canopyWidth * rng:NextNumber(0.35, 0.6)
 		angledBlock(
 			canopyBase + Vector3.new(0, yOffset, 0),

@@ -15,6 +15,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 local DataSystem = require(ServerScriptService.DataSystem)
 
@@ -22,6 +23,25 @@ local TutorialSystem = {}
 
 local getTutorialStateFunction = RemoteFunctions.Get("GetTutorialState")
 local markTutorialCompletedFunction = RemoteFunctions.Get("MarkTutorialCompleted")
+-- server -> client, fired once at the moment a player finishes the
+-- first-time tutorial, so the quest UI can unlock without polling.
+local tutorialCompletedEvent = RemoteEvents.Get("TutorialCompleted")
+
+--[[
+	Whether `player` has ever finished the first-time tutorial.
+
+	This is the single gate the quest system uses to decide whether quests
+	exist for a player yet (see QuestsSystem) - "quests should only pop up
+	after they complete the tutorial for the first time". Returns false for
+	a profile that hasn't loaded, which is the SAFE direction here: a
+	player briefly sees no quests rather than the quest system running for
+	someone who never did the tutorial.
+]]
+function TutorialSystem.IsCompleted(player: Player): boolean
+	local profile = DataSystem.GetProfile(player)
+	return profile ~= nil and profile.tutorialCompleted == true
+end
+
 
 function TutorialSystem.Init()
 	getTutorialStateFunction.OnServerInvoke = function(player: Player)
@@ -53,16 +73,35 @@ function TutorialSystem.Init()
 		return { completed = profile.tutorialCompleted == true }
 	end
 
-	-- Trusted client -> server signal, same as TutorialUIController's own
-	-- doc comment on the static topic panel: purely cosmetic, nothing for
-	-- the server to validate (there's no way to "cheat" finishing a guided
-	-- walkthrough that has no gameplay consequence), so this just records
-	-- the flag the client reports.
+	--[[
+		Records first-time completion. Purely cosmetic to "cheat" (there is
+		no gameplay consequence to finishing a walkthrough), so the client is
+		trusted to report it - but this is now the QUEST UNLOCK gate too, so
+		it does two things carefully:
+
+		  1. It is IDEMPOTENT. Replaying from the Tutorial Building never
+		     reaches here at all (the client only calls this on a genuine
+		     first run - see TutorialUIController's `isReplay`), but even if
+		     it did, a second call cannot re-fire the unlock event or
+		     otherwise disturb an already-completed player.
+		  2. It fires TutorialCompleted exactly ONCE, on the transition, so
+		     the client's quest UI unlocks the moment the tutorial ends
+		     rather than on the next poll.
+	]]
 	markTutorialCompletedFunction.OnServerInvoke = function(player: Player)
 		local profile = DataSystem.GetProfile(player)
-		if profile then
-			profile.tutorialCompleted = true
+		if not profile then
+			warn(("[TutorialSystem] %s finished the tutorial but has no loaded profile - completion NOT persisted."):format(player.Name))
+			return { success = false }
 		end
+
+		if profile.tutorialCompleted == true then
+			return { success = true, alreadyCompleted = true }
+		end
+
+		profile.tutorialCompleted = true
+		tutorialCompletedEvent:FireClient(player)
+		print(("[TutorialSystem] %s completed the first-time tutorial - quests unlocked."):format(player.Name))
 		return { success = true }
 	end
 

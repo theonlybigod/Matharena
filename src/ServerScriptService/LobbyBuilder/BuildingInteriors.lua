@@ -62,9 +62,47 @@ local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local BuildingInteriors = {}
 
+-- Distance from a building's nominal footprint edge to the INNER face of
+-- its wall. Every interior fixture is laid out relative to this, so it
+-- must not change - see SOLID_WALL_THICKNESS below for the separate knob
+-- that controls how thick the wall actually is.
 local WALL_THICKNESS = 1
+
+--[[
+	LIGHT-LEAK FIX: how thick the structural shell surfaces really are.
+
+	Roblox's voxel lighting grid is 4 studs. Any occluder thinner than one
+	voxel cannot block a light at all, so the 1-stud walls and - much worse
+	- the 0.5-stud floor and ceiling used to let every interior PointLight
+	(Range 20, Shadows left at its `false` default) pour straight out
+	through the roof and walls. That is the light "peeking from" the
+	buildings.
+
+	The surfaces are now genuinely thicker than a voxel, and critically
+	they grow OUTWARD ONLY: every inner face stays exactly where it was, so
+	no interior furniture, terminal, doorway or collision surface moves by
+	a single stud. For the three custom-exterior themes the extra thickness
+	is completely hidden inside the dome/volcano/hull anyway.
+]]
+local SOLID_WALL_THICKNESS = 4.5
+local SOLID_SLAB_THICKNESS = 4.5
+
 local MIN_DOOR_WIDTH = 8
 local MAX_DOOR_WIDTH = 14
+
+--[[
+	Applied to every light built INSIDE a building. Shadows=true makes
+	Roblox actually occlude the light with geometry rather than lighting
+	everything in radius regardless of walls, and the reduced range keeps
+	the falloff inside the room even where voxel resolution is coarse.
+	Together with the thickened surfaces above this is what actually seals
+	the interiors.
+]]
+local function sealInteriorLight(light: Light, range: number): Light
+	light.Shadows = true
+	light.Range = range
+	return light
+end
 
 local defaultTheme = LobbyTheme.Get()
 local WALL_MATERIAL = defaultTheme.buildingWallMaterial
@@ -394,6 +432,250 @@ local function isInEntranceNotch(angle: number, ringRadius: number, doorWidth: n
 	return math.abs(normalized) < entranceNotchHalfAngle(ringRadius, doorWidth)
 end
 
+--[[
+	=====================================================================
+	CONTINUOUS SHELL BUILDER
+	=====================================================================
+
+	This is the single, shared fix for "the structures look like a
+	collection of separate primitives with gaps between them".
+
+	THE BUG IT REPLACES. Every custom exterior below (igloo dome, volcano
+	mound, submarine hull) used to place its surface pieces at an angular
+	spacing derived from the piece's own width - e.g.
+	`count = floor(circumference / pieceWidth)` - and then build each
+	piece at `pieceWidth * rng(0.85, 1.05)`. Two pieces spaced exactly
+	their own width apart only ever ABUT along a single edge in the very
+	best case, and the 0.85 lower bound guaranteed a literal 15% gap much
+	of the time. On top of that, each piece got radial jitter (up to
+	+/-13% of the ring radius) and vertical jitter of a couple of studs -
+	both LARGER than the pieces' own thickness - which pulled neighbours
+	apart into a loose scatter. Vertically it was worse still: rings were
+	stepped by (height / 7) while the pieces themselves were only ~3 studs
+	tall, leaving multi-stud horizontal bands of open air between rings.
+	That is why the buildings read as piles of blocks with daylight
+	through them rather than as one built object.
+
+	HOW THIS FIXES THE GEOMETRY (not the appearance - the geometry):
+
+	  1. OVERLAP IS DERIVED, NOT CONFIGURED. A ring's piece width is
+	     computed FROM that ring's own arc spacing and multiplied by
+	     SHELL_OVERLAP, so neighbours always intersect by ~45% of their
+	     width. There is no parameter combination a caller can pass that
+	     produces abutting-but-not-overlapping pieces.
+
+	  2. THE SHELL FOLLOWS THE PROFILE'S SLOPE. Each piece is tilted to
+	     lie along the local surface tangent (computed by sampling the
+	     profile either side of the ring) and is built as long as the
+	     SLANT distance to the next ring, times the same overlap factor.
+	     A shrinking radius therefore can no longer open a radial gap
+	     between one ring and the next - which is what made domes and
+	     cone caps come apart near the top.
+
+	  3. TWO STAGGERED LAYERS. The shell is built twice: an inner layer
+	     inset radially and rotated by half an arc spacing, so its pieces
+	     sit directly behind the outer layer's seams. This is real
+	     geometry, not a texture or lighting trick - it also gives the
+	     walls genuine thickness, so they read as a solid built mass
+	     rather than the old 1.4-stud paper shell.
+
+	Irregularity is still applied for a hand-built look, but every jitter
+	is CLAMPED to a fraction of the overlap margin, so no amount of
+	randomness can re-open a gap.
+]]
+local SHELL_OVERLAP = 1.9
+
+--[[
+	Builds one continuous shell of revolution around `basePos`.
+
+	opts.profile(y) -> radius is the shape's silhouette; it is sampled
+	either side of every ring to derive the local slope, so callers only
+	ever have to describe the shape, never the tiling.
+]]
+local function buildContinuousShell(opts)
+	local model = opts.model
+	local basePos = opts.basePos
+	local rng = opts.rng
+	local baseY = opts.baseY or 0
+	local topY = opts.topY
+	local profile = opts.profile
+	local thickness = opts.thickness or 3
+	local doorWidth = opts.doorWidth
+	local notchTopY = opts.notchTopY or -1
+	local layers = opts.layers or 2
+
+	local span = topY - baseY
+	if span <= 0 then
+		return
+	end
+
+	-- Ring spacing is capped so that even on a tall building the shell is
+	-- stepped finely enough for consecutive rings to overlap generously.
+	local ringCount = math.max(3, math.ceil(span / math.max(opts.stepY or 2.8, 0.8)))
+	local step = span / ringCount
+
+	for i = 0, ringCount do
+		local y = baseY + step * i
+		local radius = profile(y)
+		if radius < 0.8 then
+			continue
+		end
+
+		-- Local surface tangent, from the profile either side of this ring.
+		-- dr < 0 means the surface is drawing inward as it rises (a dome or
+		-- cone flank); tiltX rotates each piece to lie flat along it.
+		local dr = profile(math.min(y + step * 0.5, topY)) - profile(math.max(y - step * 0.5, baseY))
+		local slant = math.sqrt(dr * dr + step * step)
+		local tiltX = math.atan2(dr, step)
+
+		local circumference = 2 * math.pi * radius
+		local count = math.max(8, math.ceil(circumference / math.max(opts.pieceTarget or 6, 1)))
+		local arcSpacing = circumference / count
+		local pieceWidth = arcSpacing * SHELL_OVERLAP
+		local pieceLength = slant * SHELL_OVERLAP
+
+		-- Jitter budget: half the overlap margin, so two neighbours still
+		-- intersect even when both jitter toward each other's far side.
+		local overlapMargin = (pieceWidth - arcSpacing) / 2
+		local radialJitter = math.min(opts.radialJitter or 0, overlapMargin * 0.5)
+		local tiltJitter = opts.tiltJitter or 0
+
+		for layer = 0, layers - 1 do
+			-- Inner layers are rotated half a spacing so their pieces sit
+			-- behind the outer layer's seams, and inset so they never poke
+			-- back out through the surface.
+			local angleOffset = (arcSpacing / math.max(radius, 0.001)) * 0.5 * layer
+			local layerInset = thickness * 0.55 * layer
+
+			for p = 1, count do
+				local angle = (2 * math.pi / count) * p + angleOffset
+				if doorWidth and y <= notchTopY and isInEntranceNotch(angle, radius, doorWidth) then
+					continue
+				end
+
+				local r = radius - layerInset
+				if radialJitter > 0 then
+					r += rng:NextNumber(-radialJitter, radialJitter)
+				end
+
+				local piecePos = basePos + Vector3.new(math.sin(angle) * r, y, math.cos(angle) * r)
+				local cf = CFrame.new(piecePos) * CFrame.Angles(0, angle, 0) * CFrame.Angles(tiltX, 0, 0)
+				if tiltJitter > 0 then
+					cf = cf * CFrame.Angles(rng:NextNumber(-tiltJitter, tiltJitter), 0, rng:NextNumber(-tiltJitter, tiltJitter))
+				end
+
+				PartUtils.CreatePart({
+					name = ("%sL%dT%dP%d"):format(opts.namePrefix, layer, i, p),
+					size = Vector3.new(pieceWidth, pieceLength, thickness),
+					cframe = cf,
+					material = if opts.materialPicker then opts.materialPicker(rng) else opts.material,
+					color = if opts.colorPicker then opts.colorPicker(rng) else opts.color,
+					canCollide = false,
+					parent = model,
+				})
+			end
+		end
+	end
+end
+
+--[[
+	A wide, very shallow apron fanning outward from the foot of a shell so
+	the structure grows OUT OF the ground instead of being a mound dropped
+	onto flat terrain. Same overlap guarantees as buildContinuousShell.
+	Kept clear of the entrance notch so it never steps up into the doorway.
+]]
+local function buildGroundSkirt(opts)
+	local model = opts.model
+	local basePos = opts.basePos
+	local rng = opts.rng
+	local innerRadius = opts.innerRadius
+	local outerRadius = opts.outerRadius
+	local startHeight = opts.startHeight or 2.5
+	local ringCount = math.max(2, opts.ringCount or 3)
+
+	for ring = 1, ringCount do
+		local t = ring / ringCount
+		local radius = innerRadius + (outerRadius - innerRadius) * t
+		local y = startHeight * (1 - t) * 0.6
+		local bandDepth = ((outerRadius - innerRadius) / ringCount) * SHELL_OVERLAP
+
+		local circumference = 2 * math.pi * radius
+		local count = math.max(10, math.ceil(circumference / math.max(opts.pieceTarget or 9, 1)))
+		local arcSpacing = circumference / count
+		local pieceWidth = arcSpacing * SHELL_OVERLAP
+
+		for p = 1, count do
+			local angle = (2 * math.pi / count) * p
+			if opts.doorWidth and isInEntranceNotch(angle, radius, opts.doorWidth) then
+				continue
+			end
+			local pos = basePos + Vector3.new(math.sin(angle) * radius, y, math.cos(angle) * radius)
+			PartUtils.CreatePart({
+				name = ("%sR%dP%d"):format(opts.namePrefix, ring, p),
+				size = Vector3.new(pieceWidth, opts.thickness or 2.2, bandDepth),
+				cframe = CFrame.new(pos)
+					* CFrame.Angles(0, angle, 0)
+					* CFrame.Angles(math.rad(rng:NextNumber(-4, 4)), 0, 0),
+				material = if opts.materialPicker then opts.materialPicker(rng) else opts.material,
+				color = if opts.colorPicker then opts.colorPicker(rng) else opts.color,
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
+end
+
+--[[
+	A genuine curved archway around the entrance mouth: voussoir blocks
+	stepped around a half-circle, each overlapping its neighbour, so the
+	doorway reads as cut THROUGH the shell rather than as a rectangular
+	hole with loose blocks beside it. Returns nothing; purely decorative
+	framing around the (already-built) tunnel.
+]]
+local function buildEntranceArch(opts)
+	local model = opts.model
+	local basePos = opts.basePos
+	local doorWidth = opts.doorWidth
+	local doorHeight = opts.doorHeight
+	local z = opts.z
+	local archRadius = doorWidth / 2 + 1.6
+	local springLine = doorHeight - archRadius + 1.2
+
+	local segCount = opts.segments or 13
+	for s = 0, segCount do
+		local t = s / segCount
+		local angle = math.pi * t -- 0 = right springing, pi = left springing
+		local x = math.cos(angle) * archRadius
+		local y = springLine + math.sin(angle) * archRadius
+		-- Segment length is the arc step times the shared overlap factor, so
+		-- consecutive voussoirs always intersect.
+		local segLength = (math.pi * archRadius / segCount) * SHELL_OVERLAP
+		PartUtils.CreatePart({
+			name = "EntranceArchBlock" .. s,
+			size = Vector3.new(opts.blockDepth or 2.2, segLength, opts.thickness or 2.6),
+			cframe = CFrame.new(basePos + Vector3.new(x, y, z)) * CFrame.Angles(0, 0, angle - math.pi / 2),
+			material = opts.material,
+			color = opts.color,
+			canCollide = false,
+			parent = model,
+		})
+	end
+
+	-- Solid jambs from the springing line down to the ground, so the arch
+	-- lands on real geometry instead of ending in mid-air.
+	for _, side in ipairs({ -1, 1 }) do
+		PartUtils.CreatePart({
+			name = "EntranceJamb",
+			size = Vector3.new(opts.blockDepth or 2.2, springLine + 1, opts.thickness or 2.6),
+			position = basePos + Vector3.new(side * archRadius, (springLine + 1) / 2, z),
+			material = opts.material,
+			color = opts.color,
+			canCollide = false,
+			parent = model,
+		})
+	end
+end
+
 local function themedEntranceTunnel(def, model: Model, tunnelLength: number, tunnelMaterial: Enum.Material, tunnelColor: Color3)
 	local basePos = def.position
 	local halfZ = def.size.Y / 2
@@ -431,11 +713,45 @@ local function themedEntranceTunnel(def, model: Model, tunnelLength: number, tun
 		This plate sits at the FRONT of the tunnel instead, exactly where a
 		player walking up actually looks.
 	]]
-	local plateWidth = doorWidth + 6
+	--[[
+		Mounted CLEAR OF THE ARCHWAY. The themed builders now frame this
+		tunnel with a real vaulted arch whose crown rises to roughly
+		doorHeight + 2.5 at the tunnel mouth. The plate used to sit at
+		doorHeight + 1.9 at that same depth, which put it bodily inside the
+		crown blocks - readable from nowhere. It now sits above the crown
+		and slightly proud of the outermost arch ring, on the flat facade
+		above the opening, which is where a player walking up actually
+		looks.
+	]]
+	--[[
+		Deep enough to reach BACK INTO the shell it is mounted on. A 0.4-stud
+		plate parked just outside the wrap's outer face is a floating sign;
+		giving it real depth means the plate physically intersects the
+		facade behind it, so it reads (and audits) as mounted rather than
+		hovering.
+	]]
+	--[[
+		Sized for legibility from normal walking distance. The plate used to
+		be 3.2 studs tall and only doorWidth+6 wide, so TextScaled shrank the
+		name into a thin band readable only from directly underneath. Height
+		is what actually drives glyph size for a single line of TextScaled
+		text, so it is now more than doubled, and the width is derived from
+		the building's own frontage - giving a long name like "Daily Rewards"
+		proportionally more room while never exceeding the facade, so it
+		cannot clip past the shell's edge.
+	]]
+	local plateWidth = math.clamp(def.size.X * 0.9, doorWidth + 10, doorWidth + 26)
+	-- Tall enough for the TWO-LINE layout FormatSignText now produces (see
+	-- that function for why two lines is what actually drives glyph size).
+	-- At 8.5 a two-line name was height-bound again, undoing the gain.
+	local plateHeight = 12
+	local plateY = doorHeight + 8.6
+	local plateDepth = 2.2
+	local plateZ = halfZ + tunnelLength - 0.4
 	local platePart = PartUtils.CreatePart({
 		name = "EntranceNamePlate",
-		size = Vector3.new(plateWidth, 2.8, 0.4),
-		position = basePos + Vector3.new(0, doorHeight + 1.9, halfZ + tunnelLength - 0.2),
+		size = Vector3.new(plateWidth, plateHeight, plateDepth),
+		position = basePos + Vector3.new(0, plateY, plateZ),
 		material = tunnelMaterial,
 		color = tunnelColor,
 		canCollide = false,
@@ -444,7 +760,7 @@ local function themedEntranceTunnel(def, model: Model, tunnelLength: number, tun
 	local nameGui = Instance.new("SurfaceGui")
 	nameGui.Face = Enum.NormalId.Back -- Back = +Z face, which faces the plaza/spawns (see addSign)
 	nameGui.LightInfluence = 0
-	nameGui.PixelsPerStud = 36
+	nameGui.PixelsPerStud = 48
 	nameGui.Parent = platePart
 
 	local nameLabel = Instance.new("TextLabel")
@@ -455,16 +771,18 @@ local function themedEntranceTunnel(def, model: Model, tunnelLength: number, tun
 	nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 	nameLabel.Font = Enum.Font.GothamBlack
 	nameLabel.TextScaled = true
-	nameLabel.Text = def.displayName or def.name or ""
+	nameLabel.Text = BuildingInteriors.FormatSignText(def.displayName or def.name or "")
 	nameLabel.Parent = nameGui
 
 	-- A pair of small accent lamps flanking the plate so it reads as lit
 	-- signage rather than a plain placard, matching whichever theme this is.
+	-- Seated ON the plate's own ends (not floating a stud clear of them), so
+	-- each lamp intersects the signage it lights.
 	for _, side in ipairs({ -1, 1 }) do
 		local lamp = PartUtils.CreatePart({
 			name = "EntranceLamp",
-			size = Vector3.new(0.5, 0.5, 0.5),
-			position = basePos + Vector3.new(side * (plateWidth / 2 + 0.6), doorHeight + 1.9, halfZ + tunnelLength - 0.2),
+			size = Vector3.new(1.4, 1.4, 1.4),
+			position = basePos + Vector3.new(side * (plateWidth / 2 - 0.2), plateY, plateZ),
 			material = Enum.Material.Neon,
 			color = ACCENT_COLOR,
 			shape = Enum.PartType.Ball,
@@ -506,6 +824,121 @@ end
 		   zone that needs to look "curved"; the collar below it is what
 		   guarantees full coverage.
 ]]
+--[[
+	Per-theme envelope proportions, in ONE place.
+
+	These used to be magic numbers passed inline at each of the three
+	builder call sites, which meant nothing outside this file could know
+	how tall or how wide a finished building actually is. That caused two
+	real bugs: the overhead teleport sign was anchored off `def.height` and
+	ended up buried INSIDE the Lava volcano (whose cap rises ~1.6x halfDiag
+	above the roofline), and the teleport landed a player at halfZ+6, which
+	is inside the shell rather than in front of it.
+
+	`skirt` is how far the ground apron fans out past the body radius - the
+	outermost geometry a player can be standing next to.
+]]
+local EXTERIOR_ENVELOPE = {
+	IceAge = { radius = 1.35, capHeight = 0.62, skirt = 1.5 },
+	Lava = { radius = 1.18, capHeight = 1.35, skirt = 1.75 },
+	UnderTheSea = { radius = 1.2, capHeight = 0.55, skirt = 1.45 },
+}
+
+local function halfDiagonalOf(def): number
+	return math.sqrt((def.size.X / 2) ^ 2 + (def.size.Y / 2) ^ 2)
+end
+
+--[[
+	Lays a building's display name out for a WIDE, SHORT sign face.
+
+	Why this exists: every facade name in the project is drawn with
+	TextScaled on a plate far wider than it is tall. TextScaled preserves
+	the text's aspect ratio, so for a SINGLE line the glyph height is
+	capped by the plate's WIDTH divided by the character count - the
+	plate's own HEIGHT is never the binding constraint for a long name.
+	Measured on the as-built plates: "Statistics Building" (19 chars) on a
+	32.4-wide plate renders glyphs only ~3.4 studs tall inside an 8.5-stud
+	face, using barely 40% of the height available to it. That is exactly
+	the "very thin" appearance this pass fixes, and no amount of extra
+	plate height alone can fix it.
+
+	Breaking the name across two lines roughly halves the per-line
+	character count, which roughly DOUBLES the glyph height for the same
+	plate width - the actual lever. Single-word names ("Shop") are left
+	alone: they already fill the face, and splitting them would only
+	shrink them.
+
+	Splits at the gap leaving the two lines most even in length, so
+	"Statistics Building" breaks 10/8 rather than lopsidedly.
+]]
+function BuildingInteriors.FormatSignText(displayName: string): string
+	local words = {}
+	for word in displayName:gmatch("%S+") do
+		table.insert(words, word)
+	end
+	if #words < 2 then
+		return displayName
+	end
+
+	local bestSplit, bestDelta = 1, math.huge
+	for split = 1, #words - 1 do
+		local left, right = 0, 0
+		for i = 1, split do
+			left += #words[i] + 1
+		end
+		for i = split + 1, #words do
+			right += #words[i] + 1
+		end
+		local delta = math.abs(left - right)
+		if delta < bestDelta then
+			bestDelta, bestSplit = delta, split
+		end
+	end
+
+	return table.concat(words, " ", 1, bestSplit)
+		.. "\n"
+		.. table.concat(words, " ", bestSplit + 1, #words)
+end
+
+--[[
+	The Y of the highest solid geometry this building will actually have,
+	for the given theme - what anything mounted ABOVE the building (the
+	overhead teleport sign) must clear. Pure: takes themeId explicitly
+	rather than reading the latched CURRENT_THEME_ID, so callers outside
+	the build pass (e.g. BuildingTeleportSystem) get correct answers.
+]]
+function BuildingInteriors.GetExteriorTopY(def, themeId: string): number
+	local env = EXTERIOR_ENVELOPE[themeId]
+	if not env then
+		-- Box themes: the tallest roof topper is the Statistics data spire
+		-- at +16 above the roofline (see addStatisticsIdentity).
+		return def.position.Y + def.height + 16
+	end
+	local bodyRadius = halfDiagonalOf(def) * env.radius
+	local top = def.position.Y + def.height + bodyRadius * env.capHeight
+	if themeId == "UnderTheSea" then
+		top += 10 -- conning tower + periscope stand above the deck
+	end
+	return top
+end
+
+--[[
+	How far out along +Z from the building's centre a player should stand
+	to be genuinely IN FRONT OF the entrance rather than inside the shell
+	wrapped around it. For box themes that is just past the front wall; for
+	the custom exteriors the body and its entrance tunnel reach out to
+	roughly bodyRadius + 2, so the standoff has to clear that.
+]]
+function BuildingInteriors.GetEntranceStandoff(def, themeId: string): number
+	local halfZ = def.size.Y / 2
+	local env = EXTERIOR_ENVELOPE[themeId]
+	if not env then
+		return halfZ + 6
+	end
+	local bodyRadius = halfDiagonalOf(def) * env.radius
+	return math.max(halfZ + 6, bodyRadius + 8)
+end
+
 local function computeEnclosingEnvelope(def, radiusMultiplier: number, capHeightMultiplier: number)
 	local halfX = def.size.X / 2
 	local halfZ = def.size.Y / 2
@@ -524,127 +957,129 @@ local function addIceAgeDome(def, model: Model)
 	-- igloo mound - a real igloo bulges out close to the ground and then
 	-- curves over in a shallow dome, not a tall rounded tower - instead of
 	-- looking like a taller, narrower version of the UnderTheSea hull.
-	local halfDiag, domeRadius, collarTop, peakY = computeEnclosingEnvelope(def, 1.35, 0.62)
+	local halfDiag, domeRadius, collarTop, peakY = computeEnclosingEnvelope(def, EXTERIOR_ENVELOPE.IceAge.radius, EXTERIOR_ENVELOPE.IceAge.capHeight)
 	local capHeight = peakY - collarTop
 	local rng = Random.new(math.floor(basePos.X * 733 + basePos.Z * 271))
 	local doorWidth = math.clamp(def.size.X * 0.22, MIN_DOOR_WIDTH, MAX_DOOR_WIDTH)
 	local doorHeight = math.min(10, def.height - 4)
 
-	-- Genuine stacked ice-brick construction: several tiers, each a RING
-	-- OF INDIVIDUAL BRICK BLOCKS (not one smooth sphere/wrap) - every
-	-- brick is a small rotated rectangular Part facing outward, tangent
-	-- to its ring, so the building reads as hand-stacked ice blocks
-	-- curving up into a dome - a genuinely custom-built structure, not a
-	-- box with a shape wrapped around it.
-	--
-	-- Two zones (see computeEnclosingEnvelope above): a COLLAR of
-	-- constant-radius brick rings from the ground up to the building's
-	-- own roofline (so the box shell can never poke through), then a true
-	-- quarter-circle DOME CAP only above that - the only part of the
-	-- structure that actually curves inward, exactly like a real igloo's
-	-- roof sitting on its own walls.
-	local collarTierCount = 5
-	local capTierCount = 5
-	local tierCount = collarTierCount + capTierCount
-	for tier = 1, tierCount do
-		local tierY, tierRadius
-		if tier <= collarTierCount then
-			local collarFraction = (tier - 1) / collarTierCount
-			tierY = collarTop * collarFraction
-			tierRadius = domeRadius * (1 - collarFraction * 0.04) -- near-constant, a hair of taper for realism
-		else
-			local capFraction = (tier - collarTierCount) / capTierCount
-			local angleFromTop = (math.pi / 2) * capFraction
-			tierY = collarTop + capHeight * math.sin(angleFromTop)
-			tierRadius = domeRadius * math.cos(angleFromTop)
-		end
+	--[[
+		ONE-PIECE IGLOO SHELL.
 
-		if tierRadius < 1.5 then
+		Previously this stacked discrete "ice bricks" at an angular spacing
+		equal to each brick's own width (and then shrank a random 15% off
+		many of them), on tiers spaced far further apart than the bricks
+		were tall - so the dome came apart into a scatter of floating
+		blocks. It is now a single continuous shell of revolution built by
+		buildContinuousShell, which derives every piece's size FROM its
+		spacing and tilts each one along the dome's local slope, so the
+		wall, the shoulder and the roof are one unbroken curved surface.
+
+		The blocky ice-brick READING is preserved (the shell is still tiled
+		from individual tangent blocks with slight tilt variation, and the
+		staggered inner layer shows through the joints as recessed mortar)
+		- what changed is that neighbouring blocks now genuinely intersect
+		instead of merely being placed near one another.
+
+		The profile itself is a true igloo silhouette: a wall that leans
+		very slightly outward at the ground, flowing without a corner into
+		a shallow spherical cap. Both zones are described by one continuous
+		function, so there is no seam where the wall meets the roof.
+	]]
+	local wallRadius = domeRadius * 0.94
+	local function iglooProfile(y: number): number
+		if y <= collarTop then
+			-- Gentle outward lean at the foot, easing to the wall radius by
+			-- the time it reaches the shoulder - matches how a real igloo
+			-- bulges near the ground.
+			local t = y / math.max(collarTop, 0.001)
+			return domeRadius * (1 - 0.06 * t * t)
+		end
+		local t = math.clamp((y - collarTop) / math.max(capHeight, 0.001), 0, 1)
+		return wallRadius * math.sqrt(math.max(0, 1 - t * t))
+	end
+
+	buildContinuousShell({
+		model = model,
+		basePos = basePos,
+		rng = rng,
+		profile = iglooProfile,
+		topY = peakY,
+		stepY = 2.4,
+		pieceTarget = 5.5,
+		thickness = 2.8,
+		layers = 2,
+		radialJitter = 0.35,
+		tiltJitter = 0.045,
+		namePrefix = "IceBlock",
+		material = WALL_MATERIAL,
+		color = ROOFCAP_COLOR,
+		doorWidth = doorWidth,
+		notchTopY = doorHeight + 2.5,
+	})
+
+	-- Closing keystone block at the crown, so the dome finishes as a
+	-- capped mound rather than converging on an open pinhole.
+	PartUtils.CreatePart({
+		name = "DomeKeystone",
+		size = Vector3.new(5.5, 3.4, 5.5),
+		position = basePos + Vector3.new(0, peakY - 1, 0),
+		material = Enum.Material.Snow,
+		color = Color3.fromRGB(240, 246, 251),
+		shape = Enum.PartType.Ball,
+		canCollide = false,
+		parent = model,
+	})
+
+	-- Layered snow accumulation: continuous bands lying ON the dome's own
+	-- surface, following the same profile the shell was built from, so the
+	-- snow reads as settled on the igloo rather than as separate rings
+	-- hovering around it. Each band is inset a hair inside the shell's
+	-- outer face and skipped across the doorway.
+	for _, bandFraction in ipairs({ 0.42, 0.66, 0.86 }) do
+		local bandY = collarTop + capHeight * bandFraction
+		local bandRadius = iglooProfile(bandY)
+		if bandRadius < 2 then
+			continue
+		end
+		local circumference = 2 * math.pi * bandRadius
+		local count = math.max(10, math.ceil(circumference / 4))
+		local arcSpacing = circumference / count
+		local dr = iglooProfile(bandY + 1) - iglooProfile(bandY - 1)
+		local tiltX = math.atan2(dr, 2)
+		for p = 1, count do
+			local angle = (2 * math.pi / count) * p
+			local pos = basePos
+				+ Vector3.new(math.sin(angle) * (bandRadius + 0.5), bandY, math.cos(angle) * (bandRadius + 0.5))
 			PartUtils.CreatePart({
-				name = "DomeCap",
-				size = Vector3.new(3, 2, 3),
-				position = basePos + Vector3.new(0, tierY, 0),
+				name = "SnowLayer",
+				size = Vector3.new(arcSpacing * SHELL_OVERLAP, 1.5, 1.1),
+				cframe = CFrame.new(pos) * CFrame.Angles(0, angle, 0) * CFrame.Angles(tiltX, 0, 0),
 				material = Enum.Material.Snow,
-				color = Color3.fromRGB(240, 246, 251),
-				shape = Enum.PartType.Ball,
-				canCollide = false,
-				parent = model,
-			})
-			continue
-		end
-
-		local brickHeight = peakY / tierCount * 1.4
-		local brickWidth = math.max(3, tierRadius * 0.55)
-		local brickCount = math.max(6, math.floor((2 * math.pi * tierRadius) / brickWidth))
-		local isCollarTier = tier <= collarTierCount
-		for b = 1, brickCount do
-			local angle = (2 * math.pi / brickCount) * b + rng:NextNumber(-0.05, 0.05)
-
-			-- Skip bricks inside the entrance notch on collar tiers only -
-			-- this is what actually opens a walk-through archway into the
-			-- dome instead of a fully-closed ring of ice bricks the tunnel
-			-- dead-ends into. Cap tiers (above the roofline) stay complete
-			-- since the crater/peak doesn't need an opening.
-			if isCollarTier and isInEntranceNotch(angle, tierRadius, doorWidth) then
-				continue
-			end
-
-			local brickPos = basePos + Vector3.new(math.sin(angle) * tierRadius, tierY, math.cos(angle) * tierRadius)
-			PartUtils.CreatePart({
-				name = ("IceBrickT%dB%d"):format(tier, b),
-				size = Vector3.new(brickWidth * rng:NextNumber(0.85, 1.05), brickHeight, 1.4),
-				cframe = CFrame.new(brickPos) * CFrame.Angles(0, angle, 0),
-				material = WALL_MATERIAL,
-				color = ROOFCAP_COLOR,
-				canCollide = false,
-				parent = model,
-			})
-		end
-
-		-- A thin accent seam every other tier ties the dome into the
-		-- theme's icy-cyan accent palette without flattening the brick
-		-- texture into a smooth ring. Only above the doorway's own height,
-		-- so no full unbroken ring ever crosses straight through the
-		-- entrance opening.
-		if tier % 2 == 0 and tierY > doorHeight + 1 then
-			PartUtils.CreateDisc({
-				name = "DomeSeamAccent" .. tier,
-				diameter = tierRadius * 2 + 0.4,
-				thickness = 0.2,
-				position = basePos + Vector3.new(0, tierY - brickHeight * 0.5, 0),
-				material = ACCENT_MATERIAL,
-				color = ACCENT_COLOR,
+				color = Color3.fromRGB(242, 247, 252),
 				canCollide = false,
 				parent = model,
 			})
 		end
 	end
 
-	-- Irregular snowdrift mounds around the base, so the dome doesn't sit
-	-- on perfectly flat ground - kept clear of the entrance notch so none
-	-- of them end up looking like they're blocking the doorway.
-	local driftsPlaced = 0
-	local driftAttempts = 0
-	while driftsPlaced < 5 and driftAttempts < 20 do
-		driftAttempts += 1
-		local angle = rng:NextNumber(0, 2 * math.pi)
-		local driftRadius = domeRadius * rng:NextNumber(0.85, 1.05)
-		if isInEntranceNotch(angle, driftRadius, doorWidth) then
-			continue
-		end
-		driftsPlaced += 1
-		local driftSize = rng:NextNumber(3, 6)
-		PartUtils.CreatePart({
-			name = "SnowDrift" .. driftsPlaced,
-			size = Vector3.new(driftSize, driftSize * 0.5, driftSize),
-			position = basePos + Vector3.new(math.sin(angle) * driftRadius, driftSize * 0.2, math.cos(angle) * driftRadius),
-			material = Enum.Material.Snow,
-			color = Color3.fromRGB(238, 244, 250),
-			shape = Enum.PartType.Ball,
-			canCollide = false,
-			parent = model,
-		})
-	end
+	-- Packed snow apron so the igloo grows out of the ground instead of
+	-- sitting on it, replacing the old scatter of detached snowball mounds.
+	buildGroundSkirt({
+		model = model,
+		basePos = basePos,
+		rng = rng,
+		innerRadius = domeRadius * 0.97,
+		outerRadius = domeRadius * EXTERIOR_ENVELOPE.IceAge.skirt,
+		startHeight = 3,
+		ringCount = 3,
+		pieceTarget = 7,
+		thickness = 2,
+		namePrefix = "SnowApron",
+		material = Enum.Material.Snow,
+		color = Color3.fromRGB(238, 244, 250),
+		doorWidth = doorWidth,
+	})
 
 	-- Entrance: a proper rounded ice-tunnel archway (rib segments + arch
 	-- lintel) instead of a plain box tunnel, with icicles hanging along
@@ -658,34 +1093,50 @@ local function addIceAgeDome(def, model: Model)
 	-- of buried partway inside the notch.
 	local tunnelLength = math.max(7, domeRadius - halfZ + 2)
 	themedEntranceTunnel(def, model, tunnelLength, WALL_MATERIAL, ROOFCAP_COLOR)
-	for _, side in ipairs({ -1, 1 }) do
-		PartUtils.CreatePart({
-			name = "TunnelRib",
-			size = Vector3.new(1, doorHeight + 1.5, tunnelLength),
-			position = basePos + Vector3.new(side * (doorWidth / 2 + 0.6), (doorHeight + 1.5) / 2, halfZ + tunnelLength / 2),
+
+	-- The entrance tunnel is now a continuous vaulted throat rather than
+	-- two flat side ribs with a slab across the top: rings of blocks
+	-- stepped along its length, each ring a half-arch, so the passage
+	-- reads as carved through solid ice all the way in.
+	-- Arch rings stop short of the tunnel mouth so the crown never closes
+	-- over the name plate mounted on the facade there.
+	local throatSpan = math.max(2, tunnelLength - 2.5)
+	local throatRings = math.max(3, math.ceil(throatSpan / 2.2))
+	for ringIndex = 0, throatRings do
+		local z = halfZ + (throatSpan / throatRings) * ringIndex
+		buildEntranceArch({
+			model = model,
+			basePos = basePos,
+			doorWidth = doorWidth,
+			doorHeight = doorHeight,
+			z = z,
+			segments = 11,
+			blockDepth = 2,
+			thickness = (throatSpan / throatRings) * SHELL_OVERLAP,
 			material = WALL_MATERIAL,
 			color = ROOFCAP_COLOR,
-			canCollide = false,
-			parent = model,
 		})
 	end
-	PartUtils.CreatePart({
-		name = "TunnelArch",
-		size = Vector3.new(doorWidth + 2.4, 1.2, tunnelLength),
-		position = basePos + Vector3.new(0, doorHeight + 1.6, halfZ + tunnelLength / 2),
-		material = WALL_MATERIAL,
-		color = ROOFCAP_COLOR,
-		canCollide = false,
-		parent = model,
-	})
-	for i = 1, 5 do
-		local t = (i - 1) / 4
-		local edgeX = -doorWidth / 2 - 1.2 + t * (doorWidth + 2.4)
+
+	-- Icicles hanging from the arch's own leading edge, spaced around the
+	-- curve itself so each one is attached to the arch above it.
+	for i = 1, 7 do
+		local t = (i - 1) / 6
+		local archAngle = math.pi * (0.12 + t * 0.76)
+		local archRadius = doorWidth / 2 + 1.6
+		local springLine = doorHeight - archRadius + 1.2
 		PartUtils.CreatePart({
 			className = "WedgePart",
 			name = "RimIcicle" .. i,
 			size = Vector3.new(0.5, rng:NextNumber(1.4, 2.6), 0.5),
-			cframe = CFrame.new(basePos + Vector3.new(edgeX, doorHeight + 1, halfZ + 1.5)) * CFrame.Angles(math.pi, 0, 0),
+			cframe = CFrame.new(
+				basePos
+					+ Vector3.new(
+						math.cos(archAngle) * archRadius,
+						springLine + math.sin(archAngle) * archRadius - 0.6,
+						halfZ + throatSpan + 0.4
+					)
+			) * CFrame.Angles(math.pi, 0, 0),
 			material = Enum.Material.Ice,
 			color = Color3.fromRGB(210, 232, 245),
 			canCollide = false,
@@ -697,117 +1148,177 @@ end
 local function addLavaVolcanoRoof(def, model: Model)
 	local basePos = def.position
 	local halfZ = def.size.Y / 2
-	local halfDiag, baseRadius, collarTop, peakHeight = computeEnclosingEnvelope(def, 1.18, 1.35)
+	local halfDiag, baseRadius, collarTop, peakHeight = computeEnclosingEnvelope(def, EXTERIOR_ENVELOPE.Lava.radius, EXTERIOR_ENVELOPE.Lava.capHeight)
 	local craterY = collarTop + (peakHeight - collarTop) * 0.9
 	local rng = Random.new(math.floor(basePos.X * 511 + basePos.Z * 907))
 	local doorWidth = math.clamp(def.size.X * 0.22, MIN_DOOR_WIDTH, MAX_DOOR_WIDTH)
 	local doorHeight = math.min(10, def.height - 4)
 
-	-- Irregular boulder-chunk mound (the same ring-of-overlapping-chunks
-	-- technique LavaEnvironment's own distant "pillar" volcanoes use),
-	-- built at building scale so the WHOLE building reads as a
-	-- hand-assembled mini-volcano - not a box with a smooth cone wrapped
-	-- around it.
-	--
-	-- Two zones (see computeEnclosingEnvelope above): a COLLAR of
-	-- near-constant-radius boulder rings from the ground up to the
-	-- building's own roofline (so the box shell can never poke through
-	-- the mound), then the actual CONE taper only above that, rising to
-	-- the crater - exactly like a real volcano's wide base and narrow peak.
-	local collarRingCount = 3
-	local capRingCount = 4
-	local ringCount = collarRingCount + capRingCount
-	for ring = 1, ringCount do
-		local ringY, ringRadius
-		if ring <= collarRingCount then
-			local collarFraction = (ring - 1) / collarRingCount
-			ringY = collarTop * collarFraction
-			ringRadius = baseRadius * (1 - collarFraction * 0.06)
-		else
-			local capFraction = (ring - collarRingCount) / capRingCount
-			ringY = collarTop + (peakHeight - collarTop) * capFraction
-			ringRadius = baseRadius * (1 - capFraction * 0.82)
-		end
-		local ringFraction = (ring - 1) / (ringCount - 1)
-		local avgChunkSize = 7 * (1 - ringFraction * 0.3)
-		-- Chunk count now SCALES WITH the ring's own circumference (same
-		-- technique the igloo dome's brick rings already use) instead of a
-		-- fixed small number - a fixed count left huge gaps once the collar
-		-- radius grew to actually enclose the box (see computeEnclosingEnvelope
-		-- above), letting the plain box floor/walls show straight through
-		-- between sparse boulders.
-		local chunkCount = math.max(10, math.floor((2 * math.pi * ringRadius) / (avgChunkSize * 0.78)))
-		local isCollarRing = ring <= collarRingCount
-		for c = 1, chunkCount do
-			local angle = (2 * math.pi / chunkCount) * c + rng:NextNumber(-0.25, 0.25)
+	--[[
+		CONTINUOUS VOLCANIC ROCK MASS.
 
-			-- Skip chunks inside the entrance notch on collar rings only -
-			-- opens a real cave-mouth archway through the mound instead of
-			-- a fully-closed ring the tunnel dead-ends into.
-			if isCollarRing and isInEntranceNotch(angle, ringRadius, doorWidth) then
-				continue
-			end
+		This is where the "separated sphere/cubic-prism appearance" was
+		worst. Chunks were scattered at +/-13% of the ring radius and
+		+/-1.5 studs vertically while being only ~3 studs thick, across
+		just 7 rings spanning the entire building height - so both the
+		jitter AND the ring spacing exceeded the chunks' own dimensions in
+		every direction at once. The result was a literal pile of loose
+		boulders with the plain box showing through between them.
 
-			local chunkRadius = ringRadius * rng:NextNumber(0.82, 1.08)
-			local chunkSize = rng:NextNumber(5, 9) * (1 - ringFraction * 0.3)
-			local chunkPos = basePos
-				+ Vector3.new(math.sin(angle) * chunkRadius, ringY + rng:NextNumber(-1.5, 1.5), math.cos(angle) * chunkRadius)
-			-- Mostly flattened, angular rock slabs (not spheres/cubes) so
-			-- neighboring chunks read as one broken rock surface rather
-			-- than a pile of loose boulders.
-			PartUtils.CreatePart({
-				name = ("VolcanoChunkR%dC%d"):format(ring, c),
-				size = Vector3.new(chunkSize * rng:NextNumber(1.1, 1.4), chunkSize * rng:NextNumber(0.4, 0.65), chunkSize * rng:NextNumber(1.1, 1.4)),
-				cframe = CFrame.new(chunkPos) * CFrame.Angles(rng:NextNumber(-0.2, 0.2), rng:NextNumber(0, 6.28), rng:NextNumber(-0.2, 0.2)),
-				material = if rng:NextNumber() < 0.4 then Enum.Material.Rock else WALL_MATERIAL,
-				color = ROOFCAP_COLOR,
-				shape = Enum.PartType.Block,
-				canCollide = false,
-				parent = model,
-			})
+		It is now one continuous rock flank built by buildContinuousShell:
+		a wide foot, a concave slope, and a crater rim, all described by a
+		single profile function and tiled with slabs that are guaranteed to
+		intersect their neighbours and are tilted to lie flat along the
+		slope. The rugged, broken-rock READING is kept through per-slab
+		tilt variation, mixed Rock/Basalt materials and per-slab colour
+		variation - but the mass itself is now unbroken.
+	]]
+	local craterRadius = math.max(2.5, baseRadius * 0.22)
+	local flankRadius = baseRadius * 0.95
+	local function volcanoProfile(y: number): number
+		if y <= collarTop then
+			local t = y / math.max(collarTop, 0.001)
+			return baseRadius * (1 - 0.05 * t)
 		end
+		local t = math.clamp((y - collarTop) / math.max(peakHeight - collarTop, 0.001), 0, 1)
+		-- Concave flank (exponent > 1) - a real volcano's slope steepens as
+		-- it rises rather than running straight like a party hat.
+		return craterRadius + (flankRadius - craterRadius) * (1 - t) ^ 1.3
 	end
 
+	local function rockMaterial(r: Random): Enum.Material
+		local roll = r:NextNumber()
+		if roll < 0.34 then
+			return Enum.Material.Rock
+		elseif roll < 0.62 then
+			return Enum.Material.Basalt
+		end
+		return WALL_MATERIAL
+	end
+	local function rockColor(r: Random): Color3
+		local shade = r:NextInteger(-7, 9) / 255
+		return Color3.new(
+			math.clamp(ROOFCAP_COLOR.R + shade, 0, 1),
+			math.clamp(ROOFCAP_COLOR.G + shade * 0.8, 0, 1),
+			math.clamp(ROOFCAP_COLOR.B + shade * 0.7, 0, 1)
+		)
+	end
+
+	buildContinuousShell({
+		model = model,
+		basePos = basePos,
+		rng = rng,
+		profile = volcanoProfile,
+		topY = craterY,
+		stepY = 2.6,
+		pieceTarget = 6,
+		thickness = 3.4,
+		layers = 2,
+		radialJitter = 0.6,
+		tiltJitter = 0.11,
+		namePrefix = "VolcanoRock",
+		materialPicker = rockMaterial,
+		colorPicker = rockColor,
+		doorWidth = doorWidth,
+		notchTopY = doorHeight + 2.5,
+	})
+
+	-- Rock apron fanning out to the plaza floor: this is what makes the
+	-- volcanic terrain transition naturally INTO the building instead of
+	-- the mound sitting on the ground as a separate object.
+	buildGroundSkirt({
+		model = model,
+		basePos = basePos,
+		rng = rng,
+		innerRadius = baseRadius * 0.98,
+		outerRadius = baseRadius * EXTERIOR_ENVELOPE.Lava.skirt,
+		startHeight = 4,
+		ringCount = 3,
+		pieceTarget = 8,
+		thickness = 2.4,
+		namePrefix = "VolcanoApron",
+		materialPicker = rockMaterial,
+		colorPicker = rockColor,
+		doorWidth = doorWidth,
+	})
+
+	-- Crater rim + molten floor, sized to the profile's own top radius so
+	-- the rim sits exactly on the flank rather than floating above it.
+	local rimRadius = volcanoProfile(craterY)
+	local rimCount = math.max(10, math.ceil((2 * math.pi * rimRadius) / 3.5))
+	local rimSpacing = (2 * math.pi * rimRadius) / rimCount
+	for c = 1, rimCount do
+		local angle = (2 * math.pi / rimCount) * c
+		PartUtils.CreatePart({
+			name = "CraterRim" .. c,
+			size = Vector3.new(rimSpacing * SHELL_OVERLAP, rng:NextNumber(1.8, 3.2), 3),
+			cframe = CFrame.new(basePos + Vector3.new(math.sin(angle) * rimRadius, craterY, math.cos(angle) * rimRadius))
+				* CFrame.Angles(0, angle, 0)
+				* CFrame.Angles(rng:NextNumber(-0.14, 0.14), 0, rng:NextNumber(-0.1, 0.1)),
+			material = rockMaterial(rng),
+			color = rockColor(rng),
+			canCollide = false,
+			parent = model,
+		})
+	end
 	PartUtils.CreateDisc({
 		name = "VolcanoCrater",
-		diameter = baseRadius * 0.45,
+		diameter = math.max(3, rimRadius * 1.7),
 		thickness = 1.2,
-		position = basePos + Vector3.new(0, craterY, 0),
+		position = basePos + Vector3.new(0, craterY - 0.4, 0),
 		material = Enum.Material.CrackedLava,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
 	})
 
-	-- Irregular lava channels - varied count/angle/length, not two clean
-	-- symmetric streaks.
-	local channelCount = rng:NextInteger(4, 6)
+	--[[
+		Lava channels laid FLUSH ON the flank, following the same profile
+		the rock was built from. Previously these were vertical boxes
+		planted at an arbitrary radius, so they hovered off the slope
+		(more detached geometry). Each channel is now a chain of short
+		segments walking down the real surface, each segment tilted to the
+		local slope and overlapping the next.
+	]]
+	local channelCount = rng:NextInteger(3, 5)
 	for i = 1, channelCount do
 		local channelAngle = rng:NextNumber(0, 2 * math.pi)
-		local channelLength = (peakHeight - collarTop) * rng:NextNumber(0.5, 0.9)
-		local channelRadius = baseRadius * rng:NextNumber(0.25, 0.55)
-		PartUtils.CreatePart({
-			name = "LavaChannel" .. i,
-			size = Vector3.new(rng:NextNumber(1, 2.6), channelLength, 0.35),
-			cframe = CFrame.new(
-				basePos + Vector3.new(math.sin(channelAngle) * channelRadius, craterY - channelLength * 0.4, math.cos(channelAngle) * channelRadius)
-			) * CFrame.Angles(0, channelAngle, math.rad(rng:NextNumber(-10, 10))),
-			material = Enum.Material.CrackedLava,
-			color = ACCENT_COLOR,
-			canCollide = false,
-			parent = model,
-		})
+		local startT = rng:NextNumber(0.05, 0.2)
+		local endT = rng:NextNumber(0.7, 1.0)
+		local segments = 7
+		local channelWidth = rng:NextNumber(1.6, 3.2)
+		for s = 0, segments do
+			local t = startT + (endT - startT) * (s / segments)
+			local y = craterY - (craterY - collarTop * 0.2) * t
+			local r = volcanoProfile(y) + 0.5
+			local dr = volcanoProfile(y + 1.2) - volcanoProfile(y - 1.2)
+			local segStep = ((craterY - collarTop * 0.2) * (endT - startT)) / segments
+			local slant = math.sqrt(dr * dr + segStep * segStep)
+			PartUtils.CreatePart({
+				name = ("LavaChannel%dS%d"):format(i, s),
+				size = Vector3.new(channelWidth, math.max(slant * SHELL_OVERLAP, 1.5), 0.6),
+				cframe = CFrame.new(
+					basePos + Vector3.new(math.sin(channelAngle) * r, y, math.cos(channelAngle) * r)
+				) * CFrame.Angles(0, channelAngle, 0) * CFrame.Angles(math.atan2(dr, segStep), 0, 0),
+				material = Enum.Material.CrackedLava,
+				color = ACCENT_COLOR,
+				canCollide = false,
+				parent = model,
+			})
+		end
 	end
 
-	-- Small heated glowing vents scattered on the surface.
+	-- Glowing vents sitting ON the flank surface (radius taken from the
+	-- profile, not a random fraction of it, so none of them float).
 	for i = 1, rng:NextInteger(3, 5) do
 		local angle = rng:NextNumber(0, 2 * math.pi)
-		local ventRadius = baseRadius * rng:NextNumber(0.3, 0.9)
-		local ventHeight = peakHeight * rng:NextNumber(0.08, 0.6)
+		local ventHeight = rng:NextNumber(collarTop * 0.3, craterY * 0.8)
+		local ventRadius = volcanoProfile(ventHeight) + 0.4
 		PartUtils.CreatePart({
 			name = "HeatVent" .. i,
-			size = Vector3.new(rng:NextNumber(1, 2), 0.25, rng:NextNumber(1, 2)),
-			position = basePos + Vector3.new(math.sin(angle) * ventRadius, ventHeight, math.cos(angle) * ventRadius),
+			size = Vector3.new(rng:NextNumber(1.4, 2.6), 0.5, rng:NextNumber(1.4, 2.6)),
+			position = basePos
+				+ Vector3.new(math.sin(angle) * ventRadius, ventHeight, math.cos(angle) * ventRadius),
 			material = Enum.Material.CrackedLava,
 			color = ACCENT_COLOR,
 			canCollide = false,
@@ -822,27 +1333,29 @@ local function addLavaVolcanoRoof(def, model: Model)
 	-- flush with the mound's real outer surface, not buried inside it.
 	local lavaTunnelLength = math.max(6, baseRadius - halfZ + 2)
 	themedEntranceTunnel(def, model, lavaTunnelLength, WALL_MATERIAL, ROOFCAP_COLOR)
-	for i, side in ipairs({ -1, 1 }) do
-		PartUtils.CreatePart({
-			name = "CaveArchRock" .. i,
-			size = Vector3.new(3, doorHeight + 2, 3),
-			cframe = CFrame.new(basePos + Vector3.new(side * (doorWidth / 2 + 1.6), (doorHeight + 2) / 2, halfZ + lavaTunnelLength - 2))
-				* CFrame.Angles(0, rng:NextNumber(0, 6.28), 0),
-			material = WALL_MATERIAL,
-			color = ROOFCAP_COLOR,
-			canCollide = false,
-			parent = model,
+
+	-- Cave throat: rings of arch blocks stepped along the tunnel, so the
+	-- mouth reads as bored through solid rock. Replaces the two loose
+	-- boulders and floating lintel that used to frame a rectangular hole.
+	-- Arch rings stop short of the mouth so the crown never closes over the
+	-- name plate mounted on the facade there.
+	local caveSpan = math.max(2, lavaTunnelLength - 2.5)
+	local caveRings = math.max(3, math.ceil(caveSpan / 2.2))
+	for ringIndex = 0, caveRings do
+		local z = halfZ + (caveSpan / caveRings) * ringIndex
+		buildEntranceArch({
+			model = model,
+			basePos = basePos,
+			doorWidth = doorWidth,
+			doorHeight = doorHeight,
+			z = z,
+			segments = 11,
+			blockDepth = 2.6,
+			thickness = (caveSpan / caveRings) * SHELL_OVERLAP,
+			material = rockMaterial(rng),
+			color = rockColor(rng),
 		})
 	end
-	PartUtils.CreatePart({
-		name = "CaveMouthLintel",
-		size = Vector3.new(doorWidth + 6, 2, 3),
-		position = basePos + Vector3.new(0, doorHeight + 2.2, halfZ + lavaTunnelLength - 2),
-		material = WALL_MATERIAL,
-		color = ROOFCAP_COLOR,
-		canCollide = false,
-		parent = model,
-	})
 end
 
 local function addUnderTheSeaHull(def, model: Model)
@@ -858,53 +1371,125 @@ local function addUnderTheSeaHull(def, model: Model)
 	-- building's own roofline (so the box shell can never poke through
 	-- the hull), then a shallow rounded CAP - the classic curved
 	-- submarine deck/sail base - only above that.
-	local halfDiag, hullRadius, collarTop, peakY = computeEnclosingEnvelope(def, 1.2, 0.55)
+	local halfDiag, hullRadius, collarTop, peakY = computeEnclosingEnvelope(def, EXTERIOR_ENVELOPE.UnderTheSea.radius, EXTERIOR_ENVELOPE.UnderTheSea.capHeight)
 	local capHeight = peakY - collarTop
 	local rng = Random.new(math.floor(basePos.X * 349 + basePos.Z * 617))
 	local doorWidth = math.clamp(def.size.X * 0.22, MIN_DOOR_WIDTH, MAX_DOOR_WIDTH)
 	local doorHeight = math.min(10, def.height - 4)
 
-	local collarRingCount = 4
-	for ring = 1, collarRingCount do
-		local ringFraction = (ring - 1) / (collarRingCount - 1)
-		local ringY = collarTop * ringFraction
-		local ringRadius = hullRadius * (1 - ringFraction * 0.03)
-		local plateHeight = collarTop / collarRingCount + 1.2
-		-- Plate count SCALES WITH the ring's own circumference (same fix
-		-- applied to the volcano's boulder rings above) - a fixed count
-		-- left huge gaps once hullRadius grew enough to actually enclose
-		-- the box, letting the plain walls show straight through.
-		local plateWidth = 6
-		local plateCount = math.max(12, math.floor((2 * math.pi * ringRadius) / (plateWidth * 0.85)))
-		for p = 1, plateCount do
-			local angle = (2 * math.pi / plateCount) * p + rng:NextNumber(-0.03, 0.03)
+	--[[
+		ONE-PIECE RIVETED HULL.
 
-			-- Skip plates inside the entrance notch - opens a real airlock
-			-- archway through the hull instead of a fully-closed ring the
-			-- tunnel dead-ends into.
-			if isInEntranceNotch(angle, ringRadius, doorWidth) then
+		The hull had the same two defects as the dome and the volcano: 6
+		studs of plate spacing against 6-stud plates (times 0.85 in places),
+		on rings stepped further apart than the plates were tall, over a
+		1.4-stud-thin shell. It now builds as a single continuous hull of
+		revolution - wall and curved deck described by one profile function
+		so there is no seam at the shoulder - tiled with overlapping plates
+		that follow the local slope.
+
+		The panelled submarine reading is kept and in fact strengthened:
+		plates are still individually visible, and the staggered inner
+		layer shows through the joints as recessed hull seams, which is
+		exactly what riveted plating looks like.
+	]]
+	local deckRadius = hullRadius * 0.96
+	local function hullProfile(y: number): number
+		if y <= collarTop then
+			local t = y / math.max(collarTop, 0.001)
+			return hullRadius * (1 - 0.04 * t * t)
+		end
+		local t = math.clamp((y - collarTop) / math.max(capHeight, 0.001), 0, 1)
+		return deckRadius * math.sqrt(math.max(0, 1 - t * t))
+	end
+
+	buildContinuousShell({
+		model = model,
+		basePos = basePos,
+		rng = rng,
+		profile = hullProfile,
+		topY = peakY,
+		stepY = 2.6,
+		pieceTarget = 6,
+		thickness = 2.6,
+		layers = 2,
+		radialJitter = 0.2,
+		tiltJitter = 0.02,
+		namePrefix = "HullPlate",
+		material = WALL_MATERIAL,
+		color = ROOFCAP_COLOR,
+		doorWidth = doorWidth,
+		notchTopY = doorHeight + 2.5,
+	})
+
+	--[[
+		FILLED DECK CROWN.
+
+		buildContinuousShell stops laying rings once the profile narrows
+		past ~0.8 studs, and a hemispherical profile spends its last several
+		studs of height sweeping from a few studs of radius down to nothing.
+		That left the very top of the hull as an open ring with a single
+		small ball perched over it - the unfinished, odd-looking crown.
+
+		This fills that zone properly: a short stack of discs following the
+		same hullProfile, each thick enough to overlap the next, so the deck
+		closes into a solid capped surface continuous with the plating below.
+	]]
+	local crownStart = collarTop + capHeight * 0.55
+	local crownSteps = 7
+	for i = 0, crownSteps do
+		local y = crownStart + (peakY - crownStart) * (i / crownSteps)
+		local r = math.max(hullProfile(y), 1.1)
+		PartUtils.CreateDisc({
+			name = "HullDeckCrown" .. i,
+			-- Slightly proud of the plating radius so the crown reads as one
+			-- surface with it rather than a separate inner cone.
+			diameter = (r + 0.9) * 2,
+			thickness = ((peakY - crownStart) / crownSteps) * 1.9,
+			position = basePos + Vector3.new(0, y, 0),
+			material = WALL_MATERIAL,
+			color = ROOFCAP_COLOR,
+			canCollide = false,
+			parent = model,
+		})
+	end
+
+	-- Closing deck plate at the crown of the hull.
+	PartUtils.CreatePart({
+		name = "HullCapTip",
+		size = Vector3.new(5, 2.6, 5),
+		position = basePos + Vector3.new(0, peakY - 0.8, 0),
+		material = WALL_MATERIAL,
+		color = ROOFCAP_COLOR,
+		shape = Enum.PartType.Ball,
+		canCollide = false,
+		parent = model,
+	})
+
+	-- Structural seam bands lying ON the hull surface, following the same
+	-- profile, so they wrap the hull instead of hovering as flat discs
+	-- around it. Broken across the doorway so no band crosses the opening.
+	for _, seamY in ipairs({ collarTop * 0.45, collarTop * 0.85, collarTop + capHeight * 0.45 }) do
+		local seamRadius = hullProfile(seamY)
+		if seamRadius < 2 then
+			continue
+		end
+		local circumference = 2 * math.pi * seamRadius
+		local count = math.max(12, math.ceil(circumference / 4))
+		local arcSpacing = circumference / count
+		local dr = hullProfile(seamY + 1) - hullProfile(seamY - 1)
+		local tiltX = math.atan2(dr, 2)
+		for p = 1, count do
+			local angle = (2 * math.pi / count) * p
+			if seamY <= doorHeight + 2.5 and isInEntranceNotch(angle, seamRadius, doorWidth) then
 				continue
 			end
-
-			local platePos = basePos + Vector3.new(math.sin(angle) * ringRadius, ringY, math.cos(angle) * ringRadius)
 			PartUtils.CreatePart({
-				name = ("HullPlateR%dP%d"):format(ring, p),
-				size = Vector3.new(plateWidth, plateHeight, 1.4),
-				cframe = CFrame.new(platePos) * CFrame.Angles(0, angle, 0),
-				material = WALL_MATERIAL,
-				color = ROOFCAP_COLOR,
-				canCollide = false,
-				parent = model,
-			})
-		end
-		-- Seam ring only above the doorway's own height, so no unbroken
-		-- ring crosses straight through the entrance opening.
-		if ringY > doorHeight + 1 then
-			PartUtils.CreateDisc({
-				name = "HullSeam" .. ring,
-				diameter = ringRadius * 2 + 0.4,
-				thickness = 0.25,
-				position = basePos + Vector3.new(0, ringY, 0),
+				name = "HullSeam",
+				size = Vector3.new(arcSpacing * SHELL_OVERLAP, 0.7, 0.9),
+				cframe = CFrame.new(
+					basePos + Vector3.new(math.sin(angle) * (seamRadius + 0.6), seamY, math.cos(angle) * (seamRadius + 0.6))
+				) * CFrame.Angles(0, angle, 0) * CFrame.Angles(tiltX, 0, 0),
 				material = ACCENT_MATERIAL,
 				color = ACCENT_COLOR,
 				canCollide = false,
@@ -913,92 +1498,119 @@ local function addUnderTheSeaHull(def, model: Model)
 		end
 	end
 
-	-- Shallow rounded cap above the roofline - the curved deck/sail base
-	-- a submarine hull tapers into, using the same quarter-circle profile
-	-- as the igloo dome's cap zone.
-	local capRingCount = 3
-	for ring = 1, capRingCount do
-		local capFraction = ring / capRingCount
-		local angleFromTop = (math.pi / 2) * capFraction
-		local ringY = collarTop + capHeight * math.sin(angleFromTop)
-		local ringRadius = hullRadius * math.cos(angleFromTop)
-		if ringRadius < 1.5 then
-			PartUtils.CreatePart({
-				name = "HullCapTip",
-				size = Vector3.new(3, 2, 3),
-				position = basePos + Vector3.new(0, ringY, 0),
-				material = WALL_MATERIAL,
-				color = ROOFCAP_COLOR,
-				shape = Enum.PartType.Ball,
-				canCollide = false,
-				parent = model,
-			})
-		else
-			local capPlateWidth = 4.5
-			local plateCount = math.max(8, math.floor((2 * math.pi * ringRadius) / (capPlateWidth * 0.85)))
-			for p = 1, plateCount do
-				local angle = (2 * math.pi / plateCount) * p
-				local platePos = basePos + Vector3.new(math.sin(angle) * ringRadius, ringY, math.cos(angle) * ringRadius)
-				PartUtils.CreatePart({
-					name = ("HullCapR%dP%d"):format(ring, p),
-					size = Vector3.new(capPlateWidth, capHeight / capRingCount + 1, 1.2),
-					cframe = CFrame.new(platePos) * CFrame.Angles(0, angle, 0),
-					material = WALL_MATERIAL,
-					color = ROOFCAP_COLOR,
-					canCollide = false,
-					parent = model,
-				})
-			end
-		end
-	end
+	-- Coral and sediment growing up the hull's foot, tying the structure
+	-- into the seabed rather than leaving it perched on it.
+	buildGroundSkirt({
+		model = model,
+		basePos = basePos,
+		rng = rng,
+		innerRadius = hullRadius * 0.98,
+		outerRadius = hullRadius * EXTERIOR_ENVELOPE.UnderTheSea.skirt,
+		startHeight = 3,
+		ringCount = 3,
+		pieceTarget = 8,
+		thickness = 2,
+		namePrefix = "HullSediment",
+		material = Enum.Material.Sand,
+		colorPicker = function(r: Random): Color3
+			local shade = r:NextInteger(-8, 8) / 255
+			return Color3.new(
+				math.clamp(0.82 + shade, 0, 1),
+				math.clamp(0.78 + shade, 0, 1),
+				math.clamp(0.62 + shade, 0, 1)
+			)
+		end,
+		doorWidth = doorWidth,
+	})
 
-	-- Conning tower + periscope near the front, above the entrance - the
-	-- classic submarine silhouette element.
+	--[[
+		Conning tower + periscope, seated ON the curved deck. This used to
+		be pinned to `def.height` (the inner box's roofline) while the hull
+		cap rises well above that, so the tower was partly swallowed by the
+		deck at some building sizes and left floating over it at others.
+		Its base height is now solved from the hull profile at the tower's
+		own offset, and the tower is sunk a couple of studs into the deck so
+		the two genuinely intersect.
+	]]
+	local towerOffsetZ = halfZ * 0.3
+	local towerFootprint = 5
+	-- Height at which the hull surface has narrowed to the tower's own
+	-- outer corner distance - i.e. where a tower of this width can sit
+	-- flush on the deck.
+	local towerCornerDist = math.sqrt((towerFootprint / 2) ^ 2 + (towerOffsetZ + towerFootprint / 2) ^ 2)
+	local deckT = math.sqrt(math.max(0, 1 - (math.min(towerCornerDist, deckRadius) / deckRadius) ^ 2))
+	local deckY = collarTop + capHeight * deckT
 	local towerHeight = 5
 	PartUtils.CreatePart({
 		name = "ConningTower",
-		size = Vector3.new(5, towerHeight, 5),
-		position = basePos + Vector3.new(0, def.height + towerHeight / 2, halfZ * 0.3),
+		size = Vector3.new(towerFootprint, towerHeight, towerFootprint),
+		position = basePos + Vector3.new(0, deckY + towerHeight / 2 - 2, towerOffsetZ),
 		material = WALL_MATERIAL,
 		color = ROOFCAP_COLOR,
 		canCollide = false,
 		parent = model,
 	})
+	-- Sunk into the conning tower's top rather than balanced above it: the
+	-- tower's real top face is at deckY + towerHeight - 2, so a periscope
+	-- centred at +0.5 above deckY + towerHeight left a half-stud of air
+	-- under it.
 	PartUtils.CreatePart({
 		name = "Periscope",
-		size = Vector3.new(0.8, 4, 0.8),
-		position = basePos + Vector3.new(0, def.height + towerHeight + 2, halfZ * 0.3),
+		size = Vector3.new(0.8, 5, 0.8),
+		position = basePos + Vector3.new(0, deckY + towerHeight - 0.5, towerOffsetZ),
 		material = FURNITURE_MATERIAL,
 		color = FURNITURE_COLOR,
 		canCollide = false,
 		parent = model,
 	})
 
-	-- Portholes lining both sides of the hull.
+	--[[
+		Portholes set INTO the hull's real surface. These used to be pinned
+		at a flat `hullRadius * 0.92` on the X axis regardless of their Z
+		offset, which on a round hull left them hanging off the side in
+		open water. The horizontal offset is now solved from the hull's own
+		profile at that height, so each porthole lands exactly on the
+		curved plating and is rotated to face along its true surface
+		normal.
+	]]
+	local portholeY = def.height * 0.55
+	local portholeSurfaceRadius = hullProfile(portholeY)
 	for _, side in ipairs({ -1, 1 }) do
 		for _, offsetZ in ipairs({ -halfZ * 0.4, halfZ * 0.4 }) do
-			local porthole = PartUtils.CreateDisc({
-				name = "Porthole",
-				diameter = 2.6,
-				thickness = 0.3,
-				position = basePos + Vector3.new(side * (hullRadius * 0.92), def.height * 0.55, offsetZ),
-				material = GLASS_MATERIAL,
-				color = GLASS_COLOR,
-				canCollide = false,
-				parent = model,
-			})
-			porthole.CFrame = porthole.CFrame * CFrame.Angles(0, 0, math.rad(90))
+			local offsetX = math.sqrt(math.max(portholeSurfaceRadius ^ 2 - offsetZ ^ 2, 1))
+			local surfaceAngle = math.atan2(side * offsetX, offsetZ)
+			local center = basePos + Vector3.new(side * offsetX, portholeY, offsetZ)
+			-- CreateDisc builds a disc lying flat (caps up/down); rotating by
+			-- 90 degrees about X stands it upright, then the yaw aims it
+			-- outward along the hull normal.
+			local function faceOutward(part: BasePart)
+				part.CFrame = CFrame.new(center)
+					* CFrame.Angles(0, surfaceAngle, 0)
+					* CFrame.Angles(math.rad(90), 0, 0)
+					* CFrame.Angles(0, 0, math.rad(90))
+			end
 			local frame = PartUtils.CreateDisc({
 				name = "PortholeFrame",
-				diameter = 3,
-				thickness = 0.4,
-				position = basePos + Vector3.new(side * (hullRadius * 0.92), def.height * 0.55, offsetZ),
+				diameter = 3.2,
+				thickness = 1.2,
+				position = center,
 				material = ACCENT_MATERIAL,
 				color = ACCENT_COLOR,
 				canCollide = false,
 				parent = model,
 			})
-			frame.CFrame = frame.CFrame * CFrame.Angles(0, 0, math.rad(90))
+			faceOutward(frame)
+			local porthole = PartUtils.CreateDisc({
+				name = "Porthole",
+				diameter = 2.4,
+				thickness = 1.4,
+				position = center,
+				material = GLASS_MATERIAL,
+				color = GLASS_COLOR,
+				canCollide = false,
+				parent = model,
+			})
+			faceOutward(porthole)
 		end
 	end
 
@@ -1008,15 +1620,53 @@ local function addUnderTheSeaHull(def, model: Model)
 	-- hull's real outer surface, not buried inside it.
 	local hullTunnelLength = math.max(6, hullRadius - halfZ + 2)
 	themedEntranceTunnel(def, model, hullTunnelLength, WALL_MATERIAL, ROOFCAP_COLOR)
-	PartUtils.CreatePart({
-		name = "HatchRim",
-		size = Vector3.new(doorWidth + 1.6, 0.4, 0.4),
-		position = basePos + Vector3.new(0, doorHeight + 0.3, halfZ + hullTunnelLength - 1),
-		material = ACCENT_MATERIAL,
-		color = ACCENT_COLOR,
-		canCollide = false,
-		parent = model,
-	})
+
+	-- Airlock throat: rings of arch plating stepped along the tunnel so the
+	-- opening is a moulded hatchway through the hull rather than a
+	-- rectangular gap with a loose rim bar over it.
+	-- Arch rings stop short of the mouth so the crown never closes over the
+	-- name plate mounted on the facade there.
+	local airlockSpan = math.max(2, hullTunnelLength - 2.5)
+	local airlockRings = math.max(3, math.ceil(airlockSpan / 2.2))
+	for ringIndex = 0, airlockRings do
+		local z = halfZ + (airlockSpan / airlockRings) * ringIndex
+		buildEntranceArch({
+			model = model,
+			basePos = basePos,
+			doorWidth = doorWidth,
+			doorHeight = doorHeight,
+			z = z,
+			segments = 11,
+			blockDepth = 1.8,
+			thickness = (airlockSpan / airlockRings) * SHELL_OVERLAP,
+			material = WALL_MATERIAL,
+			color = ROOFCAP_COLOR,
+		})
+	end
+
+	-- Accent hatch ring around the outermost arch, following its curve.
+	local hatchRadius = doorWidth / 2 + 1.6
+	local hatchSpring = doorHeight - hatchRadius + 1.2
+	for s = 0, 11 do
+		local a = math.pi * (s / 11)
+		local segLength = (math.pi * hatchRadius / 11) * SHELL_OVERLAP
+		PartUtils.CreatePart({
+			name = "HatchRim",
+			size = Vector3.new(0.5, segLength, 0.5),
+			cframe = CFrame.new(
+				basePos
+					+ Vector3.new(
+						math.cos(a) * hatchRadius,
+						hatchSpring + math.sin(a) * hatchRadius,
+						halfZ + airlockSpan + 0.6
+					)
+			) * CFrame.Angles(0, 0, a - math.pi / 2),
+			material = ACCENT_MATERIAL,
+			color = ACCENT_COLOR,
+			canCollide = false,
+			parent = model,
+		})
+	end
 end
 
 local ROOF_SILHOUETTE_BUILDERS = {
@@ -1064,28 +1714,42 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 	-- furniture layout, just with nothing decorative exposed outside them.
 	local isCustomExterior = CUSTOM_EXTERIOR_THEMES[CURRENT_THEME_ID] == true
 
+	--[[
+		Floor and ceiling are built thicker than one lighting voxel and grown
+		AWAY from the room (floor downward, ceiling upward), so the walkable
+		surface stays at y=0.5 and the ceiling soffit stays at
+		def.height-0.5 exactly as before - only the hidden outer faces move.
+		At 0.5 studs thick these were the single worst light leak in the
+		project: an interior light 0.25 studs under the ceiling lit the sky
+		straight through it.
+	]]
+	local floorTopY = 0.5
 	PartUtils.CreatePart({
 		name = "Floor",
-		size = Vector3.new(def.size.X, 0.5, def.size.Y),
-		position = basePos + Vector3.new(0, 0.25, 0),
+		size = Vector3.new(def.size.X, SOLID_SLAB_THICKNESS, def.size.Y),
+		position = basePos + Vector3.new(0, floorTopY - SOLID_SLAB_THICKNESS / 2, 0),
 		material = Enum.Material.SmoothPlastic,
 		color = INTERIOR_FLOOR_COLOR,
 		parent = model,
 	})
 
+	local ceilingUnderside = def.height - 0.5
 	PartUtils.CreatePart({
 		name = "Ceiling",
-		size = Vector3.new(def.size.X, 0.5, def.size.Y),
-		position = basePos + Vector3.new(0, def.height - 0.25, 0),
+		size = Vector3.new(def.size.X, SOLID_SLAB_THICKNESS, def.size.Y),
+		position = basePos + Vector3.new(0, ceilingUnderside + SOLID_SLAB_THICKNESS / 2, 0),
 		material = WALL_MATERIAL,
 		color = CEILING_COLOR,
 		parent = model,
 	})
 
+	-- Walls likewise keep their inner face at exactly (edge - WALL_THICKNESS)
+	-- and thicken outward only.
 	PartUtils.CreatePart({
 		name = "BackWall",
-		size = Vector3.new(def.size.X, def.height, WALL_THICKNESS),
-		position = basePos + Vector3.new(0, def.height / 2, -halfZ + WALL_THICKNESS / 2),
+		size = Vector3.new(def.size.X, def.height, SOLID_WALL_THICKNESS),
+		position = basePos
+			+ Vector3.new(0, def.height / 2, -halfZ + WALL_THICKNESS - SOLID_WALL_THICKNESS / 2),
 		material = WALL_MATERIAL,
 		color = EXTERIOR_WALL_COLOR,
 		parent = model,
@@ -1095,10 +1759,12 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 	-- instead of a single flat surface - the "layered walls / large
 	-- windows" the visual overhaul calls for.
 	for _, side in ipairs({ -1, 1 }) do
-		local wallX = side * (halfX - WALL_THICKNESS / 2)
+		-- Inner face stays at side*(halfX - WALL_THICKNESS); the wall grows
+		-- outward from there so shelving and fixtures keep their positions.
+		local wallX = side * (halfX - WALL_THICKNESS + SOLID_WALL_THICKNESS / 2)
 		PartUtils.CreatePart({
 			name = if side == -1 then "LeftWall" else "RightWall",
-			size = Vector3.new(WALL_THICKNESS, def.height, def.size.Y),
+			size = Vector3.new(SOLID_WALL_THICKNESS, def.height, def.size.Y),
 			position = basePos + Vector3.new(wallX, def.height / 2, 0),
 			material = WALL_MATERIAL,
 			color = EXTERIOR_WALL_COLOR,
@@ -1143,18 +1809,22 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 	-- Plaza-facing wall, split around the doorway gap.
 	local sideSegWidth = halfX - doorHalfWidth
 	if sideSegWidth > 0.5 then
+		-- Front wall segments also keep their inner face at halfZ -
+		-- WALL_THICKNESS and thicken outward, so the doorway reveal is
+		-- unchanged from inside while the wall becomes a real occluder.
+		local frontWallZ = halfZ - WALL_THICKNESS + SOLID_WALL_THICKNESS / 2
 		PartUtils.CreatePart({
 		name = "FrontWallLeft",
-		size = Vector3.new(sideSegWidth, doorHeight, WALL_THICKNESS),
-		position = basePos + Vector3.new(-halfX + sideSegWidth / 2, doorHeight / 2, halfZ - WALL_THICKNESS / 2),
+		size = Vector3.new(sideSegWidth, doorHeight, SOLID_WALL_THICKNESS),
+		position = basePos + Vector3.new(-halfX + sideSegWidth / 2, doorHeight / 2, frontWallZ),
 		material = WALL_MATERIAL,
 		color = EXTERIOR_WALL_COLOR,
 		parent = model,
 		})
 		PartUtils.CreatePart({
 		name = "FrontWallRight",
-		size = Vector3.new(sideSegWidth, doorHeight, WALL_THICKNESS),
-		position = basePos + Vector3.new(halfX - sideSegWidth / 2, doorHeight / 2, halfZ - WALL_THICKNESS / 2),
+		size = Vector3.new(sideSegWidth, doorHeight, SOLID_WALL_THICKNESS),
+		position = basePos + Vector3.new(halfX - sideSegWidth / 2, doorHeight / 2, frontWallZ),
 		material = WALL_MATERIAL,
 		color = EXTERIOR_WALL_COLOR,
 		parent = model,
@@ -1163,10 +1833,14 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 
 	-- "Base": the header above the doorway - full building width, carries
 	-- the exterior sign/display exactly as Buildings.lua already expects.
+	-- Its Back (+Z) face must stay exactly at halfZ so the SurfaceGui
+	-- Buildings.lua mounts on it keeps facing the plaza from the same
+	-- plane; it therefore thickens INWARD rather than outward.
 	local base = PartUtils.CreatePart({
 		name = "Base",
-		size = Vector3.new(def.size.X, headerHeight, WALL_THICKNESS),
-		position = basePos + Vector3.new(0, doorHeight + headerHeight / 2, halfZ - WALL_THICKNESS / 2),
+		size = Vector3.new(def.size.X, headerHeight, SOLID_WALL_THICKNESS),
+		position = basePos
+			+ Vector3.new(0, doorHeight + headerHeight / 2, halfZ - SOLID_WALL_THICKNESS / 2),
 		material = WALL_MATERIAL,
 		color = HEADER_COLOR,
 		parent = model,
@@ -1216,6 +1890,84 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 			parent = model,
 		})
 
+		--[[
+			FACADE NAME PLATE for the BOX themes (Futuristic / Space).
+
+			The three custom-exterior themes already get a large mounted name
+			plate at their tunnel mouth (see themedEntranceTunnel's
+			EntranceNamePlate). The box themes had NO plate at all - their name
+			was painted straight onto the "Base" header via Buildings.lua's
+			addSign, stretched across the header's full width. Because
+			TextScaled is width-bound for a long single-line name (see
+			FormatSignText), "Statistics Building" rendered ~3.1-stud glyphs
+			inside a 9-stud header - the "very thin" name this pass fixes.
+
+			This is a real plate standing proud of the facade, so it also reads
+			as mounted signage rather than paint, matching the themed maps.
+
+			GEOMETRY: the bottom is held at doorHeight + 3 so the plate always
+			clears the EntranceCanopy above the door (whose top reaches about
+			doorHeight + 1.75). The height then runs up to 6 studs past the
+			roofline, capped at 12. On all four buildings that resolves to the
+			SAME 12-stud plate topping out at the SAME Y - so the whole
+			building row's signage lines up, which reads as deliberate rather
+			than each building having a differently-sized sign. It sits at
+			halfZ + 1.1, outside the wall but well inside the canopy's own
+			reach, so it never floats detached.
+		]]
+		local plateBottomY = doorHeight + 3
+		local platePassHeight = math.clamp(def.height + 6 - plateBottomY, 7, 12)
+		local platePassWidth = math.clamp(def.size.X * 0.9, DOOR_WIDTH + 10, DOOR_WIDTH + 26)
+		local platePassY = plateBottomY + platePassHeight / 2
+		local platePassZ = halfZ + 1.1
+		local facadePlate = PartUtils.CreatePart({
+			name = "EntranceNamePlate",
+			size = Vector3.new(platePassWidth, platePassHeight, 2.2),
+			position = basePos + Vector3.new(0, platePassY, platePassZ),
+			material = WALL_MATERIAL,
+			color = HEADER_COLOR,
+			canCollide = false,
+			parent = model,
+		})
+
+		local facadeGui = Instance.new("SurfaceGui")
+		facadeGui.Face = Enum.NormalId.Back -- Back = +Z, facing the plaza (see addSign)
+		facadeGui.LightInfluence = 0
+		facadeGui.PixelsPerStud = 48
+		facadeGui.Parent = facadePlate
+
+		local facadeLabel = Instance.new("TextLabel")
+		facadeLabel.Size = UDim2.fromScale(1, 1)
+		facadeLabel.BackgroundTransparency = 1
+		facadeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		facadeLabel.TextStrokeTransparency = 0.3
+		facadeLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+		facadeLabel.Font = Enum.Font.GothamBlack
+		facadeLabel.TextScaled = true
+		facadeLabel.Text = BuildingInteriors.FormatSignText(def.displayName or def.name or "")
+		facadeLabel.Parent = facadeGui
+
+		-- Flanking accent lamps, seated ON the plate's own ends so they
+		-- intersect the signage they light - same treatment the themed maps'
+		-- plate already uses, so signage reads identically across all maps.
+		for _, side in ipairs({ -1, 1 }) do
+			local facadeLamp = PartUtils.CreatePart({
+				name = "EntranceLamp",
+				size = Vector3.new(1.4, 1.4, 1.4),
+				position = basePos + Vector3.new(side * (platePassWidth / 2 - 0.2), platePassY, platePassZ),
+				material = Enum.Material.Neon,
+				color = ACCENT_COLOR,
+				shape = Enum.PartType.Ball,
+				canCollide = false,
+				parent = model,
+			})
+			local facadeLight = Instance.new("PointLight")
+			facadeLight.Color = ACCENT_COLOR
+			facadeLight.Range = LightingConfig.ACCENT_LIGHT_RANGE * 0.5
+			facadeLight.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS
+			facadeLight.Parent = facadeLamp
+		end
+
 		-- Layered roof cap: a smaller, inset volume sitting on the ceiling
 		-- with a glowing edge, so the silhouette reads as two stacked masses
 		-- rather than one flat-topped box.
@@ -1239,13 +1991,19 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		})
 	end
 
-	-- A couple of ceiling-mounted interior lights (kept minimal per the
-	-- performance guidance - no more than needed to keep the room readable).
+	--[[
+		A couple of ceiling-mounted interior lights (kept minimal per the
+		performance guidance - no more than needed to keep the room
+		readable). Raised flush INTO the ceiling slab: at def.height - 0.7
+		with a 0.2-stud panel these hung a few tenths of a stud below the
+		ceiling with clear air behind them, reading as floating strips. They
+		now intersect the ceiling they are supposed to be mounted on.
+	]]
 	for _, offsetZ in ipairs({ -halfZ / 2, halfZ / 2 }) do
 		local light = PartUtils.CreatePart({
 			name = "CeilingLight",
-			size = Vector3.new(4, 0.2, 1.5),
-			position = basePos + Vector3.new(0, def.height - 0.7, offsetZ),
+			size = Vector3.new(4, 0.6, 1.5),
+			position = basePos + Vector3.new(0, def.height - 0.1, offsetZ),
 			material = ACCENT_MATERIAL,
 			color = ACCENT_COLOR,
 			canCollide = false,
@@ -1253,8 +2011,12 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		})
 		local pointLight = Instance.new("PointLight")
 		pointLight.Color = ACCENT_COLOR
-		pointLight.Range = LightingConfig.ACCENT_LIGHT_RANGE
 		pointLight.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS
+		-- Sealed: shadows on, and range clamped so the falloff dies inside
+		-- the room instead of washing out through the roof (see
+		-- sealInteriorLight). This pair of ceiling lamps was the main source
+		-- of light visibly peeking out of the buildings.
+		sealInteriorLight(pointLight, math.min(LightingConfig.ACCENT_LIGHT_RANGE, def.height + 4))
 		pointLight.Parent = light
 	end
 
@@ -1358,12 +2120,14 @@ local function terminal(model: Model, position: Vector3, promptName: string, pro
 		parent = model,
 	})
 
-	-- Floating header naming exactly what this terminal does - "an
-	-- obvious attention-grabbing feature", not a mystery box.
+	-- Header naming exactly what this terminal does - "an obvious
+	-- attention-grabbing feature", not a mystery box. Seated ON the arch
+	-- top rather than hovering 0.15 studs above and 0.1 studs in front of
+	-- it, so the sign is genuinely part of the frame carrying it.
 	local header = PartUtils.CreatePart({
 		name = "TerminalHeader",
-		size = Vector3.new(4.6, 1, 0.15),
-		position = position + Vector3.new(0, 4.4, 0.4),
+		size = Vector3.new(4.6, 1, 0.3),
+		position = position + Vector3.new(0, 4.05, 0.25),
 		material = Enum.Material.Neon,
 		color = ACCENT_COLOR,
 		transparency = 0.15,
@@ -1418,6 +2182,7 @@ local function terminal(model: Model, position: Vector3, promptName: string, pro
 	spotlight.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS * 1.6
 	spotlight.Angle = 70
 	spotlight.Face = Enum.NormalId.Bottom
+	spotlight.Shadows = true -- occlude against the room rather than bleeding through it
 	spotlight.Parent = spotAnchor
 
 	local prompt = Instance.new("ProximityPrompt")
@@ -1526,10 +2291,14 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 					color = FURNITURE_COLOR,
 					parent = model,
 				})
+				-- Resting ON the shelf. At +0.55 above a 0.25-thick shelf an
+				-- 0.8-cube's underside sat 0.025 studs clear of the shelf top -
+				-- a hairline float, but a float, and it read as merchandise
+				-- hovering. Lowered so the item genuinely sits on the board.
 				PartUtils.CreatePart({
 					name = "ShelfItem",
 					size = Vector3.new(0.8, 0.8, 0.8),
-					position = basePos + Vector3.new(side * (halfX - 2.1), shelfY + 0.55, offsetZ),
+					position = basePos + Vector3.new(side * (halfX - 2.1), shelfY + 0.45, offsetZ),
 					material = ACCENT_MATERIAL,
 					color = ACCENT_COLOR,
 					canCollide = false,
@@ -1969,9 +2738,35 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 		parent = model,
 	})
 
-	-- Example question station in the middle of the room - a floating
-	-- "12 x 8 = ?"-style demo screen with a bench on each side, the room's
-	-- clear second stop on the learning path.
+	--[[
+		Example question station in the middle of the room - a "12 x 8 = ?"
+		style demo screen with a bench on each side, the room's clear second
+		stop on the learning path.
+
+		The screen used to hover in mid-air with nothing holding it up. It
+		now stands on a real mount: a floor pedestal and a support post that
+		both intersect the screen above and the floor below, so the station
+		is one connected object.
+	]]
+	PartUtils.CreateDisc({
+		name = "ExampleQuestionBase",
+		diameter = 3.4,
+		thickness = 0.4,
+		position = basePos + Vector3.new(0, 0.2, 1),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+	PartUtils.CreatePart({
+		name = "ExampleQuestionPost",
+		size = Vector3.new(0.7, 3.4, 0.7),
+		position = basePos + Vector3.new(0, 1.8, 1),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
+		canCollide = false,
+		parent = model,
+	})
 	PartUtils.CreatePart({
 		name = "ExampleQuestionScreen",
 		size = Vector3.new(6, 3, 0.2),

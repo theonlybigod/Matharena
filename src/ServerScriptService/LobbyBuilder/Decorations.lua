@@ -150,12 +150,47 @@ local function radialRingPositions(
 	return positions
 end
 
+--[[
+	A flower bed as an actual connected planting, not three loose spheres.
+
+	This used to place three 0.8-stud balls at 1.2-stud spacing with nothing
+	underneath them: the spacing exceeded their diameter so they did not
+	even touch each other, and there was no soil or stem for them to grow
+	from - so every bed was three orbs hovering over bare ground.
+
+	It now builds a soil mound that all three blooms share, and a stem from
+	that mound up into each bloom, so the bed is one connected object.
+]]
 local function createFlowerBed(position: Vector3, parent: Instance)
+	local spread = 1.2
+
+	PartUtils.CreateDisc({
+		name = "FlowerBedSoil",
+		diameter = spread * (#GROUND_CLUSTER_COLORS - 1) + 2.4,
+		thickness = 0.5,
+		position = position + Vector3.new(0, 0.18, 0),
+		material = Enum.Material.Ground,
+		color = Color3.fromRGB(74, 62, 50),
+		canCollide = false,
+		parent = parent,
+	})
+
 	for i, color in ipairs(GROUND_CLUSTER_COLORS) do
+		local offsetX = (i - 2) * spread
+		-- Stem: overlaps the soil below it and the bloom above it.
+		PartUtils.CreatePart({
+			name = "FlowerStem" .. i,
+			size = Vector3.new(0.18, 0.7, 0.18),
+			position = position + Vector3.new(offsetX, 0.42, 0),
+			material = Enum.Material.Grass,
+			color = Color3.fromRGB(72, 108, 62),
+			canCollide = false,
+			parent = parent,
+		})
 		PartUtils.CreatePart({
 			name = "Flower" .. i,
 			size = Vector3.new(0.8, 0.8, 0.8),
-			position = position + Vector3.new((i - 2) * 1.2, 0.4, 0),
+			position = position + Vector3.new(offsetX, 0.85, 0),
 			material = Enum.Material.Neon,
 			color = color,
 			shape = Enum.PartType.Ball,

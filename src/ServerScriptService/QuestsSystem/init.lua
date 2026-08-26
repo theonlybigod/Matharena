@@ -79,6 +79,30 @@ local function dayNumber(unixTime: number): number
 end
 
 --[[
+	QUEST UNLOCK GATE.
+
+	Quests do not exist for a player until they have finished the
+	first-time tutorial - "I want the quests to only pop up after they
+	complete the tutorial for the first time". The gate is the persisted
+	profile flag (DataSystem.tutorialCompleted, written by TutorialSystem),
+	NOT merely having joined a server, so it survives rejoins and server
+	hops exactly like every other bit of profile state.
+
+	Read straight off the profile rather than through TutorialSystem to
+	avoid a require cycle - TutorialSystem already depends on DataSystem,
+	and so does this module.
+
+	False for an unloaded profile, which is the safe direction: a player
+	momentarily sees no quests instead of the quest loop running for
+	someone who has never done the tutorial.
+]]
+local function questsUnlocked(player: Player): boolean
+	local profile = DataSystem.GetProfile(player)
+	return profile ~= nil and profile.tutorialCompleted == true
+end
+
+
+--[[
 	Lazily initializes (on first read) and returns the slot state for
 	`slotId`. A brand-new slot rolls its first quest immediately and is
 	available right away (nextAvailableAt = 0) - notifiedReady starts true
@@ -450,7 +474,12 @@ local function startReadyNotifyLoop()
 		while true do
 			task.wait(READY_NOTIFY_TICK_SECONDS)
 			for _, player in ipairs(Players:GetPlayers()) do
-				local profile = DataSystem.GetProfile(player)
+				-- Never surface a "New Quest Available" banner to a player who
+				-- has not finished the first-time tutorial. Deliberately checked
+				-- BEFORE getSlotState, which lazily rolls a slot's first quest -
+				-- so a locked player's slots are not even initialised yet, and
+				-- their first quests roll fresh once they finish the tutorial.
+				local profile = if questsUnlocked(player) then DataSystem.GetProfile(player) else nil
 				if profile then
 					for _, slotDef in ipairs(QuestsConfig.SLOTS) do
 						local state = getSlotState(profile, slotDef)
@@ -474,12 +503,23 @@ end
 
 function QuestsSystem.Init()
 	getQuestsSnapshotFunction.OnServerInvoke = function(player: Player)
+		-- Locked until the first-time tutorial is done. Returning an explicit
+		-- `locked` snapshot (rather than an empty one) lets the client hide
+		-- the quest box outright instead of rendering three empty slots.
+		if not questsUnlocked(player) then
+			return { locked = true, slots = {} }
+		end
 		return QuestsSystem.BuildSnapshot(player)
 	end
 
 	acceptQuestFunction.OnServerInvoke = function(player: Player, slotId: unknown)
 		if typeof(slotId) ~= "string" then
 			return { success = false, reason = "InvalidRequest" }
+		end
+		-- Server-authoritative unlock check: a client that somehow fires this
+		-- before finishing the tutorial cannot start the quest loop early.
+		if not questsUnlocked(player) then
+			return { success = false, reason = "TutorialIncomplete" }
 		end
 		if not RemoteThrottle.Check(player, "AcceptQuest", 0.5) then
 			return { success = false, reason = "TooManyRequests" }

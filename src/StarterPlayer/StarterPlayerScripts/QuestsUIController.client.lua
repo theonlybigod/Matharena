@@ -123,6 +123,22 @@ local CARD_HEIGHT = 168
 local EXPANDED_POSITION = UDim2.new(0, 24, 0.5, -EXPANDED_HEIGHT / 2)
 local COLLAPSED_POSITION = UDim2.new(0, 0, 0.5, -COLLAPSED_HEIGHT / 2) -- flush against the screen's left edge
 
+--[[
+	QUEST UNLOCK GATE (client half).
+
+	The authoritative gate is server-side (QuestsSystem returns a `locked`
+	snapshot and never fires QuestReady until the first-time tutorial is
+	done). This mirror exists purely so the box and its banner are hidden
+	INSTANTLY on join, rather than flickering into view for the moment
+	between the box being built and the first snapshot coming back.
+
+	Declared HERE, above every use, rather than beside setBoxVisible far
+	below: the QuestReady handler reads it hundreds of lines earlier, and a
+	local declared after that point would be read as a nil GLOBAL there,
+	which would silently suppress every quest banner forever.
+]]
+local questsUnlocked = false
+
 local questBox = Instance.new("Frame")
 questBox.Name = "QuestBox"
 questBox.Size = UDim2.fromOffset(EXPANDED_WIDTH, EXPANDED_HEIGHT)
@@ -746,6 +762,12 @@ local function showNextBanner()
 end
 
 RemoteEvents.Get("QuestReady").OnClientEvent:Connect(function(data)
+	-- Defence in depth: the server already refuses to fire this before the
+	-- first-time tutorial is finished, so a banner can never interrupt the
+	-- tutorial. Re-checked here so a stale in-flight event can't slip past.
+	if not questsUnlocked then
+		return
+	end
 	if not data or typeof(data) ~= "table" then
 		return
 	end
@@ -787,7 +809,16 @@ end)
 
 local visible = false
 
+--[[
+	See `questsUnlocked` near the top of this file for why the unlock flag
+	is declared up there rather than here.
+]]
 local function setBoxVisible(newVisible: boolean)
+	-- Locked always wins: nothing can show the quest box before the
+	-- first-time tutorial is finished.
+	if not questsUnlocked then
+		newVisible = false
+	end
 	if newVisible == visible then
 		return
 	end
@@ -797,6 +828,49 @@ local function setBoxVisible(newVisible: boolean)
 		requestSnapshot()
 	end
 end
+
+--[[
+	Re-applies lobby visibility from the authoritative match state.
+
+	Needed because the unlock flag resolves ASYNCHRONOUSLY (a remote round
+	trip), while GameStateChanged / the startup snapshot can arrive first.
+	Without this, a returning player's box was forced hidden by the gate,
+	the unlock landed a moment later, and nothing ever asked again - so the
+	quest box stayed invisible for the whole session.
+]]
+local function applyLobbyVisibility()
+	local ok, snapshot = pcall(function()
+		return RemoteFunctions.Get("GetMatchSnapshot"):InvokeServer()
+	end)
+	if ok and snapshot then
+		setBoxVisible(
+			snapshot.gameState == MatchConfig.GameState.Lobby
+				or snapshot.gameState == MatchConfig.GameState.Waiting
+		)
+	end
+end
+
+RemoteEvents.Get("TutorialCompleted").OnClientEvent:Connect(function()
+	if questsUnlocked then
+		return
+	end
+	questsUnlocked = true
+	applyLobbyVisibility()
+end)
+
+-- Returning players finished the tutorial in an earlier session, so they
+-- never receive TutorialCompleted this join - ask once on startup, then
+-- re-apply visibility, since the gate may already have forced the box
+-- hidden before this answer came back.
+task.spawn(function()
+	local ok, state = pcall(function()
+		return RemoteFunctions.Get("GetTutorialState"):InvokeServer()
+	end)
+	if ok and state and state.completed then
+		questsUnlocked = true
+		applyLobbyVisibility()
+	end
+end)
 
 RemoteEvents.Get("GameStateChanged").OnClientEvent:Connect(function(state: string)
 	setBoxVisible(state == MatchConfig.GameState.Lobby or state == MatchConfig.GameState.Waiting)

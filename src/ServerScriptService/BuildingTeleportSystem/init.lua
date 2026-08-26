@@ -35,20 +35,18 @@
 	know about it.
 ]]
 
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local LobbyConfig = require(ServerScriptService.LobbyBuilder.LobbyConfig)
 local MapConfig = require(ServerScriptService.LobbyBuilder.MapConfig)
+local BuildingInteriors = require(ServerScriptService.LobbyBuilder.BuildingInteriors)
+local BuildingSigns = require(ServerScriptService.LobbyBuilder.BuildingSigns)
 local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 
 local BuildingTeleportSystem = {}
-
--- How far out from the doorway (past the building's own front wall) the
--- player lands - far enough to stand clear of the door swing/canopy
--- overhang, close enough to obviously read as "right in front of it".
-local DOOR_APPROACH_DISTANCE = 6
 -- Matches Teleporter.lua's own convention for standing a character just
 -- above the ground (its lobby-return teleport uses the same +3 offset).
 local STAND_HEIGHT_ABOVE_GROUND = 3
@@ -82,45 +80,114 @@ end
 	LobbyConfig's.
 ]]
 local function getEntranceCFrame(def, mapDef: MapsConfig.MapDef): CFrame
-	local halfZ = def.size.Y / 2
+	--[[
+		The standoff is THEME-AWARE. A flat halfZ+6 was correct while every
+		building was a bare box, but the Lava/IceAge/UnderTheSea themes wrap
+		each building in a body whose radius and entrance tunnel reach well
+		past halfZ - so that offset dropped the player inside the volcano
+		mound / igloo dome rather than in front of it.
+		BuildingInteriors.GetEntranceStandoff reports the distance that
+		actually clears whatever this map's theme built.
+	]]
+	local standoff = BuildingInteriors.GetEntranceStandoff(def, mapDef.themeId)
 	local localPosition = Vector3.new(
 		def.position.X,
 		STAND_HEIGHT_ABOVE_GROUND,
-		def.position.Z + halfZ + DOOR_APPROACH_DISTANCE
+		def.position.Z + standoff
 	)
 	local worldPosition = localPosition + mapDef.origin + Vector3.new(0, MapConfig.GROUND_ELEVATION, 0)
 	return CFrame.new(worldPosition) -- no rotation needed; default -Z facing already looks at the door
 end
 
-local function onRequestTeleportToBuilding(player: Player, rawName: unknown, rawMapId: unknown)
+local function resolveDestination(rawName: unknown, rawMapId: unknown, who: string): (CFrame?, string?)
 	if typeof(rawName) ~= "string" then
-		return
+		return nil, "building name was not a string"
 	end
 
 	local def = findBuildingDef(rawName)
 	if not def then
-		warn(("[BuildingTeleportSystem] Unknown building name %q requested by %s."):format(rawName, player.Name))
-		return
+		return nil, ("unknown building %q"):format(rawName)
 	end
 
-	-- `rawMapId` comes from the clicked sign's own "MapId" attribute
-	-- (BuildingSigns.lua) - falls back to the default map for any
-	-- stale/pre-multi-map client or malformed value, same defensive
-	-- fallback convention every other client-supplied id uses elsewhere in
-	-- this project.
 	local mapDef = (typeof(rawMapId) == "string" and MapsConfig.GetMap(rawMapId)) or MapsConfig.GetDefaultMap()
+	if not mapDef then
+		return nil, ("no map definition for %q and no default map"):format(tostring(rawMapId))
+	end
+
+	local cframe = getEntranceCFrame(def, mapDef)
+	-- Guard against a destination that is somehow not a finite position -
+	-- PivotTo with a NaN would put the character somewhere unrecoverable.
+	local p = cframe.Position
+	if p.X ~= p.X or p.Y ~= p.Y or p.Z ~= p.Z then
+		return nil, ("computed a non-finite destination for %s on %s"):format(rawName, mapDef.id or "?")
+	end
+
+	return cframe, nil
+end
+
+--[[
+	Shared teleport entry point for BOTH click paths. Validates on the
+	server every time - neither path is trusted to have done it - and warns
+	on failure rather than silently doing nothing, which is what made the
+	original breakage so hard to see.
+]]
+local function teleportPlayerToBuilding(player: Player, rawName: unknown, rawMapId: unknown, source: string)
+	local cframe, failure = resolveDestination(rawName, rawMapId, player.Name)
+	if not cframe then
+		warn(("[BuildingTeleportSystem] %s teleport request from %s rejected: %s"):format(source, player.Name, failure))
+		return
+	end
 
 	local character = player.Character
-	if not character then
+	if not character or not character.PrimaryPart then
+		warn(("[BuildingTeleportSystem] %s teleport for %s skipped: no loaded character."):format(source, player.Name))
 		return
 	end
 
-	character:PivotTo(getEntranceCFrame(def, mapDef))
+	character:PivotTo(cframe)
+end
+
+local function onRequestTeleportToBuilding(player: Player, rawName: unknown, rawMapId: unknown)
+	teleportPlayerToBuilding(player, rawName, rawMapId, "Remote")
+end
+
+--[[
+	Wires every ClickDetector-based teleport target (LobbyBuilder/
+	BuildingSigns.lua tags them BuildingSigns.TELEPORT_TARGET_TAG). This is
+	the PRIMARY path: MouseClick fires on the server with the clicking
+	Player, so the click never depends on client GUI input working, and the
+	server is authoritative by construction.
+
+	The part carries its own BuildingName/MapId attributes, so a click
+	resolves the correct map's copy of a building without the client
+	supplying anything at all.
+]]
+local function wireClickTarget(part: Instance)
+	if not part:IsA("BasePart") then
+		return
+	end
+	local detector = part:FindFirstChildOfClass("ClickDetector")
+	if not detector then
+		warn(("[BuildingTeleportSystem] %s is tagged as a teleport target but has no ClickDetector."):format(part:GetFullName()))
+		return
+	end
+
+	detector.MouseClick:Connect(function(player)
+		teleportPlayerToBuilding(player, part:GetAttribute("BuildingName"), part:GetAttribute("MapId"), "Click")
+	end)
 end
 
 function BuildingTeleportSystem.Init()
 	RemoteEvents.Get("RequestTeleportToBuilding").OnServerEvent:Connect(onRequestTeleportToBuilding)
-	print("[BuildingTeleportSystem] Initialized")
+
+	local wiredCount = 0
+	for _, part in ipairs(CollectionService:GetTagged(BuildingSigns.TELEPORT_TARGET_TAG)) do
+		wireClickTarget(part)
+		wiredCount += 1
+	end
+	CollectionService:GetInstanceAddedSignal(BuildingSigns.TELEPORT_TARGET_TAG):Connect(wireClickTarget)
+
+	print(("[BuildingTeleportSystem] Initialized (%d click targets wired)"):format(wiredCount))
 end
 
 return BuildingTeleportSystem

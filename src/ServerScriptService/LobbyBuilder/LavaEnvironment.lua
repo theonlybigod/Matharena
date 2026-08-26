@@ -33,7 +33,32 @@ local WALL_HEIGHT = 700
 local WALL_BOTTOM_Y = -200
 local WALL_THICKNESS = 4
 local ROCK_COLOR = Color3.fromRGB(24, 18, 16) -- dark, ash-choked volcanic rock
-local GLOW_COLOR = Color3.fromRGB(255, 110, 30)
+
+--[[
+	MOLTEN LAVA APPEARANCE - one definition used by every lava surface on
+	this map (volcano flows, ground fissures, pools, vents, crater).
+
+	Previously each site picked its own colour and used
+	Enum.Material.CrackedLava, which renders as a dark crusted rock with
+	dull embers - it read as scorched stone rather than as molten lava, and
+	against the near-black basalt floor it barely registered. Lava is now a
+	bright orange NEON so it self-illuminates and reads as genuinely molten.
+
+	LAVA_CORE is the hot centre of a flow; LAVA_EDGE is the slightly deeper
+	orange used at the cooling rim so a stream still has some internal
+	shading rather than being one flat block of colour. The neon is kept a
+	touch below pure white-hot so it stays legible instead of blooming out
+	(LobbyBloom's threshold is 1.6 - see LobbyLighting).
+]]
+local LAVA_MATERIAL = Enum.Material.Neon
+-- Neon renders considerably brighter than its raw colour, and LobbyBloom
+-- picks up anything past threshold 1.6 - so these are deliberately pitched
+-- BELOW the orange we actually want on screen. Set any higher (the first
+-- pass used 255,138,26) and the bloom washes the flows out to flat yellow,
+-- losing both the colour and the internal shading.
+local LAVA_CORE = Color3.fromRGB(214, 88, 12)
+local LAVA_EDGE = Color3.fromRGB(168, 48, 8)
+local GLOW_COLOR = LAVA_CORE
 
 --[[
 	Builds the enclosing dark-rock ring + ceiling/floor caps - see
@@ -79,7 +104,7 @@ local function buildWallSegments(parent: Instance)
 				size = Vector3.new(WALL_THICKNESS + 0.6, rng:NextNumber(120, 260), 1.2),
 				cframe = CFrame.new(midpoint + Vector3.new(0, wallCenterY + rng:NextNumber(-100, 150), 0))
 					* CFrame.Angles(0, yaw, math.rad(rng:NextNumber(-8, 8))),
-				material = Enum.Material.CrackedLava,
+				material = LAVA_MATERIAL,
 				color = GLOW_COLOR,
 				canCollide = false,
 				parent = folder,
@@ -177,6 +202,31 @@ local function slopeCFrame(position: Vector3, angle: number, pitch: number): CFr
 	return CFrame.new(position) * CFrame.Angles(0, angle, 0) * CFrame.Angles(pitch, 0, 0)
 end
 
+--[[
+	Finds the volcano's REAL, as-built surface at a given angle and height
+	by raycasting inward toward its axis, instead of trusting the idealised
+	cone formula.
+
+	Why this exists: the flank is tiled from slabs that carry deliberate
+	positional jitter, so the mathematical cone is only approximately where
+	the rock actually ended up. Surface decorations (vents, lava channels)
+	positioned from the formula could therefore land a stud or two off the
+	real rock face and hang in mid-air - which is precisely the floating-
+	geometry defect this pass is eliminating. Snapping them to an actual
+	raycast hit against the already-built shell guarantees they sit on the
+	geometry that exists rather than the geometry that was intended.
+
+	Returns nil if the ray misses entirely (caller simply skips that piece).
+]]
+local function surfaceHit(model: Instance, origin: Vector3, angle: number, y: number, searchRadius: number): RaycastResult?
+	local from = origin + Vector3.new(math.sin(angle) * searchRadius, y, math.cos(angle) * searchRadius)
+	local toward = origin + Vector3.new(0, y, 0)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { model }
+	return workspace:Raycast(from, toward - from, params)
+end
+
 local function buildDistantVolcano(position: Vector3, rng: Random, parent: Instance, name: string)
 	local model = Instance.new("Model")
 	model.Name = name
@@ -199,23 +249,47 @@ local function buildDistantVolcano(position: Vector3, rng: Random, parent: Insta
 	-- never a seam or gap between one tier and the next - this is what
 	-- makes the mountain read as one continuous rock surface instead of
 	-- discrete floating rings.
-	local tierCount = 9
+	--[[
+		Tier count raised, and every dimension is now DERIVED from the
+		tier's own spacing instead of being chosen independently of it.
+		Previously the +/-1.5 stud radial and +/-2 stud vertical jitter was
+		applied to shingles only 2.5-4.5 studs thick, so individual slabs
+		popped clear of the surface and opened seams at close range. Jitter
+		is now expressed as a fraction of the guaranteed overlap margin, so
+		it can still roughen the surface but can never break it.
+	]]
+	local tierCount = 14
+	local SHINGLE_OVERLAP = 1.9
 	for tier = 0, tierCount do
 		local t = tier / tierCount
 		local ringRadius = math.max(craterRadius, baseRadius * (1 - t) ^ 0.9)
 		local ringY = peakHeight * t ^ 1.05
-		local shingleLength = (baseRadius / tierCount) * 2.6 -- deep radial overlap tier-to-tier
-		local shingleWidth = math.max(9, ringRadius * 0.6)
-		local shingleCount = math.max(8, math.floor((2 * math.pi * ringRadius) / (shingleWidth * 0.55)))
+		-- Slant distance to the next tier, so consecutive tiers overlap
+		-- along the slope no matter how fast the radius is shrinking.
+		local nextT = math.min((tier + 1) / tierCount, 1)
+		local nextRadius = math.max(craterRadius, baseRadius * (1 - nextT) ^ 0.9)
+		local nextY = peakHeight * nextT ^ 1.05
+		local slant = math.max(
+			math.sqrt((ringRadius - nextRadius) ^ 2 + (ringY - nextY) ^ 2),
+			baseRadius / tierCount
+		)
+		local shingleLength = slant * SHINGLE_OVERLAP
+
+		local circumference = 2 * math.pi * ringRadius
+		local shingleCount = math.max(10, math.ceil(circumference / math.max(ringRadius * 0.45, 7)))
+		local arcSpacing = circumference / shingleCount
+		local shingleWidth = arcSpacing * SHINGLE_OVERLAP
+		local overlapMargin = (shingleWidth - arcSpacing) / 2
+
 		for c = 1, shingleCount do
-			local angle = (2 * math.pi / shingleCount) * c + rng:NextNumber(-0.12, 0.12)
-			local jitterRadius = ringRadius + rng:NextNumber(-1.5, 1.5)
-			local jitterY = ringY + rng:NextNumber(-2, 2)
+			local angle = (2 * math.pi / shingleCount) * c
+			local jitterRadius = ringRadius + rng:NextNumber(-overlapMargin * 0.4, overlapMargin * 0.4)
+			local jitterY = ringY + rng:NextNumber(-slant * 0.15, slant * 0.15)
 			local shinglePos = position + Vector3.new(math.sin(angle) * jitterRadius, jitterY, math.cos(angle) * jitterRadius)
 			PartUtils.CreatePart({
 				name = ("ShingleT%dC%d"):format(tier, c),
-				size = Vector3.new(shingleWidth * rng:NextNumber(0.9, 1.15), rng:NextNumber(2.5, 4.5), shingleLength),
-				cframe = slopeCFrame(shinglePos, angle, shinglePitch + math.rad(rng:NextNumber(-4, 4))),
+				size = Vector3.new(shingleWidth, rng:NextNumber(3.5, 5.5), shingleLength),
+				cframe = slopeCFrame(shinglePos, angle, shinglePitch + math.rad(rng:NextNumber(-3, 3))),
 				material = if rng:NextNumber() < 0.35 then Enum.Material.Rock else Enum.Material.Basalt,
 				color = Color3.fromRGB(26 + rng:NextInteger(-4, 6), 20 + rng:NextInteger(-3, 5), 18 + rng:NextInteger(-3, 4)),
 				canCollide = false,
@@ -274,54 +348,143 @@ local function buildDistantVolcano(position: Vector3, rng: Random, parent: Insta
 		diameter = craterRadius * 2,
 		thickness = 1.5,
 		position = position + Vector3.new(0, peakHeight, 0),
-		material = Enum.Material.CrackedLava,
+		material = LAVA_MATERIAL,
 		color = GLOW_COLOR,
 		canCollide = false,
 		parent = model,
 	})
 
-	-- Lava channels laid FLUSH ON the slope (same tilt as the shingles
-	-- beneath them) so molten rock reads as running down/through the
-	-- terrain, not as detached glowing boxes hovering near it.
+	--[[
+		Lava channels running down the REAL rock face. Each channel is a
+		chain of short segments, and every segment is snapped onto the
+		as-built surface by raycast (see surfaceHit above) and then sunk
+		slightly along that surface's own normal - so the molten rock is
+		cut INTO the flank rather than laid over an idealised cone the
+		jittered slabs never exactly matched.
+	]]
+	local searchRadius = baseRadius * 1.8
 	local channelCount = rng:NextInteger(4, 6)
 	for i = 1, channelCount do
 		local channelAngle = rng:NextNumber(0, 2 * math.pi)
-		local channelStartT = rng:NextNumber(0, 0.15) -- start near the crater rim
-		local channelEndT = rng:NextNumber(0.55, 0.95) -- end partway or all the way down the slope
-		local startRadius = math.max(craterRadius, baseRadius * (1 - channelStartT) ^ 0.9)
-		local endRadius = math.max(craterRadius, baseRadius * (1 - channelEndT) ^ 0.9)
-		local startY = peakHeight * channelStartT ^ 1.05
-		local endY = peakHeight * channelEndT ^ 1.05
-		local midRadius = (startRadius + endRadius) / 2
-		local midY = (startY + endY) / 2
-		local channelLength = math.sqrt((startRadius - endRadius) ^ 2 + (startY - endY) ^ 2) + 4
-		local channelPos = position + Vector3.new(math.sin(channelAngle) * midRadius, midY + 0.4, math.cos(channelAngle) * midRadius)
-		PartUtils.CreatePart({
-			name = "LavaChannel" .. i,
-			size = Vector3.new(rng:NextNumber(2, 4.5), 0.35, channelLength),
-			cframe = slopeCFrame(channelPos, channelAngle, shinglePitch),
-			material = Enum.Material.CrackedLava,
-			color = GLOW_COLOR,
-			canCollide = false,
-			parent = model,
-		})
+		-- t = 1 is the crater rim, t = 0 the base (matching the shingle
+		-- loop's own parameterisation), so a flow walks from high t to low.
+		local tTop = rng:NextNumber(0.86, 0.97)
+		local tBottom = rng:NextNumber(0.02, 0.16)
+		local channelWidth = rng:NextNumber(2.8, 4.8)
+		local segments = 16
+
+		--[[
+			DIRECTED FLOW. Sample the real rock face straight down one
+			bearing, then connect CONSECUTIVE samples end to end.
+
+			The previous version placed each segment independently and
+			oriented it with CFrame.lookAt(pos, pos + normal) - which pins
+			the part's -Z to the surface normal but leaves its long axis
+			pointing wherever the derived up-vector happened to land. That
+			is why the flows read as rectangles scattered at every angle
+			instead of a stream: nothing in that maths ever referenced the
+			downhill direction. Building each segment BETWEEN two points on
+			the slope makes the flow direction explicit, and passing the
+			surface normal as the up-vector lays the ribbon flat against the
+			rock.
+		]]
+		--[[
+			The ribbon's roll is set by ONE constant normal for the whole
+			flow, computed analytically from the cone's own slope angle:
+			for a surface at bearing `channelAngle` inclined `slopeAngle`
+			from horizontal, the outward normal is
+			(sin(bearing)*sin(slope), cos(slope), cos(bearing)*sin(slope)).
+
+			Using each raycast's OWN hit normal here (as this first did) is
+			what made the stream look like a chain of loose plates: the
+			shingles carry deliberate tilt jitter, so every segment picked up
+			a slightly different up-vector and twisted relative to its
+			neighbours. A single shared normal keeps every segment coplanar,
+			so they read as one continuous ribbon.
+		]]
+		local flowNormal = Vector3.new(
+			math.sin(channelAngle) * math.sin(slopeAngle),
+			math.cos(slopeAngle),
+			math.cos(channelAngle) * math.sin(slopeAngle)
+		).Unit
+
+		--[[
+			Points come from the cone's OWN analytic surface - the same
+			formula the shingles were laid against - offset outward along the
+			shared normal so the ribbon rides just clear of the rock.
+
+			Raycasting for these (as the previous pass did) is subtly wrong
+			here: the shingles carry positional jitter, so a ray occasionally
+			lands on a recessed slab and the flow dips inward, disappearing
+			behind the tier lip below it and breaking the stream into
+			visible gaps. The analytic surface has no such jitter, and a
+			clearance comfortably greater than the slab half-thickness plus
+			jitter guarantees the ribbon stays on top of the rock the whole
+			way down. (Vents still raycast - they WANT to be embedded.)
+		]]
+		-- Clearance must beat HALF a shingle's thickness (slabs are 3.5-5.5
+		-- thick, centred on the analytic surface) PLUS the radial jitter,
+		-- PLUS the downhill overhang of the tier above - which together are
+		-- a good deal more than the slab thickness alone. At 3.2 the ribbon
+		-- was still being occluded by the rock it was supposed to run over.
+		local FLOW_CLEARANCE = 7
+		local points = {}
+		for s = 0, segments do
+			local t = tTop + (tBottom - tTop) * (s / segments)
+			local segY = peakHeight * t ^ 1.05
+			local segR = math.max(craterRadius, baseRadius * (1 - t) ^ 0.9)
+			local onCone = position
+				+ Vector3.new(math.sin(channelAngle) * segR, segY, math.cos(channelAngle) * segR)
+			table.insert(points, onCone + flowNormal * FLOW_CLEARANCE)
+		end
+
+		for s = 1, #points - 1 do
+			local a, b = points[s], points[s + 1]
+			local delta = b - a
+			local span = delta.Magnitude
+			if span > 0.05 then
+				local mid = a + delta * 0.5
+				-- Generous overlap along the flow so consecutive segments
+				-- always intersect, and a slight widening downhill the way a
+				-- real flow spreads as the slope eases near the base.
+				local widen = 1 + (s / math.max(#points - 1, 1)) * 0.45
+				PartUtils.CreatePart({
+					name = ("LavaFlow%dS%d"):format(i, s),
+					-- Given real depth so the channel reads as a molten stream
+				-- carved into the flank rather than a decal stuck on it.
+				size = Vector3.new(channelWidth * widen, 3.4, span * 1.6),
+					cframe = CFrame.lookAt(mid, b, flowNormal),
+					material = LAVA_MATERIAL,
+					color = if s % 4 == 0 then LAVA_EDGE else LAVA_CORE,
+					canCollide = false,
+					parent = model,
+				})
+			end
+		end
 	end
 
-	-- Small heated glowing vents scattered across the surface.
+	-- Heated glowing vents cut INTO the surface. Like the flows above,
+	-- each vent is snapped to a real raycast hit against the finished rock
+	-- and sunk along that hit's normal, rather than positioned from the
+	-- idealised cone formula (which the jittered slabs only approximate,
+	-- and which therefore used to leave vents hanging off the face).
 	for i = 1, rng:NextInteger(4, 7) do
 		local t = rng:NextNumber(0.1, 0.85)
 		local angle = rng:NextNumber(0, 2 * math.pi)
-		local ventRadius = math.max(craterRadius, baseRadius * (1 - t) ^ 0.9)
-		local ventY = peakHeight * t ^ 1.05 + 0.3
-		PartUtils.CreatePart({
-			name = "HeatVent" .. i,
-			size = Vector3.new(rng:NextNumber(1.5, 3), 0.3, rng:NextNumber(1.5, 3)),
-			cframe = slopeCFrame(position + Vector3.new(math.sin(angle) * ventRadius, ventY, math.cos(angle) * ventRadius), angle, shinglePitch),
-			material = Enum.Material.CrackedLava,
-			color = GLOW_COLOR,
-			canCollide = false,
-			parent = model,
-		})
+		local ventY = peakHeight * t ^ 1.05
+		local hit = surfaceHit(model, position, angle, ventY, searchRadius)
+		if hit then
+			local pos = hit.Position - hit.Normal * 0.9
+			PartUtils.CreatePart({
+				name = "HeatVent" .. i,
+				size = Vector3.new(rng:NextNumber(1.5, 3), rng:NextNumber(1.5, 3), 2.6),
+				cframe = CFrame.lookAt(pos, pos + hit.Normal),
+				material = LAVA_MATERIAL,
+				color = LAVA_EDGE,
+				canCollide = false,
+				parent = model,
+			})
+		end
 	end
 end
 
@@ -379,7 +542,7 @@ local function buildFissureBranch(
 			name = namePrefix .. "Seg" .. s,
 			size = Vector3.new(segWidth, 0.12, segLength + 0.4),
 			cframe = CFrame.new(midpoint + Vector3.new(0, 0.16, 0)) * CFrame.Angles(0, yaw, 0),
-			material = Enum.Material.CrackedLava,
+			material = LAVA_MATERIAL,
 			color = GLOW_COLOR,
 			canCollide = false,
 			parent = parent,
@@ -408,7 +571,7 @@ local function buildFissureBranch(
 				diameter = rng:NextNumber(1.5, 4),
 				thickness = 0.1,
 				position = nextCursor + Vector3.new(0, 0.14, 0),
-				material = Enum.Material.CrackedLava,
+				material = LAVA_MATERIAL,
 				color = GLOW_COLOR,
 				canCollide = false,
 				parent = parent,
@@ -509,6 +672,75 @@ local function buildGroundPattern(parent: Instance)
 			canCollide = false,
 			parent = folder,
 		})
+	end
+
+	--[[
+		BLOWN-OUT CRATER PITS - the "exploded potholes" ground treatment.
+
+		Deliberately NOT clean circles: each pit's rim is walked around as a
+		ragged loop whose radius wanders per step, and the rim blocks are
+		tilted outward at varying angles as though the ground was thrown up
+		from underneath. A darker sunken floor sits inside, and about half
+		the pits have molten lava still pooled at the bottom.
+
+		Everything is kept curb-height or lower and non-collidable, so the
+		relief reads underfoot without ever obstructing walking.
+	]]
+	for i = 1, 11 do
+		local angle = rng:NextNumber(0, 2 * math.pi)
+		local radius = rng:NextNumber(MapConfig.USABLE_RADIUS * 0.18, MapConfig.USABLE_RADIUS * 0.9)
+		local center = Vector3.new(math.sin(angle) * radius, 0, math.cos(angle) * radius)
+		local pitRadius = rng:NextNumber(5, 11)
+		local molten = rng:NextNumber() < 0.5
+
+		-- Sunken floor: a couple of stacked discs, the lower one darker, so
+		-- the pit reads as depth rather than a flat decal.
+		PartUtils.CreateDisc({
+			name = ("PitFloor%d"):format(i),
+			diameter = pitRadius * 1.9,
+			thickness = 0.3,
+			position = center + Vector3.new(0, 0.06, 0),
+			material = Enum.Material.Basalt,
+			color = Color3.fromRGB(14, 11, 10),
+			canCollide = false,
+			parent = folder,
+		})
+		if molten then
+			PartUtils.CreateDisc({
+				name = ("PitLava%d"):format(i),
+				diameter = pitRadius * rng:NextNumber(0.9, 1.4),
+				thickness = 0.24,
+				position = center + Vector3.new(rng:NextNumber(-1, 1), 0.14, rng:NextNumber(-1, 1)),
+				material = LAVA_MATERIAL,
+				color = LAVA_EDGE,
+				canCollide = false,
+				parent = folder,
+			})
+		end
+
+		-- Ragged, thrown-up rim.
+		local rimSteps = rng:NextInteger(9, 14)
+		for r = 1, rimSteps do
+			local rimAngle = (2 * math.pi / rimSteps) * r + rng:NextNumber(-0.14, 0.14)
+			-- Radius wanders per block, so the outline is irregular rather
+			-- than a perfect circle.
+			local rimRadius = pitRadius * rng:NextNumber(0.82, 1.22)
+			local blockSize = rng:NextNumber(2, 4.2)
+			local pos = center
+				+ Vector3.new(math.sin(rimAngle) * rimRadius, rng:NextNumber(0.1, 0.5), math.cos(rimAngle) * rimRadius)
+			PartUtils.CreatePart({
+				name = ("PitRim%d_%d"):format(i, r),
+				size = Vector3.new(blockSize, rng:NextNumber(0.5, 1.3), blockSize * rng:NextNumber(0.6, 1.1)),
+				cframe = CFrame.new(pos)
+					* CFrame.Angles(0, rimAngle, 0)
+					-- Tipped outward, as debris ejected from the centre.
+					* CFrame.Angles(math.rad(rng:NextNumber(-26, -6)), 0, math.rad(rng:NextNumber(-14, 14))),
+				material = if rng:NextNumber() < 0.4 then Enum.Material.Rock else Enum.Material.Basalt,
+				color = Color3.fromRGB(28 + rng:NextInteger(-6, 8), 22 + rng:NextInteger(-4, 6), 19 + rng:NextInteger(-3, 5)),
+				canCollide = false,
+				parent = folder,
+			})
+		end
 	end
 end
 

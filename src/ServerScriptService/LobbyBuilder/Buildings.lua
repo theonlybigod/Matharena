@@ -49,20 +49,27 @@ function Buildings.SetTheme(theme: LobbyTheme.Theme)
 	BuildingSigns.SetTheme(theme)
 end
 
-local function addSign(basePart: BasePart, text: string)
-	local gui = Instance.new("SurfaceGui")
-	gui.Face = Enum.NormalId.Back -- Back = +Z face, which faces the plaza/spawns
-	gui.Parent = basePart
+--[[
+	The old addSign() helper lived here: it painted the building's name
+	straight onto the "Base" header part's Back face with a full-face
+	TextScaled label. It is gone, and nothing replaces it at this level,
+	because BuildingInteriors now builds a real mounted EntranceNamePlate
+	for EVERY theme - the custom-exterior themes get theirs at the tunnel
+	mouth (themedEntranceTunnel), and the box themes get theirs on the
+	facade (BuildShell's `not isCustomExterior` branch).
 
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 1
-	label.TextColor3 = Color3.fromRGB(255, 255, 255)
-	label.Font = Enum.Font.GothamBold
-	label.TextScaled = true
-	label.Text = text
-	label.Parent = gui
-end
+	Two reasons it had to go rather than stay as a fallback:
+
+	1. It was the "very thin" name. A full-face TextScaled label on a wide,
+	   short header is WIDTH-bound, so a long name like "Statistics
+	   Building" rendered ~3.1-stud glyphs in a 9-stud header. See
+	   BuildingInteriors.FormatSignText for the full explanation and the
+	   two-line fix.
+	2. Keeping it would now DOUBLE-print the name on the box themes: the
+	   new facade plate stands at halfZ + 1.1, just proud of the header it
+	   would have been painted on, so both would be visible at once on the
+	   taller buildings.
+]]
 
 local function buildOne(def, parent: Instance, mapId: string): Model
 	local model = Instance.new("Model")
@@ -88,20 +95,36 @@ local function buildOne(def, parent: Instance, mapId: string): Model
 		})
 	end
 
+	-- Signage is no longer applied here (see the note where addSign used to
+	-- live) - BuildingInteriors.BuildShell has already built this building's
+	-- EntranceNamePlate by now, for whichever theme is latched.
 	if def.name == "Shop" then
-		addSign(base, def.displayName)
 		BuildingInteriors.FurnishShop(def, model)
 	elseif def.name == "DailyRewards" then
-		addSign(base, def.displayName)
 		BuildingInteriors.FurnishRewards(def, model)
 	elseif def.name == "StatisticsBuilding" then
-		addSign(base, def.displayName)
 		BuildingInteriors.FurnishStatistics(def, model)
 	elseif def.name == "TutorialBuilding" then
-		addSign(base, def.displayName)
 		BuildingInteriors.FurnishTutorial(def, model)
-	else
-		addSign(base, def.displayName)
+	end
+
+	--[[
+		Make the building's own facade name plate a teleport target too.
+
+		Players reported clicking "the writing right in front of the
+		building" and nothing happening - that plate was pure decoration.
+		It is a real Part, so a ClickDetector on it is the most reliable
+		click surface in the whole system, and it is exactly where a player
+		walking up to a building naturally aims.
+
+		Searched by name rather than returned from BuildShell because the
+		three custom-exterior themes build their plate in a different place
+		(themedEntranceTunnel) than the box themes do.
+	]]
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") and descendant.Name == "EntranceNamePlate" then
+			BuildingSigns.MakeTeleportTarget(descendant, def.name, mapId, 200)
+		end
 	end
 
 	-- Message 32: floating overhead sign above every building (distinct
@@ -110,7 +133,11 @@ local function buildOne(def, parent: Instance, mapId: string): Model
 	-- Tagged with which map it belongs to (mapId) so a click can resolve
 	-- the CORRECT map's copy of this building - see BuildingSigns.BuildOne
 	-- and BuildingTeleportSystem.lua.
-	BuildingSigns.BuildOne(def, model, mapId)
+	-- The sign must clear the REAL top of whatever exterior this theme
+	-- builds, not just the box roofline - on Lava the volcano cap rises far
+	-- above def.height, and a sign anchored to the roofline ended up inside
+	-- the mountain (invisible, and unclickable).
+	BuildingSigns.BuildOne(def, model, mapId, BuildingInteriors.GetExteriorTopY(def, CURRENT_THEME_ID))
 
 	model.PrimaryPart = base
 	return model

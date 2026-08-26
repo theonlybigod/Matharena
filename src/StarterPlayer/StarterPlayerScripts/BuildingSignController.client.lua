@@ -1,45 +1,30 @@
 --[[
 	BuildingSignController.client.lua
 
-	Wires every building's clickable overhead sign (BuildingSigns.lua,
-	tagged "BuildingSignButton" with a "BuildingName" attribute) to fire
-	"RequestTeleportToBuilding" on click - see BuildingTeleportSystem.lua
-	(server) for where that teleport actually lands (directly in front of
-	the building's real doorway).
+	INTENTIONALLY INERT.
 
-	Handles both signs that already exist by the time this script runs
-	(the normal case - LobbyBuilder.Build() runs at server start, well
-	before any player's client scripts do) and any that might appear
-	later (CollectionService:GetInstanceAddedSignal), so this never
-	depends on a specific load-order race.
+	This script used to own the building-teleport click: it found every
+	sign's TextButton by CollectionService tag, reparented the sign's
+	BillboardGui into PlayerGui, and fired "RequestTeleportToBuilding" on
+	MouseButton1Click.
+
+	That whole approach is gone. Clicking a building sign is now handled
+	server-side by ClickDetectors on real geometry - see
+	LobbyBuilder/BuildingSigns.lua (MakeTeleportTarget) and
+	BuildingTeleportSystem (server), which wires every tagged target.
+
+	Why the client half had to be REMOVED rather than left as a harmless
+	fallback: a GUI element under the cursor ABSORBS the click and stops
+	the mouse from reaching world geometry. A transparent sign button
+	hosted in PlayerGui would therefore have blocked the very
+	ClickDetector that now does the work. The two mechanisms cannot
+	coexist over the same screen area - that conflict is itself one of
+	the reasons the sign stayed unclickable through an earlier fix.
+
+	The signs themselves are unchanged and still built in exactly one
+	place (BuildingSigns.lua); they are presentation only now.
+
+	This file is left in place, empty, rather than deleted, because
+	removing a source-controlled script is a change worth making
+	deliberately - see README section 7. It is safe to delete.
 ]]
-
-local CollectionService = game:GetService("CollectionService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
-
-local requestTeleportToBuildingEvent = RemoteEvents.Get("RequestTeleportToBuilding")
-
-local wired: { [Instance]: boolean } = {}
-
-local function wireButton(button: Instance)
-	if wired[button] or not button:IsA("GuiButton") then
-		return
-	end
-	wired[button] = true
-
-	button.MouseButton1Click:Connect(function()
-		local buildingName = button:GetAttribute("BuildingName")
-		local mapId = button:GetAttribute("MapId")
-		if typeof(buildingName) == "string" then
-			requestTeleportToBuildingEvent:FireServer(buildingName, mapId)
-		end
-	end)
-end
-
-for _, button in ipairs(CollectionService:GetTagged("BuildingSignButton")) do
-	wireButton(button)
-end
-
-CollectionService:GetInstanceAddedSignal("BuildingSignButton"):Connect(wireButton)

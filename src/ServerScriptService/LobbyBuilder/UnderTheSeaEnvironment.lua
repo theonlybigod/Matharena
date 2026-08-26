@@ -223,15 +223,106 @@ end
 	builds 2-4 parts under a small per-fish Model, so every fish is a
 	genuine little assembly rather than one flat wedge.
 ]]
+--[[
+	Shared fish detailing, so every species gets the same recognisable
+	anatomy without duplicating the maths three times.
+
+	`cframe` convention for all fish: local +X is FORWARD (the nose), local
+	+Y is up, local +Z is the flank the stripes sit on.
+]]
+local FISH_DARK = Color3.fromRGB(28, 32, 40)
+
+-- A pair of eyes set into the head, one per flank.
+local function addFishEyes(model: Model, cframe: CFrame, size: number, forward: number, halfWidth: number)
+	for _, side in ipairs({ -1, 1 }) do
+		PartUtils.CreatePart({
+			name = "Eye",
+			size = Vector3.new(size * 0.14, size * 0.14, size * 0.14),
+			cframe = cframe * CFrame.new(forward, size * 0.08, side * halfWidth),
+			material = Enum.Material.SmoothPlastic,
+			color = FISH_DARK,
+			shape = Enum.PartType.Ball,
+			canCollide = false,
+			parent = model,
+		})
+	end
+end
+
+-- Vertical banding across the flanks - the single clearest "this is a
+-- fish" cue after the silhouette itself.
+local function addFishStripes(
+	model: Model,
+	cframe: CFrame,
+	size: number,
+	stripeColor: Color3,
+	count: number,
+	spacing: number,
+	height: number,
+	width: number
+)
+	for i = 1, count do
+		local offset = (i - (count + 1) / 2) * spacing
+		PartUtils.CreatePart({
+			name = "Stripe" .. i,
+			size = Vector3.new(size * 0.1, height, width),
+			cframe = cframe * CFrame.new(offset, 0, 0),
+			material = Enum.Material.SmoothPlastic,
+			color = stripeColor,
+			canCollide = false,
+			parent = model,
+		})
+	end
+end
+
 local function buildReefFish(cframe: CFrame, size: number, color: Color3, parent: Instance, name: string): Model
 	local model = Instance.new("Model")
 	model.Name = name
 	model.Parent = parent
 
+	local bodyLen = size * 1.15
+	local bodyHeight = size * 1.2
+	local bodyWidth = size * 0.45
+
 	local body = PartUtils.CreatePart({
 		name = "Body",
-		size = Vector3.new(size * 0.9, size * 1.1, size * 0.35),
+		size = Vector3.new(bodyLen, bodyHeight, bodyWidth),
 		cframe = cframe,
+		material = Enum.Material.SmoothPlastic,
+		color = color,
+		canCollide = false,
+		parent = model,
+	})
+	-- Tapered snout, so the head end is obviously the front.
+	PartUtils.CreatePart({
+		name = "Head",
+		size = Vector3.new(size * 0.42, bodyHeight * 0.62, bodyWidth * 0.78),
+		cframe = cframe * CFrame.new(bodyLen * 0.52, -size * 0.04, 0),
+		material = Enum.Material.SmoothPlastic,
+		color = color,
+		canCollide = false,
+		parent = model,
+	})
+	-- Forked tail: two lobes rather than one flat wedge.
+	for _, side in ipairs({ -1, 1 }) do
+		PartUtils.CreatePart({
+			className = "WedgePart",
+			name = "TailLobe",
+			size = Vector3.new(size * 0.14, size * 0.5, size * 0.5),
+			cframe = cframe
+				* CFrame.new(-bodyLen * 0.62, side * size * 0.24, 0)
+				* CFrame.Angles(0, math.rad(-90), 0),
+			material = Enum.Material.SmoothPlastic,
+			color = color,
+			canCollide = false,
+			parent = model,
+		})
+	end
+	-- Dorsal + pelvic fins.
+	PartUtils.CreatePart({
+		className = "WedgePart",
+		name = "DorsalFin",
+		size = Vector3.new(size * 0.1, size * 0.42, size * 0.6),
+		cframe = cframe * CFrame.new(-size * 0.05, bodyHeight * 0.52, 0) * CFrame.Angles(0, math.rad(-90), 0),
 		material = Enum.Material.SmoothPlastic,
 		color = color,
 		canCollide = false,
@@ -239,14 +330,20 @@ local function buildReefFish(cframe: CFrame, size: number, color: Color3, parent
 	})
 	PartUtils.CreatePart({
 		className = "WedgePart",
-		name = "TailFin",
-		size = Vector3.new(size * 0.5, size * 0.7, size * 0.1),
-		cframe = cframe * CFrame.new(-size * 0.65, 0, 0) * CFrame.Angles(0, math.rad(90), 0),
+		name = "PelvicFin",
+		size = Vector3.new(size * 0.09, size * 0.3, size * 0.42),
+		cframe = cframe
+			* CFrame.new(-size * 0.02, -bodyHeight * 0.5, 0)
+			* CFrame.Angles(math.pi, math.rad(-90), 0),
 		material = Enum.Material.SmoothPlastic,
 		color = color,
 		canCollide = false,
 		parent = model,
 	})
+
+	addFishStripes(model, cframe, size, FISH_DARK, 3, size * 0.34, bodyHeight * 0.94, bodyWidth * 1.04)
+	addFishEyes(model, cframe, size, bodyLen * 0.52, bodyWidth * 0.42)
+
 	model.PrimaryPart = body
 	return model
 end
@@ -257,10 +354,34 @@ local function buildRayFish(cframe: CFrame, size: number, color: Color3, parent:
 	model.Parent = parent
 
 	local body = PartUtils.CreatePart({
-		className = "WedgePart",
 		name = "Body",
-		size = Vector3.new(size * 1.6, size * 0.25, size * 1.3),
+		size = Vector3.new(size * 1.5, size * 0.3, size * 1.0),
 		cframe = cframe,
+		material = Enum.Material.SmoothPlastic,
+		color = color,
+		canCollide = false,
+		parent = model,
+	})
+	-- Swept wings, tapering to a point outboard - the manta silhouette.
+	for _, side in ipairs({ -1, 1 }) do
+		PartUtils.CreatePart({
+			className = "WedgePart",
+			name = "Wing",
+			size = Vector3.new(size * 1.3, size * 0.16, size * 0.95),
+			cframe = cframe
+				* CFrame.new(-size * 0.1, 0, side * size * 0.92)
+				* CFrame.Angles(0, if side > 0 then 0 else math.pi, 0),
+			material = Enum.Material.SmoothPlastic,
+			color = color,
+			canCollide = false,
+			parent = model,
+		})
+	end
+	-- Blunt cephalic head lobe.
+	PartUtils.CreatePart({
+		name = "Head",
+		size = Vector3.new(size * 0.4, size * 0.26, size * 0.7),
+		cframe = cframe * CFrame.new(size * 0.8, 0, 0),
 		material = Enum.Material.SmoothPlastic,
 		color = color,
 		canCollide = false,
@@ -268,13 +389,32 @@ local function buildRayFish(cframe: CFrame, size: number, color: Color3, parent:
 	})
 	PartUtils.CreatePart({
 		name = "TailWhip",
-		size = Vector3.new(size * 0.9, size * 0.08, size * 0.08),
-		cframe = cframe * CFrame.new(-size * 1.1, 0, 0),
+		size = Vector3.new(size * 1.3, size * 0.1, size * 0.1),
+		cframe = cframe * CFrame.new(-size * 1.25, 0, 0),
 		material = Enum.Material.SmoothPlastic,
 		color = color,
 		canCollide = false,
 		parent = model,
 	})
+
+	-- Rays are patterned with spots along the back rather than bands.
+	for i = 1, 4 do
+		local along = (i - 2.5) * size * 0.3
+		for _, side in ipairs({ -1, 1 }) do
+			PartUtils.CreatePart({
+				name = "Spot" .. i,
+				size = Vector3.new(size * 0.2, size * 0.34, size * 0.2),
+				cframe = cframe * CFrame.new(along, size * 0.05, side * size * 0.42),
+				material = Enum.Material.SmoothPlastic,
+				color = FISH_DARK,
+				shape = Enum.PartType.Ball,
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
+	addFishEyes(model, cframe, size, size * 0.82, size * 0.26)
+
 	model.PrimaryPart = body
 	return model
 end
@@ -284,37 +424,84 @@ local function buildPredatorFish(cframe: CFrame, size: number, color: Color3, pa
 	model.Name = name
 	model.Parent = parent
 
+	local bodyLen = size * 1.9
+	local bodyHeight = size * 0.62
+	local bodyWidth = size * 0.46
+
 	local body = PartUtils.CreatePart({
 		name = "Body",
-		size = Vector3.new(size * 1.8, size * 0.55, size * 0.4),
+		size = Vector3.new(bodyLen, bodyHeight, bodyWidth),
 		cframe = cframe,
 		material = Enum.Material.SmoothPlastic,
 		color = color,
 		canCollide = false,
 		parent = model,
 	})
+	-- Pointed snout.
 	PartUtils.CreatePart({
 		className = "WedgePart",
-		name = "DorsalFin",
-		size = Vector3.new(size * 0.5, size * 0.5, size * 0.08),
-		cframe = cframe * CFrame.new(0.1, size * 0.4, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		name = "Snout",
+		size = Vector3.new(bodyWidth * 0.9, bodyHeight * 0.8, size * 0.55),
+		cframe = cframe * CFrame.new(bodyLen * 0.5, 0, 0) * CFrame.Angles(0, math.rad(90), math.rad(90)),
 		material = Enum.Material.SmoothPlastic,
 		color = color,
 		canCollide = false,
 		parent = model,
 	})
+	-- Tall dorsal fin - the shark read.
+	PartUtils.CreatePart({
+		className = "WedgePart",
+		name = "DorsalFin",
+		size = Vector3.new(size * 0.12, size * 0.62, size * 0.8),
+		cframe = cframe * CFrame.new(size * 0.05, bodyHeight * 0.6, 0) * CFrame.Angles(0, math.rad(-90), 0),
+		material = Enum.Material.SmoothPlastic,
+		color = color,
+		canCollide = false,
+		parent = model,
+	})
+	-- Pectoral fins swept out from the flanks.
 	for _, side in ipairs({ -1, 1 }) do
 		PartUtils.CreatePart({
 			className = "WedgePart",
-			name = "TailLobe",
-			size = Vector3.new(size * 0.45, size * 0.35, size * 0.06),
-			cframe = cframe * CFrame.new(-size * 0.95, side * size * 0.15, 0) * CFrame.Angles(0, math.rad(90), 0),
+			name = "PectoralFin",
+			size = Vector3.new(size * 0.1, size * 0.42, size * 0.5),
+			cframe = cframe
+				* CFrame.new(size * 0.15, -bodyHeight * 0.22, side * bodyWidth * 0.55)
+				* CFrame.Angles(math.rad(side * 60), math.rad(-90), 0),
 			material = Enum.Material.SmoothPlastic,
 			color = color,
 			canCollide = false,
 			parent = model,
 		})
 	end
+	-- Forked caudal tail.
+	for _, side in ipairs({ -1, 1 }) do
+		PartUtils.CreatePart({
+			className = "WedgePart",
+			name = "TailLobe",
+			size = Vector3.new(size * 0.12, size * 0.6, size * 0.55),
+			cframe = cframe
+				* CFrame.new(-bodyLen * 0.56, side * size * 0.26, 0)
+				* CFrame.Angles(0, math.rad(-90), 0),
+			material = Enum.Material.SmoothPlastic,
+			color = color,
+			canCollide = false,
+			parent = model,
+		})
+	end
+
+	-- Predators get a pale counter-shaded belly instead of bands.
+	PartUtils.CreatePart({
+		name = "Belly",
+		size = Vector3.new(bodyLen * 0.86, bodyHeight * 0.34, bodyWidth * 1.02),
+		cframe = cframe * CFrame.new(0, -bodyHeight * 0.34, 0),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(198, 208, 218),
+		canCollide = false,
+		parent = model,
+	})
+	addFishEyes(model, cframe, size, bodyLen * 0.42, bodyWidth * 0.48)
+
 	model.PrimaryPart = body
 	return model
 end
@@ -353,10 +540,19 @@ local function buildFishSchools(parent: Instance)
 		-- Predator schools (species 3) read better as smaller, sparser groups
 		-- - a "school" of large sharks/tuna should be a handful, not a dozen.
 		local fishCount = if speciesIndex == 3 then rng:NextInteger(2, 3) else rng:NextInteger(3, 5)
-		local baseSize = if speciesIndex == 3 then rng:NextNumber(3, 4.5) else rng:NextNumber(1.4, 2.2)
+		-- Moderately larger so the new anatomy (fins, stripes, eyes) is
+		-- actually legible from the ground rather than resolving to specks.
+		local baseSize = if speciesIndex == 3 then rng:NextNumber(5, 7) else rng:NextNumber(2.8, 4.2)
 
 		for f = 1, fishCount do
-			local offset = Vector3.new(rng:NextNumber(-4, 4), rng:NextNumber(-1.5, 1.5), rng:NextNumber(-4, 4))
+			-- Spread scales with the bigger fish so a school stays a school
+			-- instead of the members overlapping into one mass.
+			local spread = baseSize * 2.2
+			local offset = Vector3.new(
+				rng:NextNumber(-spread, spread),
+				rng:NextNumber(-2.5, 2.5),
+				rng:NextNumber(-spread, spread)
+			)
 			local size = baseSize * rng:NextNumber(0.85, 1.15)
 			local cframe = CFrame.new(center + offset) * CFrame.Angles(0, schoolYaw + rng:NextNumber(-0.3, 0.3), 0)
 			local color = palette[rng:NextInteger(1, #palette)]
@@ -401,6 +597,95 @@ local function buildLightShafts(parent: Instance)
 	end
 end
 
+--[[
+	SEABED GROUND TREATMENT - the soft, lumpy sand floor of the ocean.
+
+	Kept in this map's own environment module (like Lava's potholes and Ice
+	Age's snow piles) so each map's terrain can be tuned independently.
+
+	Two layers: a broad wash of very flat sand patches that recolours the
+	floor as seabed, then rounded sand BLOBS - overlapping low domes in
+	clusters, the way sand actually heaps on an ocean floor rather than
+	forming crisp geometric shapes. Everything is well under knee height
+	and non-collidable, so it never interferes with walking.
+]]
+local function buildSeabedPattern(parent: Instance)
+	local folder = Instance.new("Folder")
+	folder.Name = "SeabedPattern"
+	folder.Parent = parent
+
+	local rng = Random.new(624489)
+	local SAND = Color3.fromRGB(222, 208, 170)
+
+	-- Flat sand wash across the walkable area.
+	for i = 1, 80 do
+		local angle = rng:NextNumber(0, 2 * math.pi)
+		local radius = math.sqrt(rng:NextNumber(0, 1)) * MapConfig.USABLE_RADIUS * 0.99
+		local center = Vector3.new(math.sin(angle) * radius, 0, math.cos(angle) * radius)
+		PartUtils.CreateDisc({
+			name = "SandWash" .. i,
+			diameter = rng:NextNumber(16, 34),
+			thickness = rng:NextNumber(0.14, 0.34),
+			position = center + Vector3.new(0, 0.12, 0),
+			material = Enum.Material.Sand,
+			color = Color3.new(
+				math.clamp(SAND.R + rng:NextInteger(-10, 8) / 255, 0, 1),
+				math.clamp(SAND.G + rng:NextInteger(-8, 8) / 255, 0, 1),
+				math.clamp(SAND.B + rng:NextInteger(-8, 10) / 255, 0, 1)
+			),
+			canCollide = false,
+			parent = folder,
+		})
+	end
+
+	-- Rounded sand blobs, in overlapping clusters.
+	for i = 1, 22 do
+		local angle = rng:NextNumber(0, 2 * math.pi)
+		local radius = rng:NextNumber(MapConfig.USABLE_RADIUS * 0.12, MapConfig.USABLE_RADIUS * 0.95)
+		local center = Vector3.new(math.sin(angle) * radius, 0, math.cos(angle) * radius)
+		local spread = rng:NextNumber(4, 10)
+		for b = 1, rng:NextInteger(3, 6) do
+			local blobAngle = rng:NextNumber(0, 2 * math.pi)
+			local blobDist = rng:NextNumber(0, spread * 0.55)
+			local blobSize = rng:NextNumber(5, 12) * (1 - blobDist / (spread * 1.5))
+			-- Flattened spheres: wide and shallow, like settled sand.
+			local height = math.min(2.2, blobSize * rng:NextNumber(0.15, 0.26))
+			PartUtils.CreatePart({
+				name = ("SandBlob%d_%d"):format(i, b),
+				size = Vector3.new(blobSize, height, blobSize * rng:NextNumber(0.8, 1.2)),
+				position = center
+					+ Vector3.new(math.sin(blobAngle) * blobDist, height * 0.2, math.cos(blobAngle) * blobDist),
+				material = Enum.Material.Sand,
+				color = Color3.new(
+					math.clamp(SAND.R + rng:NextInteger(-8, 10) / 255, 0, 1),
+					math.clamp(SAND.G + rng:NextInteger(-8, 8) / 255, 0, 1),
+					math.clamp(SAND.B + rng:NextInteger(-6, 10) / 255, 0, 1)
+				),
+				shape = Enum.PartType.Ball,
+				canCollide = false,
+				parent = folder,
+			})
+		end
+	end
+
+	-- Scattered shell/pebble grit for close-up texture.
+	for i = 1, 26 do
+		local angle = rng:NextNumber(0, 2 * math.pi)
+		local radius = rng:NextNumber(MapConfig.USABLE_RADIUS * 0.1, MapConfig.USABLE_RADIUS * 0.95)
+		local center = Vector3.new(math.sin(angle) * radius, 0, math.cos(angle) * radius)
+		local grit = rng:NextNumber(0.6, 1.5)
+		PartUtils.CreatePart({
+			name = "SeabedPebble" .. i,
+			size = Vector3.new(grit, grit * 0.45, grit * rng:NextNumber(0.8, 1.2)),
+			cframe = CFrame.new(center + Vector3.new(0, grit * 0.2, 0)) * CFrame.Angles(0, rng:NextNumber(0, 6.28), 0),
+			material = Enum.Material.Slate,
+			color = Color3.fromRGB(186, 178, 158),
+			canCollide = false,
+			parent = folder,
+		})
+	end
+end
+
 function UnderTheSeaEnvironment.BuildAll(parent: Instance): Folder
 	local folder = Instance.new("Folder")
 	folder.Name = "UnderTheSeaEnvironment"
@@ -409,6 +694,7 @@ function UnderTheSeaEnvironment.BuildAll(parent: Instance): Folder
 	buildWallSegments(folder)
 	buildCeiling(folder)
 	buildFloor(folder)
+	buildSeabedPattern(folder)
 	buildLightShafts(folder)
 	buildBubbleStreams(folder)
 	buildCoralReefs(folder)

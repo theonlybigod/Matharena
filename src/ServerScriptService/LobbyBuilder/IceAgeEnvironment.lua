@@ -144,44 +144,98 @@ local function buildSnowfall(parent: Instance)
 	end
 end
 
+local function slopeCFrame(position: Vector3, angle: number, pitch: number): CFrame
+	return CFrame.new(position) * CFrame.Angles(0, angle, 0) * CFrame.Angles(pitch, 0, 0)
+end
+
 --[[
-	One "pillar" landmark near the boundary: NOT a clean two-wedge peak
-	anymore - a genuinely irregular ice/rock formation assembled from many
-	overlapping chunks (mixed Ice/Rock materials, varied size/rotation/
-	offset, stacked into rings that narrow and rise - same technique
-	LavaEnvironment's pillars use, reinterpreted in frost tones), with a
-	snow-accumulation cap at the top and a handful of hanging icicles
-	along its own edges.
+	One "pillar" landmark near the boundary: a continuous frozen-mountain
+	cone, NOT scattered floating chunks. Uses the exact same tiered-shingle
+	technique as LavaEnvironment's buildDistantVolcano - many tiers of
+	large overlapping slabs, each tilted (via slopeCFrame) so its flat face
+	lies FLUSH against the theoretical cone surface, with radius/height
+	overlap between consecutive tiers so there is never a seam or gap.
+	Reinterpreted in frost tones (mixed Ice/Rock/Snow materials), with a
+	snow-accumulation cap at the peak, a shallow ground-blending skirt at
+	the base, and a handful of hanging icicles along the slope's edges.
 ]]
 local function buildFrozenPeak(position: Vector3, rng: Random, parent: Instance, name: string)
 	local model = Instance.new("Model")
 	model.Name = name
 	model.Parent = parent
 
-	local baseRadius = rng:NextNumber(16, 26)
+	local baseRadius = rng:NextNumber(20, 30)
 	local peakHeight = rng:NextNumber(55, 100)
+	local tipRadius = 2 + rng:NextNumber(0, 1.5)
 
-	local ringCount = 5
-	for ring = 1, ringCount do
-		local ringFraction = (ring - 1) / (ringCount - 1)
-		local ringRadius = baseRadius * (1 - ringFraction * 0.8)
-		local ringY = peakHeight * ringFraction * 0.9
-		local chunkCount = math.floor(8 - ringFraction * 4)
-		for c = 1, chunkCount do
-			local angle = (2 * math.pi / chunkCount) * c + rng:NextNumber(-0.3, 0.3)
-			local chunkRadius = ringRadius * rng:NextNumber(0.8, 1.1)
-			local chunkSize = rng:NextNumber(7, 13) * (1 - ringFraction * 0.3)
-			local chunkPos = position
-				+ Vector3.new(math.sin(angle) * chunkRadius, ringY + rng:NextNumber(-2, 2), math.cos(angle) * chunkRadius)
-			local useRock = rng:NextNumber() < 0.35
+	local slopeAngle = math.atan2(peakHeight, baseRadius - tipRadius)
+	local shinglePitch = (math.pi / 2) - slopeAngle
+
+	-- Same tightening as LavaEnvironment's buildDistantVolcano: more tiers,
+	-- slab length derived from the true slant distance to the next tier,
+	-- width derived from the ring's own arc spacing, and jitter expressed
+	-- as a fraction of the resulting overlap margin so it can never open a
+	-- seam between neighbouring slabs.
+	local tierCount = 12
+	local SHINGLE_OVERLAP = 1.9
+	for tier = 0, tierCount do
+		local t = tier / tierCount
+		local ringRadius = math.max(tipRadius, baseRadius * (1 - t) ^ 0.9)
+		local ringY = peakHeight * t ^ 1.05
+		local nextT = math.min((tier + 1) / tierCount, 1)
+		local nextRadius = math.max(tipRadius, baseRadius * (1 - nextT) ^ 0.9)
+		local nextY = peakHeight * nextT ^ 1.05
+		local slant = math.max(
+			math.sqrt((ringRadius - nextRadius) ^ 2 + (ringY - nextY) ^ 2),
+			baseRadius / tierCount
+		)
+		local shingleLength = slant * SHINGLE_OVERLAP
+
+		local circumference = 2 * math.pi * ringRadius
+		local shingleCount = math.max(8, math.ceil(circumference / math.max(ringRadius * 0.45, 5.5)))
+		local arcSpacing = circumference / shingleCount
+		local shingleWidth = arcSpacing * SHINGLE_OVERLAP
+		local overlapMargin = (shingleWidth - arcSpacing) / 2
+
+		for c = 1, shingleCount do
+			local angle = (2 * math.pi / shingleCount) * c
+			local jitterRadius = ringRadius + rng:NextNumber(-overlapMargin * 0.4, overlapMargin * 0.4)
+			local jitterY = ringY + rng:NextNumber(-slant * 0.15, slant * 0.15)
+			local shinglePos = position + Vector3.new(math.sin(angle) * jitterRadius, jitterY, math.cos(angle) * jitterRadius)
+			local useRock = rng:NextNumber() < 0.3
 			PartUtils.CreatePart({
-				name = ("PeakChunkR%dC%d"):format(ring, c),
-				size = Vector3.new(chunkSize, chunkSize * rng:NextNumber(0.75, 1.2), chunkSize * rng:NextNumber(0.75, 1.2)),
-				cframe = CFrame.new(chunkPos) * CFrame.Angles(rng:NextNumber(-0.3, 0.3), rng:NextNumber(0, 6.28), rng:NextNumber(-0.3, 0.3)),
+				name = ("PeakShingleT%dC%d"):format(tier, c),
+				size = Vector3.new(shingleWidth, rng:NextNumber(3, 4.5), shingleLength),
+				cframe = slopeCFrame(shinglePos, angle, shinglePitch + math.rad(rng:NextNumber(-3, 3))),
 				material = if useRock then Enum.Material.Rock else Enum.Material.Ice,
 				color = if useRock
-					then Color3.fromRGB(88, 94, 100)
+					then Color3.fromRGB(90 + rng:NextInteger(-4, 6), 96 + rng:NextInteger(-4, 6), 102 + rng:NextInteger(-4, 6))
 					else Color3.fromRGB(200 + rng:NextInteger(-8, 10), 216 + rng:NextInteger(-6, 8), 232 + rng:NextInteger(-4, 6)),
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
+
+	-- Shallow skirt blending the peak's foot into the surrounding ground.
+	local skirtOuterRadius = baseRadius * 2
+	local skirtRingCount = 2
+	for ring = 1, skirtRingCount do
+		local ringFraction = ring / skirtRingCount
+		local ringRadius = baseRadius + (skirtOuterRadius - baseRadius) * ringFraction
+		local ringY = math.max(0, (peakHeight * 0.05) * (1 - ringFraction))
+		local skirtPitch = shinglePitch * (1 - ringFraction) * 0.35
+		local slabWidth = 18
+		local slabCount = math.max(8, math.floor((2 * math.pi * ringRadius) / (slabWidth * 0.55)))
+		for c = 1, slabCount do
+			local angle = (2 * math.pi / slabCount) * c + rng:NextNumber(-0.15, 0.15)
+			local slabPos = position + Vector3.new(math.sin(angle) * ringRadius, ringY, math.cos(angle) * ringRadius)
+			PartUtils.CreatePart({
+				name = ("PeakSkirtR%dC%d"):format(ring, c),
+				size = Vector3.new(slabWidth * rng:NextNumber(0.9, 1.2), rng:NextNumber(1.2, 2.5), (skirtOuterRadius - baseRadius) / skirtRingCount * 2.2),
+				cframe = slopeCFrame(slabPos, angle, skirtPitch),
+				material = Enum.Material.Snow,
+				color = Color3.fromRGB(225 + rng:NextInteger(-6, 8), 234 + rng:NextInteger(-4, 6), 242 + rng:NextInteger(-4, 4)),
 				canCollide = false,
 				parent = model,
 			})
@@ -191,8 +245,8 @@ local function buildFrozenPeak(position: Vector3, rng: Random, parent: Instance,
 	-- Snow-accumulation cap at the very top.
 	PartUtils.CreatePart({
 		name = "SnowCap",
-		size = Vector3.new(baseRadius * 0.5, baseRadius * 0.28, baseRadius * 0.5),
-		position = position + Vector3.new(0, peakHeight * 0.92, 0),
+		size = Vector3.new(tipRadius * 3, tipRadius * 1.8, tipRadius * 3),
+		position = position + Vector3.new(0, peakHeight + tipRadius * 0.4, 0),
 		material = Enum.Material.Snow,
 		color = Color3.fromRGB(240, 246, 251),
 		shape = Enum.PartType.Ball,
@@ -200,13 +254,12 @@ local function buildFrozenPeak(position: Vector3, rng: Random, parent: Instance,
 		parent = model,
 	})
 
-	-- A handful of hanging icicles along the formation's own edges (this
-	-- is the "pillars" icicle treatment - not the removed map-wide
-	-- floating clusters).
+	-- A handful of hanging icicles along the formation's own slope edges.
 	for i = 1, rng:NextInteger(3, 5) do
 		local angle = rng:NextNumber(0, 2 * math.pi)
-		local icicleRadius = baseRadius * rng:NextNumber(0.5, 0.95)
-		local icicleHeight = peakHeight * rng:NextNumber(0.2, 0.6)
+		local t = rng:NextNumber(0.15, 0.7)
+		local icicleRadius = math.max(tipRadius, baseRadius * (1 - t) ^ 0.9)
+		local icicleHeight = peakHeight * t ^ 1.05
 		PartUtils.CreatePart({
 			className = "WedgePart",
 			name = "PeakIcicle" .. i,
@@ -255,14 +308,18 @@ local function buildSnowflakeWind(parent: Instance)
 	folder.Parent = parent
 
 	local rng = Random.new(551029)
-	local count = 20
+	-- Denser and lower than before: emitters now start close to head height
+	-- so the snow is visibly IN THE AIR AROUND the player rather than only
+	-- drifting somewhere overhead. More emitters at a higher rate is what
+	-- actually sells "it feels snowy" when standing in the plaza.
+	local count = 34
 	local windAngle = rng:NextNumber(0, 2 * math.pi)
 	local windDirection = Vector3.new(math.sin(windAngle), 0, math.cos(windAngle))
 
 	for i = 1, count do
 		local angle = rng:NextNumber(0, 2 * math.pi)
-		local radius = rng:NextNumber(10, MapConfig.USABLE_RADIUS)
-		local height = rng:NextNumber(8, 90)
+		local radius = rng:NextNumber(6, MapConfig.USABLE_RADIUS)
+		local height = rng:NextNumber(4, 70)
 		local position = Vector3.new(math.sin(angle) * radius, height, math.cos(angle) * radius)
 
 		local anchor = PartUtils.CreatePart({
@@ -281,10 +338,16 @@ local function buildSnowflakeWind(parent: Instance)
 			NumberSequenceKeypoint.new(0.8, 0.35),
 			NumberSequenceKeypoint.new(1, 1),
 		})
-		emitter.Size = NumberSequence.new(0.15)
+		-- Mixed flake sizes read as real snow; a single uniform size reads as
+		-- dust. Rate raised alongside the higher emitter count so the air
+		-- genuinely fills rather than showing occasional stray specks.
+		emitter.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, rng:NextNumber(0.16, 0.34)),
+			NumberSequenceKeypoint.new(1, rng:NextNumber(0.12, 0.26)),
+		})
 		emitter.Lifetime = NumberRange.new(8, 14)
 		emitter.Speed = NumberRange.new(4, 9)
-		emitter.Rate = 14
+		emitter.Rate = 26
 		emitter.SpreadAngle = Vector2.new(35, 15)
 		-- Wind bias: strong horizontal acceleration along the prevailing
 		-- direction, only mild downward pull - reads as snow blowing
@@ -311,22 +374,67 @@ local function buildGroundPattern(parent: Instance)
 
 	local rng = Random.new(881221)
 
-	-- Uneven snowbank mounds - low wide drifts breaking up the flat ice
-	-- sheet.
-	for i = 1, 12 do
-		local angle = rng:NextNumber(0, 2 * math.pi)
-		local radius = rng:NextNumber(MapConfig.USABLE_RADIUS * 0.1, MapConfig.USABLE_RADIUS * 0.95)
+	--[[
+		SNOW-COVERED GROUND. A wide, very shallow sheet of overlapping snow
+		patches laid across the whole walkable area, so the ground reads as
+		SNOW rather than as a flat ice plate with a few mounds sitting on it.
+		Each patch is a hair above the floor and only a few tenths thick, so
+		it changes the surface's look without changing its height.
+	]]
+	local snowPatchRng = Random.new(305118)
+	for i = 1, 90 do
+		local angle = snowPatchRng:NextNumber(0, 2 * math.pi)
+		-- sqrt keeps the scatter area-uniform instead of bunching at the middle
+		local radius = math.sqrt(snowPatchRng:NextNumber(0, 1)) * MapConfig.USABLE_RADIUS * 0.99
 		local center = Vector3.new(math.sin(angle) * radius, 0, math.cos(angle) * radius)
-		PartUtils.CreatePart({
-			name = "SnowbankMound" .. i,
-			size = Vector3.new(rng:NextNumber(4, 9), rng:NextNumber(0.6, 1.4), rng:NextNumber(4, 9)),
-			position = center + Vector3.new(0, 0.3, 0),
+		PartUtils.CreateDisc({
+			name = "SnowPatch" .. i,
+			diameter = snowPatchRng:NextNumber(14, 32),
+			thickness = snowPatchRng:NextNumber(0.15, 0.4),
+			position = center + Vector3.new(0, 0.12, 0),
 			material = Enum.Material.Snow,
-			color = Color3.fromRGB(232, 240, 248),
-			shape = Enum.PartType.Ball,
+			color = Color3.fromRGB(
+				236 + snowPatchRng:NextInteger(-6, 6),
+				243 + snowPatchRng:NextInteger(-4, 5),
+				250 + snowPatchRng:NextInteger(-3, 3)
+			),
 			canCollide = false,
 			parent = folder,
 		})
+	end
+
+	--[[
+		Irregular SNOW PILES - drifts with genuine (if slight) elevation.
+		Each pile is a cluster of overlapping rounded lumps of varying size
+		rather than one ball, so it reads as wind-heaped snow instead of a
+		sphere half-sunk in the floor. Deliberately capped at ~2.5 studs so
+		a player walks over them without the terrain fighting navigation.
+	]]
+	for i = 1, 16 do
+		local angle = rng:NextNumber(0, 2 * math.pi)
+		local radius = rng:NextNumber(MapConfig.USABLE_RADIUS * 0.12, MapConfig.USABLE_RADIUS * 0.95)
+		local center = Vector3.new(math.sin(angle) * radius, 0, math.cos(angle) * radius)
+		local pileSpread = rng:NextNumber(4, 9)
+		local lumps = rng:NextInteger(3, 6)
+		for l = 1, lumps do
+			-- Lumps sit within the pile's own spread so they always overlap
+			-- into one connected drift.
+			local lumpAngle = rng:NextNumber(0, 2 * math.pi)
+			local lumpDist = rng:NextNumber(0, pileSpread * 0.5)
+			local lumpSize = rng:NextNumber(4, 10) * (1 - lumpDist / (pileSpread * 1.4))
+			local height = math.min(2.5, lumpSize * rng:NextNumber(0.18, 0.3))
+			PartUtils.CreatePart({
+				name = ("SnowPile%d_%d"):format(i, l),
+				size = Vector3.new(lumpSize, height, lumpSize * rng:NextNumber(0.85, 1.15)),
+				position = center
+					+ Vector3.new(math.sin(lumpAngle) * lumpDist, height * 0.22, math.cos(lumpAngle) * lumpDist),
+				material = Enum.Material.Snow,
+				color = Color3.fromRGB(234 + rng:NextInteger(-5, 6), 241 + rng:NextInteger(-4, 5), 249 + rng:NextInteger(-3, 3)),
+				shape = Enum.PartType.Ball,
+				canCollide = false,
+				parent = folder,
+			})
+		end
 	end
 
 	-- Ice-chunk debris scattered across the ground.
