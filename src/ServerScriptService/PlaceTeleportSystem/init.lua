@@ -91,14 +91,15 @@ local myPlace: DifficultyPlacesConfig.DifficultyPlaceDef? = DifficultyPlacesConf
 ]]
 local function teleportToDifficulty(player: Player, destination: DifficultyPlacesConfig.DifficultyPlaceDef)
 	local ok, err = pcall(function()
-		local options = TeleportOptions.new()
-		-- Carries destination.tierId across the teleport so the receiving
-		-- server's onPlayerAdded (below) can auto-join the right queue the
-		-- instant this player lands - without this, GetJoinData().TeleportData
-		-- would be nil/empty on arrival and the player would just land in
-		-- that Place's lobby unqueued, same as any other arrival.
-		options:SetTeleportData({ tierId = destination.tierId })
-		TeleportService:TeleportAsync(destination.placeId, { player }, options)
+		-- Uses TeleportService:Teleport (the pre-TeleportOptions API) rather
+		-- than TeleportOptions.new()/:TeleportAsync - confirmed via the live
+		-- published Hub's own Developer Console that TeleportOptions.new()
+		-- fails with "attempt to index nil with 'new'" in this deployment,
+		-- both in Studio Play-Test AND on the actual live server. Teleport()
+		-- carries the exact same `destination.tierId` payload, arriving the
+		-- exact same way at player:GetJoinData().TeleportData (below), without
+		-- touching TeleportOptions at all.
+		TeleportService:Teleport(destination.placeId, player, { tierId = destination.tierId })
 	end)
 
 	if not ok then
