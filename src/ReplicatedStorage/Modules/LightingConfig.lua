@@ -138,9 +138,37 @@ LightingConfig.DUSK_BRIGHTNESS = 1.8
 -- double-compensated for a sun angle that no longer applies.
 LightingConfig.EXPOSURE_COMPENSATION = 0.15
 
--- Fog: neutral grey, same reasoning as Ambient above - no color tint.
-LightingConfig.FOG_COLOR = Color3.fromRGB(180, 180, 185)
-LightingConfig.FOG_END = 650 -- generous falloff distance - "subtle atmospheric depth without heavy fog obscuring distant objects"
+-- Fog: DISABLED.
+--
+-- History worth keeping, because this setting has been through three
+-- states and each one was wrong in a different way:
+--
+--   1. FogStart/FogEnd 0/650, neutral grey. Grey blending began at ZERO
+--      distance, washing wide shots out and flattening contrast; and
+--      anything past FogEnd became a solid grey silhouette, so the
+--      neighbouring maps showed up as flat grey slabs against a blue sky.
+--   2. Sky-matched blue at 550/1200. Much better - the local map stayed
+--      crisp and the neighbours softened - but at EYE LEVEL they still
+--      read as pale vertical shapes rather than dissolving, because
+--      ground-level sightlines are far longer than the aerial view that
+--      the values were judged from.
+--   3. Disabled (current). Chosen deliberately for maximum clarity: no
+--      distance wash of any kind, so the map reads at full contrast and
+--      full colour from every camera height.
+--
+-- KNOWN TRADE-OFF: with no fog, distant geometry renders in its true
+-- colour, so the neighbouring maps (Lava's rock walls ~560 studs out,
+-- Space's dome ~1100) are visible on the horizon as dark shapes rather
+-- than being hidden. That is accepted - clarity of the playable map was
+-- judged more important than concealing the neighbours. Atmosphere below
+-- still provides near/mid-range depth.
+--
+-- If the neighbours ever need hiding again, do NOT reach for grey fog -
+-- match FogColor to the horizon sky instead (state 2 above), which is the
+-- only version that blended rather than silhouetted.
+LightingConfig.FOG_COLOR = Color3.fromRGB(150, 190, 220) -- sky-matched, retained for whenever fog is re-enabled
+LightingConfig.FOG_START = 100000
+LightingConfig.FOG_END = 100000 -- fog off
 
 -- Bloom: restrained on purpose - enough to make neon read as "glowing"
 -- rather than "flat colored plastic", without blowing out into glare.
@@ -148,13 +176,88 @@ LightingConfig.BLOOM_INTENSITY = 0.35
 LightingConfig.BLOOM_THRESHOLD = 1.6 -- higher threshold = only genuinely bright/neon surfaces bloom, not general geometry
 LightingConfig.BLOOM_SIZE = 20
 
--- ColorCorrection: a small contrast/saturation ease so the scene reads as
--- "calm/polished" rather than punchy - subtle enough to not flatten the
--- palette above. Message 22: eased slightly further to complement the
--- brighter Ambient/Brightness/Exposure above without looking washed out.
+-- ColorCorrection: a restrained grade, no longer fully neutral.
+--
+-- Measured surface luminance in the Futuristic lobby: ground 0.707,
+-- building walls 0.219, roof caps 0.188, interior floors 0.126. That is a
+-- very wide spread, and with a completely neutral grade (Contrast,
+-- Saturation and Brightness all 0) the buildings read as flat near-black
+-- silhouettes against a bright ground, losing their trim and panel
+-- detail entirely at normal viewing distance.
+--
+-- The fix is deliberately NOT more contrast - that would crush the dark
+-- end further and make the buildings worse. Instead:
+--   Brightness  a small positive lift, which raises the dark end much
+--               more perceptually than the already-bright ground, so
+--               building detail becomes readable ("areas are not
+--               excessively dark") without blowing out the plaza. Eased
+--               from an initial 0.03 after review - the plaza ground is
+--               already luminance 0.707 and was dominating the frame -
+--               but deliberately kept above 0, since the fully neutral
+--               original was too dark on the buildings.
+--   Saturation  a modest bump so the blue neon palette and the green
+--               foliage read as colour rather than tinted grey. This is
+--               the single biggest "looks" win available at zero
+--               structural cost.
+--   Contrast    left at 0. The scene's dynamic range is already wide;
+--               adding contrast only deepens the silhouette problem.
+--
+-- All three are intentionally small. Anything stronger starts to look
+-- like a filter rather than a grade.
 LightingConfig.COLOR_CORRECTION_CONTRAST = 0
-LightingConfig.COLOR_CORRECTION_SATURATION = 0
+LightingConfig.COLOR_CORRECTION_SATURATION = 0.12
+LightingConfig.COLOR_CORRECTION_BRIGHTNESS = 0.02
 LightingConfig.COLOR_CORRECTION_TINT_COLOR = Color3.fromRGB(255, 255, 255) -- neutral - no color tint at all
+
+-- ===== Atmosphere / DepthOfField / SunRays =====
+--
+-- These three were previously configured ONLY as $properties nodes in
+-- default.project.json, with no runtime owner. That made them the most
+-- fragile settings in the project: Rojo re-reads default.project.json
+-- only when the `rojo serve` PROCESS restarts (reconnecting the Studio
+-- plugin is NOT enough), so edits to them could sit on disk looking
+-- applied while the live place kept the old values indefinitely.
+--
+-- They are now owned by LobbyLighting.Apply() exactly like Bloom and
+-- ColorCorrection above, so they are re-asserted on every single server
+-- start and are editable from one place with normal hot-sync behaviour.
+
+-- Atmospheric depth. Density gives distance falloff; a slightly blue-grey
+-- Color/Decay keeps far geometry reading as "receding into air" rather
+-- than "fading to flat grey". Haze and Glare are deliberately SMALL: they
+-- add depth cues without the milky wash that heavier values produce,
+-- which would directly work against map readability.
+-- Density is kept modest because legacy fog (above) handles long-range
+-- blending; Atmosphere here is only providing near/mid-range depth, and
+-- raising it further just hazes the local map without helping distance.
+LightingConfig.ATMOSPHERE_DENSITY = 0.28
+LightingConfig.ATMOSPHERE_OFFSET = 0.25
+LightingConfig.ATMOSPHERE_COLOR = Color3.new(0.78, 0.80, 0.85)
+LightingConfig.ATMOSPHERE_DECAY = Color3.new(0.55, 0.60, 0.70)
+LightingConfig.ATMOSPHERE_GLARE = 0.05
+LightingConfig.ATMOSPHERE_HAZE = 0.15
+
+-- Depth of field, retuned for READABILITY rather than cinematics.
+--
+-- The previous values were FocusDistance 0.05, InFocusRadius 30,
+-- NearIntensity 0.75, FarIntensity 0.1. Working the arithmetic through:
+-- the in-focus band ended at 30.05 studs, so EVERYTHING past 30 studs -
+-- i.e. essentially the whole map from any normal camera - was being
+-- blurred, while NearIntensity 0.75 applied only closer than 0 studs and
+-- so never fired at all.
+--
+-- Now the in-focus band reaches 90 studs (buildings, signs and other
+-- players stay crisp at normal gameplay distance), far blur is halved to
+-- a hint of aerial perspective, and the dead near-blur is set to 0.
+LightingConfig.DOF_FOCUS_DISTANCE = 0.05
+LightingConfig.DOF_IN_FOCUS_RADIUS = 90
+LightingConfig.DOF_FAR_INTENSITY = 0.05
+LightingConfig.DOF_NEAR_INTENSITY = 0
+
+-- Sun rays: barely-there. Enough to catch the sun angle, far too weak to
+-- bloom out the sky or compete with the neon palette.
+LightingConfig.SUN_RAYS_INTENSITY = 0.01
+LightingConfig.SUN_RAYS_SPREAD = 0.1
 
 -- Reference brightness/range for the smaller decorative PointLights
 -- scattered around the lobby (building beacons, ceiling lights, etc.) -

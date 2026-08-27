@@ -284,6 +284,16 @@ end)
 -- same "press the button -> pick an option -> confirm" shape as the
 -- Practice mode popup (PracticeUIController.client.lua), reused rather
 -- than inventing a different pattern for a very similar choice.
+--
+-- Multi-Place Play Mode (README.md's Play Mode Architecture section):
+-- picking a tier here now fires "RequestPlayDifficulty", not
+-- "RequestJoinQueue" directly. PlaceTeleportSystem (server) decides
+-- whether that means joining the local queue (already on the right
+-- difficulty's Place) or a cross-server TeleportService hop to the
+-- Place dedicated to that tier - the client never picks a destination
+-- itself, only ever a tier NUMBER. A failed teleport fires
+-- "PlayTeleportFailed" back, shown here as a recoverable modal rather
+-- than silently doing nothing.
 
 local tierOverlay = Instance.new("Frame")
 tierOverlay.Name = "PlayTierOverlay"
@@ -380,13 +390,34 @@ for i, tier in ipairs(GameplayConfig.QUEUE_TIERS) do
 
 	tierButton.MouseButton1Click:Connect(function()
 		tierOverlay.Visible = false
-		RemoteEvents.Get("RequestJoinQueue"):FireServer(tier.id)
+		RemoteEvents.Get("RequestPlayDifficulty"):FireServer(tier.id)
 	end)
 end
 
 playButton.MouseButton1Click:Connect(function()
 	OverlayManager.Show(tierOverlay)
 	UITheme.PlayOpenTween(tierPanel)
+end)
+
+-- A failed cross-server Play Mode teleport (rate limit, destination
+-- Place not configured/published yet, a Roblox outage, etc.) leaves the
+-- player exactly where they were - never queued, never stuck - so this
+-- is purely informational: explain what happened and let them press
+-- Play again whenever they're ready.
+RemoteEvents.Get("PlayTeleportFailed").OnClientEvent:Connect(function(payload)
+	local tier = payload and typeof(payload) == "table" and GameplayConfig.GetQueueTier(payload.tierId)
+	local tierName = tier and tier.name or "that difficulty"
+	local reason = payload and typeof(payload) == "table" and payload.reason
+
+	local body = if reason == "NotConfigured"
+		then ("%s isn't set up yet - its server hasn't been published. Try again later or pick a different difficulty."):format(
+			tierName
+		)
+		else ("Couldn't move you to %s right now. You're still right here - try Play again in a moment."):format(
+			tierName
+		)
+
+	openModal("Couldn't Start", body)
 end)
 
 -- ===== Visibility driven by match state =====

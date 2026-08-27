@@ -351,13 +351,32 @@ for index, slotId in ipairs(SLOT_ORDER) do
 	UITheme.ApplyButtonHoverEffect(dismissButton)
 	dismissButton.Parent = card
 
+	--[[
+		Title/reward split rebalanced from 60/40 to 55/45, with both font
+		sizes eased one step.
+
+		The reward label used to truncate: the daily quest's "100 Coins + 20
+		Gems" did not fit its 111px box and rendered ellipsised, hiding the
+		Gems half of the reward entirely.
+
+		A first attempt moved the split to 52/48 on the basis of two sampled
+		titles ("Quick Thinker" 104px, "Daily Marathon" 112px) - and broke
+		the LONGEST title, "Practice Makes Perfect", which then truncated in
+		its own box. Sampling two of three cards was not enough.
+
+		So width alone cannot satisfy both: the longest title needs ~175px at
+		17pt and the longest reward ~130px at 13pt, which is 305px on a card
+		only 306px wide before padding. Easing the title to 15pt and the
+		reward to 12pt brings their requirements to ~150px and ~120px, which
+		the 55/45 split covers with slack on both sides.
+	]]
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Name = "TitleLabel"
-	titleLabel.Size = UDim2.new(0.6, -12, 0, 24)
+	titleLabel.Size = UDim2.new(0.55, -12, 0, 24)
 	titleLabel.Position = UDim2.fromOffset(12, 24)
 	titleLabel.BackgroundTransparency = 1
 	titleLabel.Font = Enum.Font.GothamBold
-	titleLabel.TextSize = 17
+	titleLabel.TextSize = 15
 	titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	titleLabel.TextColor3 = UITheme.COLORS.Text
@@ -366,24 +385,43 @@ for index, slotId in ipairs(SLOT_ORDER) do
 
 	local rewardLabel = Instance.new("TextLabel")
 	rewardLabel.Name = "RewardLabel"
-	rewardLabel.Size = UDim2.new(0.4, -12, 0, 24)
-	rewardLabel.Position = UDim2.new(0.6, 0, 0, 24)
+	rewardLabel.Size = UDim2.new(0.45, -12, 0, 24)
+	rewardLabel.Position = UDim2.new(0.55, 0, 0, 24)
 	rewardLabel.BackgroundTransparency = 1
 	rewardLabel.Font = Enum.Font.GothamBold
-	rewardLabel.TextSize = 13
+	rewardLabel.TextSize = 12
 	rewardLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	rewardLabel.TextXAlignment = Enum.TextXAlignment.Right
 	rewardLabel.TextColor3 = UITheme.COLORS.Gold
 	rewardLabel.Text = ""
 	rewardLabel.Parent = card
 
+	--[[
+		Two-line, wrapped description.
+
+		This was a single 18px-tall line at TextSize 13 with
+		TextTruncate.AtEnd, which meant longer quests were silently
+		ellipsised mid-sentence - "Answer 40 questions correctly today
+		(competitive or practice)." rendered as "Answer 40 questions
+		correctly to...", so the player could not read what the quest
+		actually required. Two of the three visible cards were truncating.
+
+		One line cannot hold these strings at any readable size (the longest
+		runs ~400px at 13pt against a 282px box, and still overflows at
+		11pt), so it has to wrap. TextSize eases to 11 and the box grows to
+		26px, which is exactly two lines - and bottoms out at ~75px, just
+		clear of the refresh cluster that starts at 75.9px. TextTruncate is
+		kept as a safety net for any future quest string longer still.
+	]]
 	local descriptionLabel = Instance.new("TextLabel")
 	descriptionLabel.Name = "DescriptionLabel"
-	descriptionLabel.Size = UDim2.new(1, -24, 0, 18)
-	descriptionLabel.Position = UDim2.fromOffset(12, 50)
+	descriptionLabel.Size = UDim2.new(1, -24, 0, 26)
+	descriptionLabel.Position = UDim2.fromOffset(12, 48)
 	descriptionLabel.BackgroundTransparency = 1
 	descriptionLabel.Font = Enum.Font.Gotham
-	descriptionLabel.TextSize = 13
+	descriptionLabel.TextSize = 11
+	descriptionLabel.TextWrapped = true
+	descriptionLabel.TextYAlignment = Enum.TextYAlignment.Top
 	descriptionLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	descriptionLabel.TextXAlignment = Enum.TextXAlignment.Left
 	descriptionLabel.TextColor3 = UITheme.COLORS.SubText

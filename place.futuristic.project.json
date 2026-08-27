@@ -1,5 +1,5 @@
 {
-  "name": "MathArena",
+  "name": "MathArena - Futuristic (Difficulty 1)",
   "tree": {
     "$className": "DataModel",
 
@@ -36,26 +36,6 @@
       },
 
       "Lobby": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true
-      },
-
-      "LobbyLava": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true
-      },
-
-      "LobbySpace": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true
-      },
-
-      "LobbyUnderTheSea": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true
-      },
-
-      "LobbyIceAge": {
         "$className": "Folder",
         "$ignoreUnknownInstances": true
       }

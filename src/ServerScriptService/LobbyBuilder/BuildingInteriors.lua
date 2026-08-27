@@ -571,6 +571,28 @@ local function buildContinuousShell(opts)
 					material = if opts.materialPicker then opts.materialPicker(rng) else opts.material,
 					color = if opts.colorPicker then opts.colorPicker(rng) else opts.color,
 					canCollide = false,
+					--[[
+						Only the OUTER layer casts shadows.
+
+						Layers above 0 exist purely to plug the outer layer's
+						seams: see angleOffset/layerInset above, which
+						deliberately rotate them behind those seams and inset
+						them so they never poke back out through the surface.
+						Their shadows therefore fall entirely INSIDE the shell,
+						where nothing can see them.
+
+						The outer layer keeps casting, so the structure still
+						throws its full silhouette onto the ground and still
+						self-shadows across its own surface relief - the two
+						things that actually make a dome or volcano read as
+						solid rather than flat.
+
+						These shells are the single largest shadow cost in the
+						build: 11,456 parts across all maps, 62% of every
+						remaining shadow caster after the PartUtils neon/tiny
+						pass.
+					]]
+					castShadow = layer == 0,
 					parent = model,
 				})
 			end
@@ -619,6 +641,12 @@ local function buildGroundSkirt(opts)
 				material = if opts.materialPicker then opts.materialPicker(rng) else opts.material,
 				color = if opts.colorPicker then opts.colorPicker(rng) else opts.color,
 				canCollide = false,
+				-- The skirt is a very shallow band lying flat ON the ground at
+				-- the foot of the shell (see this function's own doc comment).
+				-- A ~2-stud-thick piece flush with the floor casts essentially
+				-- no visible shadow, while the shell above it already casts the
+				-- ground shadow that grounds the whole structure.
+				castShadow = false,
 				parent = model,
 			})
 		end

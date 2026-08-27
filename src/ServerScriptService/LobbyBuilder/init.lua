@@ -64,6 +64,7 @@ local SpaceEnvironment = require(script.SpaceEnvironment)
 local UnderTheSeaEnvironment = require(script.UnderTheSeaEnvironment)
 local IceAgeEnvironment = require(script.IceAgeEnvironment)
 local LavaEnvironment = require(script.LavaEnvironment)
+local MapBaseplate = require(script.MapBaseplate)
 
 local LobbyBuilder = {}
 
@@ -170,6 +171,42 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?)
 		IceAgeEnvironment.BuildAll(root)
 	elseif def.themeId == "Lava" then
 		LavaEnvironment.BuildAll(root)
+	end
+
+	--[[
+		Ground slab just under the walkable plate, so looking out over the
+		rim shows terrain running to the horizon instead of the plate ending
+		in mid-air.
+
+		The themed maps each already have a deep floor (SkyFloor, RockFloor,
+		WaterFloor, DomeFloor) but those sit at Y = -202, some 205 studs
+		below the plate - far enough, and hazed enough by each map's own
+		atmosphere, that they do not read as ground at all. From the rim the
+		map looks like a disc floating in empty space. This fills that gap;
+		the deep floors still close the map off from below.
+
+		DELIBERATELY NOT APPLIED TO FUTURISTIC. That map is the default lobby
+		at the world origin, is presented as a platform in open sky, and has
+		no deep floor of its own - a slab under it would change its
+		established look rather than complete it. Guarded by themeId so any
+		future theme opts in explicitly.
+
+		Built in LOCAL space like everything else above, so applyMapTransform
+		below carries it to the map's world position.
+	]]
+	if def.themeId ~= "Futuristic" then
+		MapBaseplate.Build(root, {
+			-- LobbyConfig's plate sits with its top surface at this height.
+			plateTopY = 3,
+			-- Comfortably past the widest enclosure (Lava's, at 440) so the
+			-- slab always reaches beyond the boundary walls and no outer edge
+			-- is ever visible from inside the map.
+			extent = 620,
+			-- Uses the map's own floor palette, so each baseplate reads as that
+			-- map's terrain rather than a generic grey slab.
+			color = theme.floorColor,
+			material = theme.floorMaterial,
+		})
 	end
 	-- CentralBoard was manually deleted directly in Studio - no longer
 	-- built here so a future Rebuild() reproduces that deletion instead of

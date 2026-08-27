@@ -66,6 +66,32 @@ local function buildFloor(arena: Instance)
 	})
 end
 
+--[[
+	Translates every BasePart already built under `root` to
+	ArenaConfig.ORIGIN, run once at the end of Build().
+
+	Deliberately mirrors LobbyBuilder's applyMapTransform: every arena
+	construction module keeps building at its own local origin (0, 0, 0),
+	and this is what places the finished result at its real world position
+	- rather than threading a world offset through every module's internal
+	position math.
+
+	Shifting .Position (instead of re-deriving each CFrame) leaves every
+	part's existing rotation untouched: a pure translation.
+]]
+local function applyArenaTransform(root: Instance)
+	local offset = ArenaConfig.ORIGIN
+	if offset.Magnitude == 0 then
+		return
+	end
+
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Position += offset
+		end
+	end
+end
+
 function ArenaBuilder.Build(force: boolean?)
 	local arena = Workspace:WaitForChild("Arena")
 
@@ -91,6 +117,10 @@ function ArenaBuilder.Build(force: boolean?)
 	Platforms.BuildAll(arena)
 	CenterStage.BuildAll(arena)
 	ArenaDecorations.BuildAll(arena)
+
+	-- Must run AFTER every module above: they all build at local origin,
+	-- and this moves the completed arena to its world position in one pass.
+	applyArenaTransform(arena)
 
 	arena:SetAttribute("MathArenaBuilt", true)
 	arena:SetAttribute("MathArenaBuiltAt", DateTime.now().UnixTimestamp)

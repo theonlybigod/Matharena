@@ -1,5 +1,5 @@
 {
-  "name": "MathArena",
+  "name": "MathArena - Space (Difficulty 5)",
   "tree": {
     "$className": "DataModel",
 
@@ -35,27 +35,7 @@
         "$ignoreUnknownInstances": true
       },
 
-      "Lobby": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true
-      },
-
-      "LobbyLava": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true
-      },
-
       "LobbySpace": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true
-      },
-
-      "LobbyUnderTheSea": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true
-      },
-
-      "LobbyIceAge": {
         "$className": "Folder",
         "$ignoreUnknownInstances": true
       }

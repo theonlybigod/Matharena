@@ -6,6 +6,42 @@ This repository contains the source-controlled development project for MathArena
 
 ---
 
+## Play Mode Architecture (Multi-Place Difficulty Routing)
+
+Play Mode's five difficulties each run on their own isolated Roblox Place/server, containing only that difficulty's map. This is a "true multi-Place" architecture (as opposed to a single-Place reserved-server approach) - a deliberate choice, made explicitly aware of its cost, over a lighter-weight alternative. See git history / prior session notes for the tradeoff discussion.
+
+**The Places:**
+
+| Difficulty (GameplayConfig.QUEUE_TIERS id) | Map | Rojo project file |
+| --- | --- | --- |
+| 1 - Easy Mode | Futuristic | `place.futuristic.project.json` |
+| 2 - Medium Mode | Under the Sea | `place.underwater.project.json` |
+| 3 - Hard Mode | Ice Age (Tundra) | `place.tundra.project.json` |
+| 4 - Expert Mode | Lava (Volcano) | `place.volcano.project.json` |
+| 5 - Master Mode | Space | `place.space.project.json` |
+
+Plus the **Hub** - this repo's original `default.project.json` - the single shared, multi-map exploration lobby every player starts in. The Hub is NOT one of the five difficulty destinations.
+
+**How it works:**
+
+- Every one of the six project files (Hub + 5 difficulty Places) points at the exact same `src/` tree via Rojo `$path` - there is only ONE copy of every script anywhere in this repo. Nothing is duplicated. Only the declared `Workspace` map folders differ per project file, and even those are just empty Rojo-owned containers - all map geometry is built procedurally at server start by `LobbyBuilder`/`ArenaBuilder`, identically everywhere.
+- `src/ReplicatedStorage/Modules/DifficultyPlacesConfig.lua` is the routing table: difficulty tier id -> real Roblox `placeId`. **The `placeId` values start as placeholder `0`s** and must be filled in once the five destination Places actually exist (see "Setup still required" below) - see that file's doc comment for exactly how it fails closed until then.
+- `src/ServerScriptService/Main.server.lua` looks up `game.PlaceId` in `DifficultyPlacesConfig` at server start: on a difficulty Place it builds ONLY that Place's one assigned map (`LobbyBuilder.Build(mapDef)`); on the Hub (or an unconfigured Place) it builds every map as before (`LobbyBuilder.BuildAllMaps()`).
+- `src/ServerScriptService/PlaceTeleportSystem/init.lua` is the server-authoritative router. Play Mode's tier-select popup fires `RequestPlayDifficulty(tierId)` (never a raw destination) - the server validates/clamps the tier id, and either joins the local queue (already on the right Place) or teleports the player via `TeleportService:TeleportAsync` to the correct Place, passing the tier id as TeleportData so the destination auto-joins that queue on arrival. A failed teleport fires `PlayTeleportFailed` back to the client - the player stays put, free to retry, never soft-locked.
+- **Practice Mode never touches any of this.** `PracticeSystem.lua` calls `MatchSystem.TryJoinQueue`/`LeaveQueue` directly as plain function calls and never fires `RequestPlayDifficulty` - practice difficulty changes always stay on the player's current server/map, on every Place, by construction (there is no shared code path to accidentally invoke the teleport system from).
+
+**Setup still required (manual, cannot be done from this pipeline):**
+
+1. In Roblox Studio, create five new empty Places inside the MathArena experience (Game Settings > Places, or the Game Explorer's Places list) - one per row in the table above. Suggested names match the `displayName` values already in `DifficultyPlacesConfig.lua`.
+2. Open each new Place in Studio (or check its entry in Game Settings > Places) and note its real Place id.
+3. Fill in the matching `placeId` field in `DifficultyPlacesConfig.lua` (replacing the placeholder `0`), then republish/re-sync so every server picks it up.
+4. Connect Rojo to each of the five new Places using its matching `place.<name>.project.json` (in addition to the Hub, which keeps using `default.project.json`), and publish each once so a real server exists for `TeleportService` to send players to.
+5. Repeat step 4's publish whenever a shared system (anything under `src/ServerScriptService` or `src/ReplicatedStorage`) changes - all six Places must be republished to stay in sync, since Roblox does not share code between Places automatically.
+
+Until steps 1-4 are done, `PlayTeleportFailed` fires for every difficulty (fails closed, never errors or teleports to an invalid Place) and the game behaves exactly as it did before this system existed.
+
+---
+
 ## 1. Project Source of Truth
 
 The local MathArena repository is the **source of truth for project code and configuration**.

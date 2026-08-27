@@ -1,0 +1,140 @@
+--[[
+	ArenaVisibility.lua
+
+	Hides the Arena while players are in the lobby, and reveals it for the
+	duration of a match.
+
+	=== WHY THIS EXISTS ===
+
+	The Arena is built at the SAME origin as the Futuristic lobby: its
+	bounding volume is centred on (0, 10.75, 0) and spans 234 x 23.5 x 234
+	studs, and 419 Lobby parts sit inside that volume. The two are
+	physically interpenetrating, not neighbours.
+
+	Nothing had ever hidden it. The most visible symptom was
+	Arena.CenterStage.QuestionScreen - an 80 x 40 stud opaque wall standing
+	at (0, 22.5, 0), dead centre of the lobby plaza and only ~96 studs from
+	spawn - plus 160 collidable Arena parts (seats, podium tiers, stage
+	bases) scattered at walkable height across the plaza. Fog cannot help
+	at that range; FogEnd is 650.
+
+	It also silently broke line-of-sight for the guided tutorial, whose
+	walk steps toward DailyRewards and TutorialBuilding were being occluded
+	from spawn by QuestionScreen.
+
+	=== WHY BOTH TRANSPARENCY AND COLLISION ===
+
+	Hiding the Arena visually while leaving it solid would replace a set of
+	ugly-but-legible obstacles with a set of INVISIBLE ones - strictly
+	worse. So a hidden Arena is also non-collidable. This is not a
+	gameplay change: those 160 parts are obstructing the lobby plaza purely
+	by accident, and no lobby system has ever wanted them there. During a
+	match the Arena is restored to exactly the state it was authored with.
+
+	=== WHY SERVER-SIDE ===
+
+	Driven by MatchSystem.OnStateChanged, the callback registry that
+	already exists for this purpose - so this adds no RemoteEvent, no
+	client script, and no new source of truth for game state. Applying it
+	on the server means every player sees the same thing and there is no
+	client/server collision desync.
+
+	Original Transparency/CanCollide/Enabled are captured once, on the
+	first hide, and restored verbatim - so an Arena part authored as
+	already-transparent or already-non-collidable keeps its authored
+	values rather than being flattened to a guessed default.
+]]
+
+local ServerScriptService = game:GetService("ServerScriptService")
+local Workspace = game:GetService("Workspace")
+
+local MatchConfig = require(game:GetService("ReplicatedStorage").Modules.MatchConfig)
+local MatchSystem = require(ServerScriptService.MatchSystem)
+
+local ArenaVisibility = {}
+
+-- Authored values, captured lazily on first hide. Keyed by instance.
+local originalTransparency: { [BasePart]: number } = {}
+local originalCanCollide: { [BasePart]: boolean } = {}
+local originalGuiEnabled: { [Instance]: boolean } = {}
+
+local captured = false
+local currentlyHidden: boolean? = nil
+
+--[[
+	The lobby states. The Arena is hidden for exactly these two and shown
+	for everything else (Starting, Playing, Winner, Returning) - so it is
+	already visible by the time the Starting countdown teleports anyone in,
+	rather than popping in underneath them.
+]]
+local function isLobbyState(state: string): boolean
+	return state == MatchConfig.GameState.Lobby or state == MatchConfig.GameState.Waiting
+end
+
+local function captureOriginals(arena: Instance)
+	if captured then
+		return
+	end
+	captured = true
+	for _, descendant in ipairs(arena:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			originalTransparency[descendant] = descendant.Transparency
+			originalCanCollide[descendant] = descendant.CanCollide
+		elseif descendant:IsA("SurfaceGui") or descendant:IsA("BillboardGui") then
+			originalGuiEnabled[descendant] = descendant.Enabled
+		end
+	end
+end
+
+local function setArenaHidden(hidden: boolean)
+	local arena = Workspace:FindFirstChild("Arena")
+	if not arena then
+		warn("[ArenaVisibility] Workspace.Arena not found - nothing to show or hide.")
+		return
+	end
+	if currentlyHidden == hidden then
+		return
+	end
+
+	captureOriginals(arena)
+	currentlyHidden = hidden
+
+	for _, descendant in ipairs(arena:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			if hidden then
+				descendant.Transparency = 1
+				descendant.CanCollide = false
+			else
+				-- Fall back to the live value for anything created after
+				-- capture (nothing does today), so a late addition is never
+				-- forced to a made-up default.
+				descendant.Transparency = originalTransparency[descendant] or descendant.Transparency
+				descendant.CanCollide = if originalCanCollide[descendant] ~= nil
+					then originalCanCollide[descendant]
+					else descendant.CanCollide
+			end
+		elseif descendant:IsA("SurfaceGui") or descendant:IsA("BillboardGui") then
+			if hidden then
+				descendant.Enabled = false
+			else
+				descendant.Enabled = if originalGuiEnabled[descendant] ~= nil
+					then originalGuiEnabled[descendant]
+					else descendant.Enabled
+			end
+		end
+	end
+end
+
+function ArenaVisibility.Init()
+	MatchSystem.OnStateChanged(function(state: string)
+		setArenaHidden(isLobbyState(state))
+	end)
+
+	-- Apply once for whatever state the server is already in, since
+	-- OnStateChanged only fires on subsequent transitions.
+	setArenaHidden(isLobbyState(MatchSystem.GetState()))
+
+	print(("[ArenaVisibility] Initialized (Arena hidden in lobby; currently hidden=%s)"):format(tostring(currentlyHidden)))
+end
+
+return ArenaVisibility

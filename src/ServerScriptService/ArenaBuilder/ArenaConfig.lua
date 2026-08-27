@@ -3,9 +3,12 @@
 
 	Centralized dimensions/positions for the procedurally generated
 	competition arena. Coordinate convention:
-		Arena is centered on the origin. Center stage sits at (0, y, 0).
-		Contestant platforms ring the stage. Spectator seating rings the
-		platforms, out toward the arena's outer edge.
+		Every construction module builds the arena around its own LOCAL
+		origin: center stage at (0, y, 0), contestant platforms ringing the
+		stage, spectator seating ringing the platforms out toward the outer
+		edge. ArenaBuilder.Build() then translates the whole finished result
+		to ORIGIN below, exactly the way LobbyBuilder translates each map to
+		its MapsConfig origin.
 
 	"28 studs spacing" for platforms is interpreted as center-to-center arc
 	spacing between adjacent platforms (consistent with how LobbyConfig
@@ -18,6 +21,35 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Modules.Config)
 
 local ArenaConfig = {}
+
+--[[
+	World-space position of the finished arena.
+
+	CURRENTLY (0, 0, 0) - the same origin as the Futuristic lobby, so the
+	arena sits inside the lobby and is visible and walkable there outside a
+	match. That is deliberate: the arena's centre stage is the lobby's
+	centrepiece. In particular CenterStage's QuestionScreen - an 80 x 40
+	board reading "MATHARENA" on both faces while idle, and showing live
+	questions during a match - stands at the middle of the plaza and is
+	meant to be seen from the lobby.
+
+	The known cost of sharing an origin: the arena's 234 x 23.5 x 234
+	volume encloses ~419 Lobby parts, and ~160 collidable arena parts
+	(seats, podium tiers, stage bases) sit at walking height around the
+	plaza. That is accepted, not overlooked.
+
+	The transform mechanism below is kept even at zero offset so the arena
+	CAN be relocated later by changing this one constant - nothing reads
+	arena coordinates literally. MatchSystem places contestants via
+	Teleporter, which finds platforms by the "ContestantPlatform"
+	CollectionService tag and pivots to each platform's live Position, and
+	returns players via Workspace.Lobby.Spawns. Both follow the arena
+	wherever it is. If it is ever moved, prefer the free diagonal quadrant
+	(1050, 0, 1050): MapsConfig already spends the four cardinals on the
+	non-default maps (Lava +X, UnderTheSea -X, Space -Z, IceAge +Z) at 1050
+	studs each, and that corner is clear of all of them.
+]]
+ArenaConfig.ORIGIN = Vector3.new(0, 0, 0)
 
 -- Message 21: expanded ~30% ("noticeably more space... major
 -- centerpiece") - every other arena dimension below that's expressed as

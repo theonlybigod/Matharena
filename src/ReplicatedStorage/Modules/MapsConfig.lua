@@ -8,20 +8,25 @@
 	LobbyTheme.lua), and where in the world it sits (so multiple maps can
 	coexist in one Workspace without overlapping).
 
-	IMPORTANT - what this module deliberately does NOT do yet:
-		- It does NOT route matchmaking, spin up separate servers, or
-		  assign a difficulty to a map. `difficultyId` below is present
-		  and always nil for now - reserved so a future system can assign
-		  GameplayConfig.QUEUE_TIERS ids to specific maps without a schema
-		  change, but nothing currently reads it.
+	Play Mode Architecture (README.md): `difficultyId` below is now used -
+	DifficultyPlacesConfig.lua (also ReplicatedStorage/Modules) is the
+	actual difficulty -> Place routing table PlaceTeleportSystem reads;
+	this field just keeps each map's own entry self-describing and in
+	sync with that table (kept as plain data here rather than only living
+	in DifficultyPlacesConfig, since a map's difficulty is as much a
+	property of the MAP as of the Place it's routed to).
+
+	IMPORTANT - what this module still deliberately does NOT do:
 		- It does NOT change how Practice Mode selects a map. Practice
-		  Mode still only ever uses the default map.
-		- Only one map (`DEFAULT_MAP_ID`) is actually wired up as "the"
-		  active lobby every other system references (spawns, the queue
-		  portal, teleport systems, GameStateChanged visibility, etc.).
-		  Every other listed map is currently a coexisting, fully-dressed
-		  but otherwise-inert environment, in the same server, for
-		  players to walk into and explore - see LobbyBuilder.BuildAllMaps.
+		  Mode still only ever uses the default map, and never teleports
+		  cross-server for any difficulty - see PracticeSystem.lua.
+		- On the Hub (this repo's main Place), every map still builds and
+		  coexists in one Workspace exactly as before Play Mode routing
+		  existed - only one map (`DEFAULT_MAP_ID`) is wired up as "the"
+		  active lobby every other Hub-only system references (spawns,
+		  the queue portal, GameStateChanged visibility, etc.). On a
+		  dedicated difficulty Place, Main.server.lua builds ONLY that
+		  Place's one assigned map - see DifficultyPlacesConfig.lua.
 
 	Lives in ReplicatedStorage since map ids/display names are plain data
 	a future Practice Mode map-picker (client-facing) and matchmaking
@@ -42,7 +47,7 @@ export type MapDef = {
 	workspaceFolderName: string, -- the Workspace child Folder this map builds into (see default.project.json)
 	themeId: string, -- LobbyTheme.THEMES key
 	origin: Vector3, -- world-space offset this entire map is translated by after being built at local-origin coordinates
-	difficultyId: number?, -- reserved for a future GameplayConfig.QUEUE_TIERS id - always nil today, not yet assigned/read anywhere
+	difficultyId: number?, -- matches a GameplayConfig.QUEUE_TIERS id; see DifficultyPlacesConfig.lua for the actual routing table
 	isDefault: boolean?, -- true for exactly one map - the one every other current system (spawns, queue portal, teleports, GameStateChanged visibility) actually treats as "the" lobby
 }
 
@@ -64,7 +69,7 @@ MapsConfig.MAPS = {
 		workspaceFolderName = "Lobby",
 		themeId = "Futuristic",
 		origin = Vector3.new(0, 0, 0),
-		difficultyId = nil,
+		difficultyId = 1, -- GameplayConfig.QUEUE_TIERS id 1, Easy Mode - see DifficultyPlacesConfig.lua
 		isDefault = true,
 	},
 	{
@@ -73,7 +78,7 @@ MapsConfig.MAPS = {
 		workspaceFolderName = "LobbyLava",
 		themeId = "Lava",
 		origin = Vector3.new(MAP_SPACING_STUDS, 0, 0),
-		difficultyId = nil,
+		difficultyId = 4, -- GameplayConfig.QUEUE_TIERS id 4, Expert Mode ("Volcano") - see DifficultyPlacesConfig.lua
 		isDefault = false,
 	},
 	{
@@ -91,7 +96,7 @@ MapsConfig.MAPS = {
 		-- the origin map (Futuristic/Arena) and the Lava map's own footprint;
 		-- see SpaceEnvironment.lua's module doc for the exact radius check.
 		origin = Vector3.new(0, 0, -MAP_SPACING_STUDS),
-		difficultyId = nil,
+		difficultyId = 5, -- GameplayConfig.QUEUE_TIERS id 5, Master Mode - see DifficultyPlacesConfig.lua
 		isDefault = false,
 	},
 	{
@@ -104,7 +109,7 @@ MapsConfig.MAPS = {
 		-- Futuristic/Arena origin, none of them collinear with each other:
 		-- Lava (+X), UnderTheSea (-X), Space (-Z), IceAge (+Z).
 		origin = Vector3.new(-MAP_SPACING_STUDS, 0, 0),
-		difficultyId = nil,
+		difficultyId = 2, -- GameplayConfig.QUEUE_TIERS id 2, Medium Mode ("Under the Sea") - see DifficultyPlacesConfig.lua
 		isDefault = false,
 	},
 	{
@@ -115,7 +120,7 @@ MapsConfig.MAPS = {
 		-- Mirrors Space's own axis (+Z instead of -Z) - see the UnderTheSea
 		-- entry's comment above for the full four-cardinal-direction layout.
 		origin = Vector3.new(0, 0, MAP_SPACING_STUDS),
-		difficultyId = nil,
+		difficultyId = 3, -- GameplayConfig.QUEUE_TIERS id 3, Hard Mode ("Tundra") - see DifficultyPlacesConfig.lua
 		isDefault = false,
 	},
 } :: { MapDef }

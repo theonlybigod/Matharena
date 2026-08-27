@@ -41,15 +41,35 @@ local mainUI = playerGui:WaitForChild("MainUI")
 local camera = Workspace.CurrentCamera
 
 -- The desktop-assumed reference width the rest of the UI was designed
--- against (roughly matches the widest fixed-size element, the 580px
--- lobby button bar, with some margin).
-local REFERENCE_WIDTH = 900
+-- against.
+--
+-- The old comment here described this as "roughly matches the widest
+-- fixed-size element, the 580px lobby button bar, with some margin". That
+-- went stale: LobbyButtonBar is now 880px, so at REFERENCE_WIDTH 900 the
+-- "margin" is 20px, not the comfortable buffer the number was chosen for.
+-- Measured fixed-pixel top-level panels, widest first: LobbyButtonBar 880,
+-- NextPlayerBanner 560, TutorialGuideBanner 500, NewQuestBanner 380,
+-- IntroCountdown 360, QueueStatus 340, QuestBox 330x600, RewardToast 320.
+local REFERENCE_WIDTH = 920
 -- The desktop-assumed reference HEIGHT: the tallest fixed-offset popup
 -- (RewardsPanel, 520px) plus enough headroom above/below for the top bar
 -- and bottom button bar to both stay fully visible and un-overlapped at
 -- the same time.
 local REFERENCE_HEIGHT = 760
-local MIN_FIT_SCALE = 0.55
+--[[
+	Floor on the auto-fit scale.
+
+	This was 0.55, chosen when the button bar was 580px wide (580 * 0.55 =
+	319px, which fits a 390px-wide phone in portrait). At today's 880px bar
+	that same floor renders 484px - so on a narrow portrait viewport the
+	bar overflowed the screen and the clamp PREVENTED the fit logic from
+	shrinking it any further. The floor, not the formula, was the bug.
+
+	0.44 puts the 880px bar at 387px, so it fits a 390px-wide portrait
+	viewport - the narrowest common phone. Landscape was never affected:
+	there the height ratio binds first and already clamps here.
+]]
+local MIN_FIT_SCALE = 0.44
 local MAX_FIT_SCALE = 1.0
 
 local uiScale = Instance.new("UIScale")

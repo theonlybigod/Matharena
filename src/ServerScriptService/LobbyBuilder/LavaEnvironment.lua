@@ -27,7 +27,28 @@ local MapConfig = require(script.Parent.MapConfig)
 
 local LavaEnvironment = {}
 
-local ENCLOSURE_RADIUS = 300
+--[[
+	Radius of the map's rock-wall enclosure.
+
+	Raised from the original 300 to 440, driven entirely by the volcanoes:
+	they must stand fully clear of the 193-stud walkable plate AND remain
+	INSIDE this wall, because anything outside it is hidden behind 700
+	studs of rock.
+
+	The binding number is a volcano's REACH - its outermost geometry
+	measured from its own centre, including each slab's half-width, which
+	runs to ~175 studs at the current size. That forces centres out to
+	193 + 10 margin + 175 = ~378, so the wall has to sit comfortably beyond
+	that. 440 leaves the volcanoes ~60 studs inside the enclosure.
+
+	There is a hard ceiling on this: the same constant sizes the ground
+	plane below (ENCLOSURE_RADIUS * 2 + 40), and MapsConfig spaces the five
+	maps 1050 studs apart. At 440 the plane is 920 wide, so two adjacent
+	maps total 920 against 1050 of spacing and still clear. Much past 500
+	they would overlap, and at that point the volcanoes would have to get
+	smaller instead.
+]]
+local ENCLOSURE_RADIUS = 440
 local WALL_SEGMENTS = 28
 local WALL_HEIGHT = 700
 local WALL_BOTTOM_Y = -200
@@ -59,6 +80,44 @@ local LAVA_MATERIAL = Enum.Material.Neon
 local LAVA_CORE = Color3.fromRGB(214, 88, 12)
 local LAVA_EDGE = Color3.fromRGB(168, 48, 8)
 local GLOW_COLOR = LAVA_CORE
+
+--[[
+	Attaches a warm PointLight to a lava feature so molten rock actually
+	ILLUMINATES what is around it.
+
+	Defined HERE, above every caller, rather than beside the other build
+	helpers further down: buildBoundaryWalls is the first user and sits
+	near the top of this file, and a `local function` declared after that
+	point resolves to nil at the call site.
+
+	Why this exists: the Lava map's mean surface luminance measured 0.168 -
+	against 0.442 for Futuristic and 0.817 for IceAge, so nearly five times
+	darker than the brightest map and comfortably the least readable of the
+	five. The cause was not the global lighting (which is shared by every
+	map and cannot be tuned per-map, since all five coexist in one
+	Workspace) but the fact that this map's dominant feature emitted no
+	light at all: 480 LavaFlow segments totalling ~81,500 studs³ of glowing
+	neon, 10 WallFissures and 6 Craters, every one Neon-material and every
+	one contributing exactly zero illumination. Neon in Roblox is emissive
+	in APPEARANCE only.
+
+	So this is a look fix as much as a readability fix - it is what makes
+	the lava read as genuinely molten rather than as bright orange plastic.
+
+	PERFORMANCE: lights are added SPARSELY and deliberately, not to every
+	glowing part. Lighting one flow segment in eight is enough to carry the
+	glow along a channel because the ranges overlap generously, and it
+	keeps the map's light count in the same order of magnitude it already
+	had (51). Attaching 480 would be indefensible.
+]]
+local function addLavaGlow(part: BasePart, brightness: number, range: number)
+	local light = Instance.new("PointLight")
+	light.Color = GLOW_COLOR
+	light.Brightness = brightness
+	light.Range = range
+	light.Shadows = false -- shadow-casting lights are the expensive kind; this is fill, not a key light
+	light.Parent = part
+end
 
 --[[
 	Builds the enclosing dark-rock ring + ceiling/floor caps - see
@@ -99,7 +158,7 @@ local function buildWallSegments(parent: Instance)
 		-- Roughly every third segment gets a glowing fissure crack, so
 		-- the horizon reads as smoldering rather than uniformly dark.
 		if i % 3 == 0 then
-			PartUtils.CreatePart({
+			local fissure = PartUtils.CreatePart({
 				name = "WallFissure" .. i,
 				size = Vector3.new(WALL_THICKNESS + 0.6, rng:NextNumber(120, 260), 1.2),
 				cframe = CFrame.new(midpoint + Vector3.new(0, wallCenterY + rng:NextNumber(-100, 150), 0))
@@ -109,6 +168,9 @@ local function buildWallSegments(parent: Instance)
 				canCollide = false,
 				parent = folder,
 			})
+			-- Tall wall cracks: the map's only light source at the horizon, so
+			-- a long range to wash the surrounding rock rather than spot it.
+			addLavaGlow(fissure, 1.6, 90)
 		end
 	end
 end
@@ -143,8 +205,8 @@ end
 --[[
 	Rising ember particles scattered around the map - each an invisible
 	anchor part with a ParticleEmitter tuned to drift upward and fade,
-	purely decorative (no PointLights, matching the performance guidance
-	already established by SpaceEnvironment.lua).
+	purely decorative (no PointLights of their own; the lava features
+	themselves now carry the map's emissive lighting - see addLavaGlow).
 ]]
 local function buildEmbers(parent: Instance)
 	local folder = Instance.new("Folder")
@@ -227,14 +289,177 @@ local function surfaceHit(model: Instance, origin: Vector3, angle: number, y: nu
 	return workspace:Raycast(from, toward - from, params)
 end
 
+--[[
+	PER-VOLCANO SHAPE FIELD.
+
+	This replaces the old "radius is a function of height alone" model,
+	which is what made every volcano read as a stack of concentric rings:
+	if radius depends only on t, then every tier IS a perfect circle, and
+	no amount of surface decoration hides that.
+
+	Here the radius is a function of BOTH height and bearing. A handful of
+	low-frequency sinusoidal lobes at random phases deform the cone into
+	ridges and gullies that run continuously from foot to rim, so a
+	horizontal slice is an irregular blob rather than a circle, and the
+	left, right, front and back of the mountain genuinely differ.
+
+	The deformation is enveloped to zero at the very bottom and the very
+	top (sin(pi*t)) so the foot still meets the ground cleanly and the rim
+	stays readable, with the strongest character mid-slope where the eye
+	spends most of its time.
+
+	Crucially the SAME field drives the rock, the crater rim and the lava.
+	The lava finds its own path by walking downhill through this field
+	(see descendGully), so flows end up in the gullies the rock actually
+	has - rather than being assigned arbitrary bearings and then having
+	the rock bent out of their way.
+
+	Three lobes at frequencies 2-5 is deliberately few: enough for
+	believable large-scale geology, far too few to read as noise.
+]]
+local FLANK_EXPONENT = 1.55
+
+type FlankShape = {
+	radiusAt: (t: number, bearing: number) -> number,
+	heightAt: (t: number) -> number,
+	rimLiftAt: (bearing: number) -> number,
+}
+
+local function makeFlankShape(rng: Random, baseRadius: number, craterRadius: number, peakHeight: number): FlankShape
+	local lobes = {}
+	for _ = 1, 3 do
+		table.insert(lobes, {
+			freq = rng:NextInteger(2, 4),
+			phase = rng:NextNumber(0, 2 * math.pi),
+			-- Amplitude halved from 0.06-0.15. That range gave the broad,
+			-- believable ridges we wanted but at a depth that made the
+			-- surface visibly lumpy; at this scale the geology still reads
+			-- clearly while the flank stays smooth to the eye.
+			amp = rng:NextNumber(0.035, 0.075),
+		})
+	end
+	-- An independent, higher-frequency pair shapes the crater rim only, so
+	-- the rim's ups and downs are not just an echo of the flank's ridges.
+	local rimLobes = {}
+	for _ = 1, 2 do
+		table.insert(rimLobes, {
+			freq = rng:NextInteger(3, 7),
+			phase = rng:NextNumber(0, 2 * math.pi),
+			amp = rng:NextNumber(0.04, 0.10),
+		})
+	end
+
+	local function deform(bearing: number, t: number): number
+		local n = 0
+		for _, l in ipairs(lobes) do
+			n += math.sin(bearing * l.freq + l.phase) * l.amp
+		end
+		local envelope = math.sin(math.pi * math.clamp(t, 0, 1)) ^ 0.7
+		return n * envelope
+	end
+
+	local shape = {}
+
+	function shape.radiusAt(t: number, bearing: number): number
+		local base = craterRadius + (baseRadius - craterRadius) * (1 - t) ^ FLANK_EXPONENT
+		return base * (1 + deform(bearing, t))
+	end
+
+	function shape.heightAt(t: number): number
+		return peakHeight * t
+	end
+
+	-- How much the crater rim rises (or dips) at a given bearing, as a
+	-- fraction of peak height. This is what stops the summit reading as a
+	-- perfect circular collar dropped onto the cone.
+	function shape.rimLiftAt(bearing: number): number
+		local n = 0
+		for _, l in ipairs(rimLobes) do
+			n += math.sin(bearing * l.freq + l.phase) * l.amp
+		end
+		return n
+	end
+
+	return shape
+end
+
+--[[
+	Walks downhill from a starting bearing, letting the shape field decide
+	where the lava goes.
+
+	At each step it samples the flank slightly left and slightly right of
+	the current bearing and drifts toward whichever is RECESSED - i.e. it
+	follows the gully. That is the whole trick: real lava collects in low
+	ground, and because the gullies come from the same field that built the
+	rock, a flow physically cannot end up running along a ridge or cutting
+	across the grain of the mountain.
+
+	Returns a list of {t, bearing} samples from `tTop` down to `tBottom`.
+]]
+local function descendGully(shape: FlankShape, startBearing: number, tTop: number, tBottom: number, steps: number, rng: Random)
+	local path = {}
+	local bearing = startBearing
+	local probe = math.rad(6)
+	for s = 0, steps do
+		local t = tTop + (tBottom - tTop) * (s / steps)
+		table.insert(path, { t = t, bearing = bearing })
+
+		local here = shape.radiusAt(t, bearing)
+		local left = shape.radiusAt(t, bearing - probe)
+		local right = shape.radiusAt(t, bearing + probe)
+		-- Move toward the smaller radius (the recess). Step size is modest so
+		-- the path curves smoothly instead of snapping to the minimum.
+		local pull = 0
+		if left < here or right < here then
+			pull = if left < right then -probe * 0.45 else probe * 0.45
+		end
+		-- A little wander keeps two flows in similar gullies from tracing
+		-- identical curves.
+		bearing += pull + rng:NextNumber(-0.012, 0.012)
+	end
+	return path
+end
+
 local function buildDistantVolcano(position: Vector3, rng: Random, parent: Instance, name: string)
 	local model = Instance.new("Model")
 	model.Name = name
 	model.Parent = parent
 
-	local baseRadius = rng:NextNumber(45, 65)
-	local peakHeight = rng:NextNumber(90, 150)
-	local craterRadius = 4 + rng:NextNumber(0, 2)
+	--[[
+		HEIGHT: ~4x TALLER, AT A FOOTPRINT THE MAP CAN ACTUALLY AFFORD.
+
+		Measured baseline before this change: heights 25-36 studs (mean ~30),
+		footprints 109-140. Target is a mean near 120.
+
+		The hard constraint is horizontal, not vertical. The volcanoes sit
+		230-268 studs from the map centre, with the walkable ground disc at
+		radius 193 and the boundary RockWalls at 298 - so there is very
+		little room to grow outward, and an earlier attempt at widening the
+		base pushed 583 rock parts into the plaza.
+
+		So the cone is widened WITHOUT widening the footprint: the skirt
+		multiplier drops from 2.2x to 1.5x (see skirtOuterRadius below) and
+		that reclaimed width goes into baseRadius instead. Footprint stays
+		about where it was; the mountain itself gets substantially broader,
+		which is what keeps a 4x taller cone from turning into a spike.
+
+		Even so, 4x height on a near-fixed base necessarily steepens the
+		flank - roughly 30 degrees before, roughly 55 now. Slab thinness,
+		low jitter and the raised tier count below are what keep that
+		steeper surface reading as smooth rock rather than the spiky,
+		chunky look this pass is specifically avoiding.
+
+		`spread` gives each volcano a slightly different overall size, and
+		the height multiplier varies independently, so heights and widths
+		both differ noticeably but subtly.
+	]]
+	local spread = rng:NextNumber(0.92, 1.08)
+	local baseRadius = rng:NextNumber(100, 122) * spread
+	local peakHeight = baseRadius * rng:NextNumber(1.35, 1.60)
+	-- Crater scaled to the mountain instead of a fixed 4-6 studs, so the
+	-- summit opening is actually large enough to read as a lava-filled
+	-- caldera from a distance rather than a pinprick lost in the peak.
+	local craterRadius = baseRadius * rng:NextNumber(0.18, 0.28)
 	-- Slope angle of the cone's face measured from horizontal - used to
 	-- tilt every shingle so its flat top face lies FLUSH against the
 	-- theoretical cone surface instead of sitting at a fixed flat angle
@@ -258,38 +483,100 @@ local function buildDistantVolcano(position: Vector3, rng: Random, parent: Insta
 		is now expressed as a fraction of the guaranteed overlap margin, so
 		it can still roughen the surface but can never break it.
 	]]
-	local tierCount = 14
+	local tierCount = 30
+
+	--[[
+		The shape field (see makeFlankShape) is the single source of truth
+		for this mountain's geometry. Rock, crater rim and lava all read from
+		it, so they cannot disagree.
+	]]
+	local shape = makeFlankShape(rng, baseRadius, craterRadius, peakHeight)
+
 	local SHINGLE_OVERLAP = 1.9
 	for tier = 0, tierCount do
 		local t = tier / tierCount
-		local ringRadius = math.max(craterRadius, baseRadius * (1 - t) ^ 0.9)
-		local ringY = peakHeight * t ^ 1.05
-		-- Slant distance to the next tier, so consecutive tiers overlap
-		-- along the slope no matter how fast the radius is shrinking.
 		local nextT = math.min((tier + 1) / tierCount, 1)
-		local nextRadius = math.max(craterRadius, baseRadius * (1 - nextT) ^ 0.9)
-		local nextY = peakHeight * nextT ^ 1.05
-		local slant = math.max(
-			math.sqrt((ringRadius - nextRadius) ^ 2 + (ringY - nextY) ^ 2),
-			baseRadius / tierCount
-		)
-		local shingleLength = slant * SHINGLE_OVERLAP
+		local ringY = shape.heightAt(t)
+		local nextY = shape.heightAt(nextT)
 
-		local circumference = 2 * math.pi * ringRadius
-		local shingleCount = math.max(10, math.ceil(circumference / math.max(ringRadius * 0.45, 7)))
-		local arcSpacing = circumference / shingleCount
-		local shingleWidth = arcSpacing * SHINGLE_OVERLAP
-		local overlapMargin = (shingleWidth - arcSpacing) / 2
+		--[[
+			PER-TIER ANGULAR PHASE.
+
+			Every tier used to start its shingles at the same angle, so the
+			seams between neighbouring slabs stacked into continuous vertical
+			columns all the way down the mountain - a strong visual cue that
+			the thing is built from rings. Offsetting each tier by an
+			arbitrary fraction of its own spacing staggers those seams like
+			brickwork, so no column of joins ever forms.
+		]]
+		local phase = rng:NextNumber(0, 2 * math.pi)
+
+		-- Sized from the widest point of this tier so slabs still overlap
+		-- where the deformed radius is largest.
+		--
+		-- MINIMUM COUNT RAISED 12 -> 28. A floor of 12 means each slab spans
+		-- 30 degrees of arc, which is harmless on the wide lower tiers but
+		-- catastrophic near the summit where the radius is small: a chord
+		-- across 30 degrees, widened by the 1.9x overlap, comes out WIDER
+		-- THAN THE CONE'S RADIUS. Measured on the previous build, upper-tier
+		-- slabs were 12-15 studs wide where the local radius was only 5-13,
+		-- so they overshot the surface in every direction and engulfed the
+		-- lava - the direct cause of 100% of flow segments intersecting rock.
+		local nominalRadius = shape.radiusAt(t, phase)
+		local circumference = 2 * math.pi * nominalRadius
+		local shingleCount = math.max(28, math.ceil(circumference / math.max(nominalRadius * 0.38, 6)))
 
 		for c = 1, shingleCount do
-			local angle = (2 * math.pi / shingleCount) * c
-			local jitterRadius = ringRadius + rng:NextNumber(-overlapMargin * 0.4, overlapMargin * 0.4)
-			local jitterY = ringY + rng:NextNumber(-slant * 0.15, slant * 0.15)
+			local angle = phase + (2 * math.pi / shingleCount) * c
+			local ringRadius = shape.radiusAt(t, angle)
+			local nextRadius = shape.radiusAt(nextT, angle)
+
+			-- Slope is evaluated along THIS bearing, so a slab sitting in a
+			-- gully tilts differently from one on a ridge - which is what
+			-- makes the deformed surface read as continuous rock rather than
+			-- a circular tier that has been pushed in and out.
+			local slant = math.max(
+				math.sqrt((ringRadius - nextRadius) ^ 2 + (nextY - ringY) ^ 2),
+				baseRadius / tierCount
+			)
+			local tierSlope = math.atan2(math.max(nextY - ringY, 0.001), math.max(ringRadius - nextRadius, 0.001))
+			local tierPitch = (math.pi / 2) - tierSlope
+
+			local arcSpacing = (2 * math.pi * ringRadius) / shingleCount
+			-- Hard cap relative to the LOCAL radius. Even with the raised
+			-- count above, the deformation can leave a bearing whose radius is
+			-- much smaller than the tier's nominal one; without this cap such
+			-- a slab still bulges past the surface it is meant to tile.
+			local shingleWidth = math.min(arcSpacing * SHINGLE_OVERLAP, ringRadius * 0.55)
+			-- Length is capped the same way and for the same reason: an 8-stud
+			-- plate laid along a near-vertical upper flank sweeps well outboard
+			-- of a 6-stud radius.
+			local shingleLength = math.min(slant * SHINGLE_OVERLAP, math.max(ringRadius * 0.85, 3))
+			local overlapMargin = math.max((shingleWidth - arcSpacing) / 2, 0)
+
+			local jitterRadius = ringRadius + rng:NextNumber(-overlapMargin * 0.18, overlapMargin * 0.18)
+			local jitterY = ringY + rng:NextNumber(-slant * 0.05, slant * 0.05)
 			local shinglePos = position + Vector3.new(math.sin(angle) * jitterRadius, jitterY, math.cos(angle) * jitterRadius)
 			PartUtils.CreatePart({
 				name = ("ShingleT%dC%d"):format(tier, c),
-				size = Vector3.new(shingleWidth, rng:NextNumber(3.5, 5.5), shingleLength),
-				cframe = slopeCFrame(shinglePos, angle, shinglePitch + math.rad(rng:NextNumber(-3, 3))),
+				--[[
+					THIN slabs. These averaged 5.3 studs thick, which is what
+					produced the chunky, blocky surface AND the lava clipping:
+					the ribbon runs 5 studs off the analytic surface, so slabs
+					half that thick (2.65 outboard) came within a fraction of
+					the lava and any jitter pushed them through it - the lava
+					appearing to pass in and out of the rock.
+
+					At 1.6-2.4 studs only ~1.2 sits outboard of the surface, so
+					the rock reads as a smooth shell and the lava clears it with
+					room to spare. Length/width are unchanged, so coverage and
+					overlap are unaffected - the slabs get thinner, not sparser.
+				]]
+				size = Vector3.new(shingleWidth, rng:NextNumber(1.6, 2.4), shingleLength),
+				-- Tilt jitter cut from +/-2.5 to +/-1 degree: at 5 studs thick a
+				-- couple of degrees was invisible, but on a thin plate it lifts
+				-- a corner clear of its neighbour and reads as a chipped edge.
+				cframe = slopeCFrame(shinglePos, angle, tierPitch + math.rad(rng:NextNumber(-1, 1))),
 				material = if rng:NextNumber() < 0.35 then Enum.Material.Rock else Enum.Material.Basalt,
 				color = Color3.fromRGB(26 + rng:NextInteger(-4, 6), 20 + rng:NextInteger(-3, 5), 18 + rng:NextInteger(-3, 4)),
 				canCollide = false,
@@ -297,20 +584,45 @@ local function buildDistantVolcano(position: Vector3, rng: Random, parent: Insta
 			})
 		end
 
-		-- Occasional jagged ridge outcrop breaking above the slope surface,
-		-- so it doesn't read as a perfectly smooth cone.
-		if tier > 0 and tier < tierCount and rng:NextNumber() < 0.5 then
-			local ridgeAngle = rng:NextNumber(0, 2 * math.pi)
-			local ridgePos = position + Vector3.new(math.sin(ridgeAngle) * ringRadius, ringY + rng:NextNumber(2, 6), math.cos(ridgeAngle) * ringRadius)
-			PartUtils.CreatePart({
-				name = "RidgeOutcrop" .. tier,
-				size = Vector3.new(rng:NextNumber(6, 12), rng:NextNumber(6, 14), rng:NextNumber(6, 12)),
-				cframe = slopeCFrame(ridgePos, ridgeAngle, shinglePitch * 0.6) * CFrame.Angles(0, 0, rng:NextNumber(-0.3, 0.3)),
-				material = Enum.Material.Rock,
-				color = Color3.fromRGB(30 + rng:NextInteger(-4, 6), 23 + rng:NextInteger(-3, 5), 19 + rng:NextInteger(-3, 4)),
-				canCollide = false,
-				parent = model,
-			})
+		--[[
+			Rock shelves: BROAD, LOW swells that widen the mountain's shoulder.
+
+			These used to be 5-10 stud tall balls sitting proud of the flank -
+			a major contributor to the chunky, lumpy read. They are now wide
+			and deliberately shallow (1.5-3 studs of rise), and sunk INTO the
+			surface rather than perched on it, so they broaden the silhouette
+			the way a real buttress does instead of studding it with boulders.
+
+			Still placed only on ridges, never in a gully, so they stay out of
+			the lava's path.
+		]]
+		if tier > 1 and tier < tierCount - 1 and rng:NextNumber() < 0.35 then
+			local shelfAngle = rng:NextNumber(0, 2 * math.pi)
+			local r = shape.radiusAt(t, shelfAngle)
+			-- Ridge test widened from +/-9 to +/-20 degrees. A shelf can be tens
+			-- of studs across, which at this radius spans ~25 degrees of arc - so
+			-- a 9-degree test could confirm a ridge at the shelf's centre while
+			-- its edges still overhung the neighbouring gully, which is exactly
+			-- where the lava runs. Measured: 11 flow segments were being clipped
+			-- by RockShelf parts, all of them mid-flank.
+			local onRidge = r > shape.radiusAt(t, shelfAngle - math.rad(20))
+				and r > shape.radiusAt(t, shelfAngle + math.rad(20))
+			if onRidge then
+				local shelfPos = position
+					+ Vector3.new(math.sin(shelfAngle) * (r - 4), ringY, math.cos(shelfAngle) * (r - 4))
+				-- Also capped relative to the local radius, so a shelf can never
+				-- span more arc than the ridge it is sitting on.
+				local shelfSpan = math.min(rng:NextNumber(26, 44), r * 0.30)
+				PartUtils.CreatePart({
+					name = "RockShelf" .. tier,
+					size = Vector3.new(shelfSpan, rng:NextNumber(1.5, 3), shelfSpan * rng:NextNumber(0.7, 0.9)),
+					cframe = slopeCFrame(shelfPos, shelfAngle, math.rad(rng:NextNumber(-3, 3))),
+					material = Enum.Material.Basalt,
+					color = Color3.fromRGB(29 + rng:NextInteger(-4, 6), 22 + rng:NextInteger(-3, 5), 19 + rng:NextInteger(-3, 4)),
+					canCollide = false,
+					parent = model,
+				})
+			end
 		end
 	end
 
@@ -319,7 +631,25 @@ local function buildDistantVolcano(position: Vector3, rng: Random, parent: Insta
 	-- a mound dropped onto flat terrain no matter how solid its own slope
 	-- is. A handful of big, nearly-flat overlapping slabs fanning out to
 	-- ~2.2x the base radius, tapering down to ground level.
-	local skirtOuterRadius = baseRadius * 2.2
+	--[[
+		Skirt cut from 1.5x to 1.15x of base radius.
+
+		This is what lets the volcanoes be BIGGER and CLOSER at the same
+		time, which otherwise pull against each other: a volcano must sit at
+		193 (plate) + margin + its own REACH, so growing it normally pushes
+		it further away and it gains nothing on screen.
+
+		The skirt is the cheapest reach to give up. It is a nearly-flat
+		apron 1.5-3 studs tall that only exists to blend the foot into the
+		ground - it contributes almost nothing to the silhouette while
+		accounting for roughly a third of the total reach. Trading it back
+		buys the cone real size and a closer standoff for the same footprint.
+
+		1.15 still leaves a blend band of 0.15 x baseRadius (~15-20 studs),
+		which is enough to keep the mountain from reading as a mound dropped
+		onto flat terrain. Going much below this would reintroduce that.
+	]]
+	local skirtOuterRadius = baseRadius * 1.15
 	local skirtRingCount = 3
 	for ring = 1, skirtRingCount do
 		local ringFraction = ring / skirtRingCount
@@ -343,16 +673,57 @@ local function buildDistantVolcano(position: Vector3, rng: Random, parent: Insta
 		end
 	end
 
-	PartUtils.CreateDisc({
+	--[[
+		CRATER: an irregular rim of rock blocks, not a disc.
+
+		The summit used to be a single flat CreateDisc laid on top of the
+		cone, which is exactly the "circular structure placed on top" read.
+		Now the rim is built from individual blocks whose height, width and
+		outward lean all vary by bearing (via shape.rimLiftAt), so one side
+		of the crater stands tall and another is breached low - and the lava
+		pool sits recessed INSIDE that rim rather than capping it.
+	]]
+	local rimBlocks = 26
+	-- Crater floor sits only shallowly below the rim now. Recessing it 4
+	-- studs under a tall rim hid the lava pool inside the summit; the point
+	-- is a visible molten caldera, so the rim is low and the pool broad.
+	local craterFloorY = peakHeight - 1.5
+	for c = 1, rimBlocks do
+		local angle = (2 * math.pi / rimBlocks) * c
+		local lift = shape.rimLiftAt(angle)
+		local rimR = craterRadius * (1.04 + lift * 1.2)
+		-- Rim height scaled right down (was 6 + 12% of peak). A low, uneven
+		-- collar frames the lava instead of walling it off from view.
+		local rimH = 2.2 + lift * peakHeight * 0.05 + rng:NextNumber(-0.4, 0.8)
+		local rimY = peakHeight + rimH * 0.5 - 1.5
+		PartUtils.CreatePart({
+			name = "CraterRim" .. c,
+			size = Vector3.new((2 * math.pi * rimR / rimBlocks) * 1.8, math.max(rimH, 1.2), rng:NextNumber(5, 9)),
+			cframe = slopeCFrame(
+				position + Vector3.new(math.sin(angle) * rimR, rimY, math.cos(angle) * rimR),
+				angle,
+				math.rad(rng:NextNumber(-10, -3))
+			),
+			material = Enum.Material.Basalt,
+			color = Color3.fromRGB(24 + rng:NextInteger(-3, 5), 18 + rng:NextInteger(-2, 4), 16 + rng:NextInteger(-2, 3)),
+			canCollide = false,
+			parent = model,
+		})
+	end
+
+	local crater = PartUtils.CreateDisc({
 		name = "Crater",
-		diameter = craterRadius * 2,
-		thickness = 1.5,
-		position = position + Vector3.new(0, peakHeight, 0),
+		-- Fills the rim rather than sitting inside it, and thicker so the
+		-- pool reads as a body of molten rock instead of a glowing sheet.
+		diameter = craterRadius * 2.1,
+		thickness = 3.5,
+		position = position + Vector3.new(0, craterFloorY, 0),
 		material = LAVA_MATERIAL,
 		color = GLOW_COLOR,
 		canCollide = false,
 		parent = model,
 	})
+	addLavaGlow(crater, 2.2, 70)
 
 	--[[
 		Lava channels running down the REAL rock face. Each channel is a
@@ -362,104 +733,166 @@ local function buildDistantVolcano(position: Vector3, rng: Random, parent: Insta
 		cut INTO the flank rather than laid over an idealised cone the
 		jittered slabs never exactly matched.
 	]]
-	local searchRadius = baseRadius * 1.8
-	local channelCount = rng:NextInteger(4, 6)
-	for i = 1, channelCount do
-		local channelAngle = rng:NextNumber(0, 2 * math.pi)
-		-- t = 1 is the crater rim, t = 0 the base (matching the shingle
-		-- loop's own parameterisation), so a flow walks from high t to low.
-		local tTop = rng:NextNumber(0.86, 0.97)
-		local tBottom = rng:NextNumber(0.02, 0.16)
-		local channelWidth = rng:NextNumber(2.8, 4.8)
-		local segments = 16
+	--[[
+		Lava channels running down the flank's reserved corridors.
 
-		--[[
-			DIRECTED FLOW. Sample the real rock face straight down one
-			bearing, then connect CONSECUTIVE samples end to end.
+		Each channel follows a bearing chosen BEFORE the rock was built, down
+		a lane where outcrops were suppressed and jitter damped - so there is
+		nothing left on the flank for the lava to cut through.
 
-			The previous version placed each segment independently and
-			oriented it with CFrame.lookAt(pos, pos + normal) - which pins
-			the part's -Z to the surface normal but leaves its long axis
-			pointing wherever the derived up-vector happened to land. That
-			is why the flows read as rectangles scattered at every angle
-			instead of a stream: nothing in that maths ever referenced the
-			downhill direction. Building each segment BETWEEN two points on
-			the slope makes the flow direction explicit, and passing the
-			surface normal as the up-vector lays the ribbon flat against the
-			rock.
-		]]
-		--[[
-			The ribbon's roll is set by ONE constant normal for the whole
-			flow, computed analytically from the cone's own slope angle:
-			for a surface at bearing `channelAngle` inclined `slopeAngle`
-			from horizontal, the outward normal is
-			(sin(bearing)*sin(slope), cos(slope), cos(bearing)*sin(slope)).
+		The centreline comes from flankRadius/flankHeight, the very same
+		functions that placed the shingles, so the stream traces the real
+		profile of the mountain instead of a straight line drawn past it. On
+		a concave flank that difference is large: a straight chord from rim
+		to base cuts metres into the rock at mid-height, which is exactly the
+		"goes through the volcano" defect.
 
-			Using each raycast's OWN hit normal here (as this first did) is
-			what made the stream look like a chain of loose plates: the
-			shingles carry deliberate tilt jitter, so every segment picked up
-			a slightly different up-vector and twisted relative to its
-			neighbours. A single shared normal keeps every segment coplanar,
-			so they read as one continuous ribbon.
-		]]
-		local flowNormal = Vector3.new(
-			math.sin(channelAngle) * math.sin(slopeAngle),
-			math.cos(slopeAngle),
-			math.cos(channelAngle) * math.sin(slopeAngle)
+		CLEARANCE has to beat HALF a shingle's thickness, since slabs are
+		3.5-5.5 studs thick and centred ON the analytic surface (so up to
+		2.75 studs of rock sits outboard of it), plus the downhill overhang
+		of the tier above. Measured against the built mountain: at 3.2 studs
+		65% of flow segments were still buried behind rock. 5.0 clears the
+		thickest slab with margin while staying far below the old value of 7,
+		which was set to dodge the jagged outcrops the corridor now prevents
+		and which left the ribbon visibly hovering off the flank.
+	]]
+	--[[
+		LAVA FLOWS THAT FIND THEIR OWN PATH.
+
+		Each flow starts at a breach in the crater rim and walks downhill
+		through the shape field (descendGully), drifting into whichever
+		gully is lower at each step. Because the gullies come from the same
+		field that placed the rock, a flow physically cannot run along a
+		ridge or cut across the mountain's grain - it ends up in the
+		recesses, which is where real lava collects.
+
+		This replaces fixed bearings walked in a straight line. Every flow
+		now has its own curvature, and no two trace the same arc, because
+		the field differs by bearing and each volcano's lobes are randomised.
+
+		WIDTH varies along the path rather than being one constant strip: a
+		flow narrows where it is steep and swells where the slope eases, and
+		each flow gets its own overall scale so some read as wide sluggish
+		sheets and others as narrow concentrated streams.
+	]]
+	--[[
+		CLEARANCE IS MEASURED TO THE LAVA'S INNER FACE, NOT ITS CENTRE.
+
+		This is where the previous value went wrong. The ribbon is offset
+		along the surface normal by its CENTRE, so a 3.6-stud-thick segment
+		at clearance 3.0 puts its inner face only 3.0 - 1.8 = 1.2 studs off
+		the surface - exactly where the shingles' outer faces already sit
+		(half of a 2.4-stud slab). Margin was effectively zero and a
+		measured 100% of segments had rock inside them.
+
+		Budget now: lava half-thickness 1.4, plus slab half-thickness up to
+		1.2, plus radial jitter and the downhill overhang of the tier above
+		on a ~43 degree flank. 4.6 leaves roughly 2 studs of clear air under
+		the ribbon - enough that nothing pokes through, while still close
+		enough to read as lava running over the rock rather than hovering.
+	]]
+	local FLOW_CLEARANCE = 4.6
+	local channelCount = rng:NextInteger(3, 5)
+
+	local function surfaceNormalAt(t: number, bearing: number): Vector3
+		local dt = 0.01
+		local t0, t1 = math.max(t - dt, 0), math.min(t + dt, 1)
+		local dr = shape.radiusAt(t1, bearing) - shape.radiusAt(t0, bearing)
+		local dy = shape.heightAt(t1) - shape.heightAt(t0)
+		local localSlope = math.atan2(dy, -dr)
+		return Vector3.new(
+			math.sin(bearing) * math.sin(localSlope),
+			math.cos(localSlope),
+			math.cos(bearing) * math.sin(localSlope)
 		).Unit
+	end
 
-		--[[
-			Points come from the cone's OWN analytic surface - the same
-			formula the shingles were laid against - offset outward along the
-			shared normal so the ribbon rides just clear of the rock.
-
-			Raycasting for these (as the previous pass did) is subtly wrong
-			here: the shingles carry positional jitter, so a ray occasionally
-			lands on a recessed slab and the flow dips inward, disappearing
-			behind the tier lip below it and breaking the stream into
-			visible gaps. The analytic surface has no such jitter, and a
-			clearance comfortably greater than the slab half-thickness plus
-			jitter guarantees the ribbon stays on top of the rock the whole
-			way down. (Vents still raycast - they WANT to be embedded.)
-		]]
-		-- Clearance must beat HALF a shingle's thickness (slabs are 3.5-5.5
-		-- thick, centred on the analytic surface) PLUS the radial jitter,
-		-- PLUS the downhill overhang of the tier above - which together are
-		-- a good deal more than the slab thickness alone. At 3.2 the ribbon
-		-- was still being occluded by the rock it was supposed to run over.
-		local FLOW_CLEARANCE = 7
-		local points = {}
-		for s = 0, segments do
-			local t = tTop + (tBottom - tTop) * (s / segments)
-			local segY = peakHeight * t ^ 1.05
-			local segR = math.max(craterRadius, baseRadius * (1 - t) ^ 0.9)
-			local onCone = position
-				+ Vector3.new(math.sin(channelAngle) * segR, segY, math.cos(channelAngle) * segR)
-			table.insert(points, onCone + flowNormal * FLOW_CLEARANCE)
-		end
-
-		for s = 1, #points - 1 do
-			local a, b = points[s], points[s + 1]
+	--[[
+		Lays one ribbon of lava along a descended path.
+		`scale` lets a secondary branch be built by the same code as a trunk,
+		just narrower - so branches are never a separate look.
+	]]
+	local function layFlow(path, flowIndex: number, scale: number, label: string)
+		local baseWidth = rng:NextNumber(3.2, 6.0) * scale
+		for s = 1, #path - 1 do
+			local p0, p1 = path[s], path[s + 1]
+			local n0 = surfaceNormalAt(p0.t, p0.bearing)
+			local a = position
+				+ Vector3.new(math.sin(p0.bearing) * shape.radiusAt(p0.t, p0.bearing), shape.heightAt(p0.t), math.cos(p0.bearing) * shape.radiusAt(p0.t, p0.bearing))
+				+ n0 * FLOW_CLEARANCE
+			local b = position
+				+ Vector3.new(math.sin(p1.bearing) * shape.radiusAt(p1.t, p1.bearing), shape.heightAt(p1.t), math.cos(p1.bearing) * shape.radiusAt(p1.t, p1.bearing))
+				+ surfaceNormalAt(p1.t, p1.bearing) * FLOW_CLEARANCE
 			local delta = b - a
 			local span = delta.Magnitude
 			if span > 0.05 then
-				local mid = a + delta * 0.5
-				-- Generous overlap along the flow so consecutive segments
-				-- always intersect, and a slight widening downhill the way a
-				-- real flow spreads as the slope eases near the base.
-				local widen = 1 + (s / math.max(#points - 1, 1)) * 0.45
-				PartUtils.CreatePart({
-					name = ("LavaFlow%dS%d"):format(i, s),
-					-- Given real depth so the channel reads as a molten stream
-				-- carved into the flank rather than a decal stuck on it.
-				size = Vector3.new(channelWidth * widen, 3.4, span * 1.6),
-					cframe = CFrame.lookAt(mid, b, flowNormal),
+				local frac = s / math.max(#path - 1, 1)
+				-- Two out-of-phase swells so the width pulses irregularly along
+				-- the path instead of tapering uniformly.
+				local swell = 1
+					+ 0.35 * math.sin(frac * math.pi * 2.3 + flowIndex)
+					+ 0.22 * math.sin(frac * math.pi * 5.1 + flowIndex * 2)
+					+ frac * 0.45 -- spreads out as the slope eases near the foot
+				local seg = PartUtils.CreatePart({
+					name = ("LavaFlow%s%dS%d"):format(label, flowIndex, s),
+					-- 2.8 studs: enough body to read as viscous molten rock, but
+					-- deliberately not thicker - every extra stud of thickness has
+					-- to be paid for twice in clearance (half of it pushes the
+					-- inner face toward the rock), and thick slabs are exactly the
+					-- chunky look being avoided. Overlap 2.1 keeps consecutive
+					-- joins buried inside each other so the ribbon reads continuous.
+					size = Vector3.new(math.max(baseWidth * swell, 1.4), 2.8, span * 2.1),
+					cframe = CFrame.lookAt(a + delta * 0.5, b, n0),
 					material = LAVA_MATERIAL,
-					color = if s % 4 == 0 then LAVA_EDGE else LAVA_CORE,
+					-- Cooler crust appears irregularly rather than on a fixed
+					-- cycle, so no repeating stripe pattern forms.
+					color = if rng:NextNumber() < 0.18 then LAVA_EDGE else LAVA_CORE,
 					canCollide = false,
 					parent = model,
 				})
+				if s % 8 == 0 then
+					addLavaGlow(seg, 1.3, 34)
+				end
 			end
+		end
+	end
+
+	for i = 1, channelCount do
+		-- Start at a LOW point of the rim: lava overtops where the rim is
+		-- breached, not at an arbitrary compass bearing.
+		local startBearing, lowest = 0, math.huge
+		for probe = 1, 24 do
+			local candidate = rng:NextNumber(0, 2 * math.pi)
+			local lift = shape.rimLiftAt(candidate)
+			if lift < lowest then
+				lowest, startBearing = lift, candidate
+			end
+		end
+
+		-- Flows begin just BELOW the rim crest rather than level with it.
+		-- Starting at t = 0.94-0.99 put the first few segments inside the
+		-- CraterRim blocks themselves - the only remaining rock/lava
+		-- intersection once the shingle sizing was fixed (10 of 1660
+		-- segments, every one of them a rim block at the summit). Dropping
+		-- the start below the crest lets the lava emerge from under the rim
+		-- instead of through it.
+		local path = descendGully(shape, startBearing, rng:NextNumber(0.86, 0.91), rng:NextNumber(0.0, 0.05), 46, rng)
+		layFlow(path, i, 1.0, "")
+
+		-- Secondary branch: splits off partway down and descends
+		-- independently, so it diverges naturally instead of mirroring.
+		if rng:NextNumber() < 0.6 then
+			local splitAt = math.floor(#path * rng:NextNumber(0.3, 0.6))
+			local node = path[math.max(splitAt, 2)]
+			local branch = descendGully(
+				shape,
+				node.bearing + rng:NextNumber(-0.30, 0.30),
+				node.t,
+				rng:NextNumber(0.0, 0.08),
+				22,
+				rng
+			)
+			layFlow(branch, i, 0.62, "B")
 		end
 	end
 
@@ -469,9 +902,10 @@ local function buildDistantVolcano(position: Vector3, rng: Random, parent: Insta
 	-- idealised cone formula (which the jittered slabs only approximate,
 	-- and which therefore used to leave vents hanging off the face).
 	for i = 1, rng:NextInteger(4, 7) do
+		local searchRadius = baseRadius * 1.8
 		local t = rng:NextNumber(0.1, 0.85)
 		local angle = rng:NextNumber(0, 2 * math.pi)
-		local ventY = peakHeight * t ^ 1.05
+		local ventY = shape.heightAt(t)
 		local hit = surfaceHit(model, position, angle, ventY, searchRadius)
 		if hit then
 			local pos = hit.Position - hit.Normal * 0.9
@@ -486,6 +920,65 @@ local function buildDistantVolcano(position: Vector3, rng: Random, parent: Insta
 			})
 		end
 	end
+
+	-- Returned so the caller can measure the finished footprint and nudge
+	-- the volcano clear of the plate (see nudgeClearOfPlate).
+	return model
+end
+
+--[[
+	Radius of the walkable LobbyGround plate that volcanoes must not cut
+	into, plus a small margin so a skirt slab never quite touches its edge.
+]]
+local PLATE_RADIUS = 193
+-- Trimmed from 10 to 5: with the nudge measuring true reach (including
+-- each slab's half-width) rather than part centres, a smaller margin is
+-- still safe, and every stud here is a stud further from the player.
+local PLATE_MARGIN = 5
+
+--[[
+	Nudges a finished volcano straight outward along its own bearing, by
+	exactly enough that its widest point stops short of the plate.
+
+	Done by MEASUREMENT rather than by picking a placement band, because a
+	band has to be sized for the worst-case volcano and therefore pushes
+	every other one further out than it needs to go - which is what made
+	them all read as smaller and more distant. Each volcano now moves the
+	minimum its own footprint requires, and one that already clears the
+	plate does not move at all.
+
+	Returns the distance moved, for verification.
+]]
+local function nudgeClearOfPlate(model: Model, centre: Vector3): number
+	local flat = Vector3.new(centre.X, 0, centre.Z)
+	local distance = flat.Magnitude
+	if distance < 0.001 then
+		return 0
+	end
+
+	local footprint = 0
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			local radial = (Vector3.new(part.Position.X, 0, part.Position.Z) - flat).Magnitude
+			-- Half the part's largest horizontal dimension, so the measurement
+			-- accounts for the slab's own width rather than just its centre.
+			local reach = math.max(part.Size.X, part.Size.Z) * 0.5
+			footprint = math.max(footprint, radial + reach)
+		end
+	end
+
+	local required = PLATE_RADIUS + PLATE_MARGIN + footprint
+	if distance >= required then
+		return 0
+	end
+
+	local shift = (flat.Unit) * (required - distance)
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Position += shift
+		end
+	end
+	return shift.Magnitude
 end
 
 local function buildDistantVolcanoes(parent: Instance)
@@ -497,9 +990,16 @@ local function buildDistantVolcanoes(parent: Instance)
 	local count = 6
 	for i = 1, count do
 		local angle = (i - 1) / count * math.pi * 2 + rng:NextNumber(-0.15, 0.15)
-		local radius = rng:NextNumber(ENCLOSURE_RADIUS * 0.7, ENCLOSURE_RADIUS * 0.92)
+		-- Placed close in, then nudged outward by exactly the amount its own
+		-- measured footprint needs (see nudgeClearOfPlate). Keeping the
+		-- nominal band tight means volcanoes stay as near the plate - and so
+		-- as large on screen - as clearing it allows.
+		local radius = rng:NextNumber(ENCLOSURE_RADIUS * 0.72, ENCLOSURE_RADIUS * 0.80)
 		local position = Vector3.new(math.sin(angle) * radius, -30, math.cos(angle) * radius)
-		buildDistantVolcano(position, rng, folder, "DistantVolcano" .. i)
+		local volcano = buildDistantVolcano(position, rng, folder, "DistantVolcano" .. i)
+		if volcano then
+			nudgeClearOfPlate(volcano, position)
+		end
 	end
 end
 

@@ -19,10 +19,61 @@ export type PartProps = {
 	canCollide: boolean?,
 	transparency: number?,
 	shape: Enum.PartType?,
+	castShadow: boolean?,
 	parent: Instance?,
 }
 
 local PartUtils = {}
+
+--[[
+	SHADOW BUDGET
+
+	Roblox defaults CastShadow to true on every part, and this project had
+	never overridden it: a measured 28,462 of 28,462 world parts were
+	shadow casters. Shadow-map cost scales with caster count, and it is the
+	single largest rendering cost in the build - the maps range from 908
+	parts (Futuristic) to 12,162 (IceAge).
+
+	Two categories are excluded automatically below, because in both cases
+	the shadow is either WRONG or invisible - this is a look improvement
+	first and a performance win second, not a quality sacrifice:
+
+	  NEON (5,675 parts). A Neon surface reads as self-illuminated - a
+	  glowing sign, lava vein, or floor inlay. Having it cast a hard
+	  occlusion shadow is a straight contradiction: the thing appears to
+	  emit light while also blocking it. Dropping the shadow is what makes
+	  neon read as "glowing" rather than "bright coloured plastic", which
+	  is exactly the restrained-glow look LightingConfig is aiming for.
+
+	  TINY DETAIL (under TINY_DETAIL_VOLUME studs³, 7,924 parts). Trim
+	  slivers, bolts, small decorative shards and similar. At any normal
+	  camera distance their shadows are sub-pixel noise that reads as
+	  shimmer/acne rather than depth, so removing them makes the scene
+	  CLEANER as well as cheaper.
+
+	Structural geometry - walls, roofs, floors, trunks, rocks, buildings -
+	is untouched and still casts shadows, so the scene keeps all the
+	shadowing that actually conveys form and grounding.
+
+	Always overridable per-part via props.castShadow when a specific piece
+	genuinely needs the opposite.
+]]
+PartUtils.TINY_DETAIL_VOLUME = 8 -- studs³; e.g. a 2x2x2 cube is exactly at the threshold and still casts
+
+--[[
+	Whether a part of this material/size should cast a shadow by default.
+	Pure function of the two inputs so callers (and tests) can reason about
+	it without constructing a part.
+]]
+function PartUtils.ShouldCastShadow(material: Enum.Material, size: Vector3): boolean
+	if material == Enum.Material.Neon then
+		return false
+	end
+	if (size.X * size.Y * size.Z) < PartUtils.TINY_DETAIL_VOLUME then
+		return false
+	end
+	return true
+end
 
 function PartUtils.CreatePart(props: PartProps): BasePart
 	local part = Instance.new(props.className or "Part") :: BasePart
@@ -35,6 +86,11 @@ function PartUtils.CreatePart(props: PartProps): BasePart
 	part.Material = props.material or Enum.Material.SmoothPlastic
 	part.Color = props.color or Color3.fromRGB(255, 255, 255)
 	part.Transparency = props.transparency or 0
+
+	-- See the SHADOW BUDGET note above.
+	part.CastShadow = if props.castShadow == nil
+		then PartUtils.ShouldCastShadow(part.Material, part.Size)
+		else props.castShadow
 
 	if props.shape and part:IsA("Part") then
 		(part :: Part).Shape = props.shape
@@ -78,6 +134,7 @@ function PartUtils.CreateDisc(props: {
 	color: Color3?,
 	canCollide: boolean?,
 	transparency: number?,
+	castShadow: boolean?,
 	parent: Instance?,
 }): BasePart
 	return PartUtils.CreatePart({
@@ -88,6 +145,7 @@ function PartUtils.CreateDisc(props: {
 		color = props.color,
 		canCollide = props.canCollide,
 		transparency = props.transparency,
+		castShadow = props.castShadow,
 		shape = Enum.PartType.Cylinder,
 		parent = props.parent,
 	})

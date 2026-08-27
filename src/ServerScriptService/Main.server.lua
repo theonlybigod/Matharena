@@ -16,7 +16,9 @@
 		10. MatchSystem          - matchmaking/game-flow state machine
 		11. PracticeSystem      - solo-player Practice Mode (10s solo wait -> infinite practice)
 		12. CompetitionGameplay - question rotation, subscribes to MatchSystem
-		13. GameManager         - player lifecycle, coordinates the above
+		13. PlaceTeleportSystem - Play Mode cross-server difficulty routing (see README.md's
+		                          Play Mode Architecture section)
+		14. GameManager         - player lifecycle, coordinates the above
 
 	LeaderboardSystem.Init() must run before GameManager.Init() (which is
 	what starts letting players join and eventually get saved) so its
@@ -34,10 +36,23 @@
 	Note: the pre-existing "Systems" folder is left untouched. GameManager,
 	MatchSystem, DataSystem, LobbyBuilder, ArenaBuilder, ProgressionSystem,
 	ShopSystem, SettingsSystem, LeaderboardSystem, LeaderboardDisplay,
-	RewardTrackSystem, PracticeSystem, and CompetitionGameplay are direct
-	siblings of this script under ServerScriptService, per the current
-	architecture decision.
+	RewardTrackSystem, PracticeSystem, PlaceTeleportSystem, and
+	CompetitionGameplay are direct siblings of this script under
+	ServerScriptService, per the current architecture decision.
+
+	Multi-Place map build (Play Mode Architecture, README.md): this exact
+	script/src tree is synced into SIX separate Roblox Places - the Hub
+	(this repo's main default.project.json) plus five dedicated
+	difficulty Places (place.<name>.project.json). DifficultyPlacesConfig
+	maps game.PlaceId to at most one assigned MapsConfig map id. On the
+	Hub, that lookup returns nil and every map still builds
+	(BuildAllMaps(), unchanged multi-map exploration lobby). On a
+	difficulty Place, only that ONE assigned map is built - the other
+	four are never created there at all, satisfying "only that one map
+	allocated on each server".
 ]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LobbyBuilder = require(script.Parent.LobbyBuilder)
 local ArenaBuilder = require(script.Parent.ArenaBuilder)
@@ -58,8 +73,23 @@ local DailyRewardsSystem = require(script.Parent.DailyRewardsSystem)
 local LifetimeRewardsSystem = require(script.Parent.LifetimeRewardsSystem)
 local QuestsSystem = require(script.Parent.QuestsSystem)
 local TutorialSystem = require(script.Parent.TutorialSystem)
+local PlaceTeleportSystem = require(script.Parent.PlaceTeleportSystem)
 
-LobbyBuilder.BuildAllMaps()
+local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
+local DifficultyPlacesConfig = require(ReplicatedStorage.Modules.DifficultyPlacesConfig)
+
+local assignedPlace = DifficultyPlacesConfig.GetPlaceForPlaceId(game.PlaceId)
+if assignedPlace then
+	-- One of the five difficulty Places: build ONLY the one map this
+	-- Place is dedicated to. Deliberately does NOT call BuildAllMaps() -
+	-- the other four maps must never exist here.
+	LobbyBuilder.Build(MapsConfig.GetMap(assignedPlace.mapId))
+else
+	-- The Hub (or a difficulty Place whose placeId hasn't been filled in
+	-- yet - see DifficultyPlacesConfig's doc comment): unchanged
+	-- multi-map exploration lobby, exactly as before this system existed.
+	LobbyBuilder.BuildAllMaps()
+end
 ArenaBuilder.Build()
 
 -- Always re-run the Lighting post-effect dedup, even when both builders
@@ -92,6 +122,7 @@ DailyRewardsSystem.Init()
 LifetimeRewardsSystem.Init()
 QuestsSystem.Init()
 TutorialSystem.Init()
+PlaceTeleportSystem.Init()
 GameManager.Init()
 
 print("MathArena server started!")
