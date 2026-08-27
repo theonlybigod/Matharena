@@ -15,15 +15,20 @@
 	difficulty's Place) always routes through PlaceTeleportSystem to one
 	of the five dedicated Places listed here.
 
-	PLACE IDS ARE PLACEHOLDERS (0) UNTIL THE FIVE DESTINATION PLACES ARE
-	ACTUALLY CREATED IN ROBLOX STUDIO. A placeId of 0 is never a valid
-	real Place - PlaceTeleportSystem treats it as "not configured yet"
-	and safely refuses to route there (fails closed, tells the player
-	Play Mode isn't ready for that difficulty yet, does not error or
-	teleport to place 0). Fill in each `placeId` below with the real
-	value (visible as `game.PlaceId` when that Place is open in Studio,
-	or from the Place's entry in Game Settings > Places) once created,
-	then republish this Place so every server picks up the change.
+	The five Places below now have their real placeId filled in (created
+	in Roblox Studio, IDs confirmed against MapsConfig/GameplayConfig's
+	tier assignment). A placeId of 0 would mean "not created yet" -
+	PlaceTeleportSystem treats that as fail-closed (tells the player Play
+	Mode isn't ready for that difficulty, never errors or teleports to
+	place 0) - that no longer applies to any of these five, but the
+	fail-closed behavior itself is unchanged and still guards against a
+	typo'd/reverted placeId in the future.
+
+	IMPORTANT: teleports to these Places will still fail until each one
+	has actually been Rojo-synced (via its own place.<name>.project.json)
+	and PUBLISHED at least once - TeleportService can only send a player
+	to a Place that has a real, published server to land on. See
+	README.md's Play Mode Architecture section for that remaining setup.
 
 	Every one of the five Places listed here is expected to sync the
 	EXACT SAME src/ tree via its own <difficulty>.project.json (see repo
@@ -46,16 +51,16 @@ export type DifficultyPlaceDef = {
 	placeId: number, -- real Roblox Place id once created; 0 = not yet configured
 }
 
--- Placeholder placeId = 0 for every entry until the five Places exist.
 -- Difficulty numbering matches GameplayConfig.QUEUE_TIERS exactly:
 -- 1 Easy/Futuristic, 2 Medium/Under the Sea, 3 Hard/Ice Age (Tundra),
--- 4 Expert/Lava (Volcano), 5 Master/Space.
+-- 4 Expert/Lava (Volcano), 5 Master/Space. Real placeIds confirmed
+-- against the five Places created in the MathArena experience.
 DifficultyPlacesConfig.PLACES = {
-	{ tierId = 1, mapId = "Futuristic", displayName = "MathArena - Futuristic (Difficulty 1)", placeId = 0 },
-	{ tierId = 2, mapId = "UnderTheSea", displayName = "MathArena - Under the Sea (Difficulty 2)", placeId = 0 },
-	{ tierId = 3, mapId = "IceAge", displayName = "MathArena - Tundra (Difficulty 3)", placeId = 0 },
-	{ tierId = 4, mapId = "Lava", displayName = "MathArena - Volcano (Difficulty 4)", placeId = 0 },
-	{ tierId = 5, mapId = "Space", displayName = "MathArena - Space (Difficulty 5)", placeId = 0 },
+	{ tierId = 1, mapId = "Futuristic", displayName = "MathArena - Futuristic (Difficulty 1)", placeId = 90422029501779 },
+	{ tierId = 2, mapId = "UnderTheSea", displayName = "MathArena - Under the Sea (Difficulty 2)", placeId = 121839361288259 },
+	{ tierId = 3, mapId = "IceAge", displayName = "MathArena - Tundra (Difficulty 3)", placeId = 131129538961616 },
+	{ tierId = 4, mapId = "Lava", displayName = "MathArena - Volcano (Difficulty 4)", placeId = 115408695755906 },
+	{ tierId = 5, mapId = "Space", displayName = "MathArena - Space (Difficulty 5)", placeId = 81859986453994 },
 } :: { DifficultyPlaceDef }
 
 --[[

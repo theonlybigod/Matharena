@@ -63,6 +63,7 @@ ArenaConfig.ORIGIN = Vector3.new(0, 0, 0)
 ArenaConfig.ARENA_RADIUS = 130
 ArenaConfig.FLOOR_THICKNESS = 2
 ArenaConfig.FLOOR_COLOR = Color3.fromRGB(12, 12, 14) -- black marble
+ArenaConfig.FLOOR_MATERIAL = Enum.Material.Marble -- default (Hub) floor material; ArenaBuilder.BuildForMap overrides per-theme
 ArenaConfig.NEON_COLOR = Config.BRAND_NEON_COLOR -- blue neon (shared brand color)
 
 -- Concentric decorative neon circles on the arena floor.
@@ -83,6 +84,11 @@ ArenaConfig.PLATFORM_DIAMETER = 10
 ArenaConfig.PLATFORM_HEIGHT = 3
 ArenaConfig.PLATFORM_SPACING = 36 -- center-to-center arc spacing between adjacent platforms
 ArenaConfig.PLATFORM_ALIVE_COLOR = Color3.fromRGB(50, 55, 65) -- Base color while a contestant is still in the round
+-- Podium tier colors (Platforms.lua's PodiumTier1/PodiumTier2 discs). Both
+-- default to the Hub's original fixed values; ArenaBuilder.BuildForMap
+-- overrides these per-theme, same mechanism as FLOOR_COLOR/NEON_COLOR above.
+ArenaConfig.PODIUM_TIER1_COLOR = Color3.fromRGB(42, 45, 52)
+ArenaConfig.PODIUM_TIER2_COLOR = Color3.fromRGB(18, 18, 22)
 
 ArenaConfig.CENTER_STAGE_DIAMETER = 26
 ArenaConfig.CENTER_STAGE_HEIGHT = 1.5

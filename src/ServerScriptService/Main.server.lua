@@ -82,15 +82,39 @@ local assignedPlace = DifficultyPlacesConfig.GetPlaceForPlaceId(game.PlaceId)
 if assignedPlace then
 	-- One of the five difficulty Places: build ONLY the one map this
 	-- Place is dedicated to. Deliberately does NOT call BuildAllMaps() -
-	-- the other four maps must never exist here.
-	LobbyBuilder.Build(MapsConfig.GetMap(assignedPlace.mapId))
+	-- the other four maps must never exist here. enableSpawns = true is
+	-- passed explicitly (LobbyBuilder.Build's 3rd arg) because this map's
+	-- own MapsConfig.isDefault flag is almost always false (only
+	-- Futuristic is flagged isDefault, for the Hub's sake) - but since
+	-- this Place only ever builds this one map, its spawns must be the
+	-- ones enabled here regardless of that flag. See LobbyBuilder.Build's
+	-- doc comment for why the Hub's BuildAllMaps() path below is
+	-- unaffected by this.
+	local assignedMap = MapsConfig.GetMap(assignedPlace.mapId)
+	LobbyBuilder.Build(assignedMap, nil, true)
+
+	-- Self-healing pass, unconditional every server start (see
+	-- LobbyBuilder.EnsureSpawnsEnabled's own doc comment): fixes any
+	-- difficulty Place whose map was already built and marked
+	-- MathArenaBuilt under the OLD isDefault-only spawn logic (e.g. Under
+	-- the Sea, tested before this fix existed) without needing a
+	-- destructive manual Rebuild(). A no-op on a Place where Build() just
+	-- (re)built the map above, since its spawns are already enabled.
+	LobbyBuilder.EnsureSpawnsEnabled(assignedMap)
+
+	-- The competition Arena, embedded IN this Place's one map (re-themed
+	-- to match it, positioned at its world location) rather than a
+	-- separate structure at the Hub's shared origin - see
+	-- ArenaBuilder.BuildForMap's own doc comment.
+	ArenaBuilder.BuildForMap(assignedMap)
 else
 	-- The Hub (or a difficulty Place whose placeId hasn't been filled in
 	-- yet - see DifficultyPlacesConfig's doc comment): unchanged
-	-- multi-map exploration lobby, exactly as before this system existed.
+	-- multi-map exploration lobby plus the single shared central Arena,
+	-- exactly as before this system existed.
 	LobbyBuilder.BuildAllMaps()
+	ArenaBuilder.Build()
 end
-ArenaBuilder.Build()
 
 -- Always re-run the Lighting post-effect dedup, even when both builders
 -- skip their full build (Lobby/Arena already marked built). Bloom and

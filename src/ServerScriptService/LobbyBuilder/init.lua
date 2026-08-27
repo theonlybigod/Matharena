@@ -93,7 +93,7 @@ local function applyMapTransform(root: Instance, mapDef: MapsConfig.MapDef)
 	end
 end
 
-function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?)
+function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?, enableSpawns: boolean?)
 	local def = mapDef or MapsConfig.GetDefaultMap()
 	local root = Workspace:FindFirstChild(def.workspaceFolderName)
 	if not root then
@@ -148,9 +148,19 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?)
 		LobbyLighting.Apply()
 	end
 
+	-- Which map's spawns get Enabled = true: normally the map flagged
+	-- isDefault in MapsConfig (the Hub's own "home" map, Futuristic) - but
+	-- a caller building the ONE map assigned to a dedicated difficulty
+	-- Place (see Main.server.lua) passes enableSpawns = true explicitly,
+	-- since that map is the only one that will ever exist there and must
+	-- have working spawns regardless of its global isDefault flag. Only
+	-- Main.server.lua's difficulty-Place branch does this; BuildAllMaps()/
+	-- RebuildAllMaps() (the Hub's path) never pass a third argument, so
+	-- the Hub's spawn-enable behavior is completely unchanged.
+	local shouldEnableSpawns = if enableSpawns ~= nil then enableSpawns else def.isDefault == true
 	Floor.Build(root)
 	Buildings.BuildAll(root, def.id)
-	SpawnsAndPortal.BuildSpawns(root, def.isDefault == true)
+	SpawnsAndPortal.BuildSpawns(root, shouldEnableSpawns)
 	SpawnsAndPortal.BuildQueuePortal(root)
 	Decorations.BuildAll(root)
 	Sign.Build(root)
@@ -232,6 +242,38 @@ end
 ]]
 function LobbyBuilder.Rebuild(mapDef: MapsConfig.MapDef?)
 	return LobbyBuilder.Build(mapDef, true)
+end
+
+--[[
+	Self-healing spawn-enable pass for `mapDef`'s ALREADY-BUILT Workspace
+	folder. Build()'s own `enableSpawns` argument only takes effect the
+	moment a map is actually (re)built - it does nothing on a Place where
+	that map was already marked MathArenaBuilt under the OLD isDefault-only
+	spawn logic (every difficulty Place tested before this fix existed, at
+	minimum Under the Sea). Those Places would otherwise keep disabled
+	spawns forever, since Build() skips re-running once already built.
+
+	This walks `mapDef`'s existing Spawns folder (a no-op if the map or its
+	Spawns folder doesn't exist yet) and force-enables every SpawnLocation
+	under it - cheap, non-destructive (nothing is rebuilt/destroyed, unlike
+	Rebuild()), and safe to call unconditionally on every server start, same
+	reasoning as Main.server.lua's own unconditional LobbyLighting.Apply()
+	call right after this runs.
+]]
+function LobbyBuilder.EnsureSpawnsEnabled(mapDef: MapsConfig.MapDef)
+	local root = Workspace:FindFirstChild(mapDef.workspaceFolderName)
+	if not root then
+		return
+	end
+	local spawnsFolder = root:FindFirstChild("Spawns")
+	if not spawnsFolder then
+		return
+	end
+	for _, child in ipairs(spawnsFolder:GetChildren()) do
+		if child:IsA("SpawnLocation") then
+			child.Enabled = true
+		end
+	end
 end
 
 --[[

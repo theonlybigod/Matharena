@@ -91,7 +91,14 @@ local myPlace: DifficultyPlacesConfig.DifficultyPlaceDef? = DifficultyPlacesConf
 ]]
 local function teleportToDifficulty(player: Player, destination: DifficultyPlacesConfig.DifficultyPlaceDef)
 	local ok, err = pcall(function()
-		TeleportService:TeleportAsync(destination.placeId, { player }, TeleportOptions.new())
+		local options = TeleportOptions.new()
+		-- Carries destination.tierId across the teleport so the receiving
+		-- server's onPlayerAdded (below) can auto-join the right queue the
+		-- instant this player lands - without this, GetJoinData().TeleportData
+		-- would be nil/empty on arrival and the player would just land in
+		-- that Place's lobby unqueued, same as any other arrival.
+		options:SetTeleportData({ tierId = destination.tierId })
+		TeleportService:TeleportAsync(destination.placeId, { player }, options)
 	end)
 
 	if not ok then

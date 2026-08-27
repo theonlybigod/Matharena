@@ -136,7 +136,7 @@ local function buildOne(index: number, position: Vector3, parent: Instance): Mod
 		thickness = tier1Height,
 		position = position + Vector3.new(0, baseHeight + tier1Height / 2, 0),
 		material = Enum.Material.Metal,
-		color = Color3.fromRGB(42, 45, 52),
+		color = ArenaConfig.PODIUM_TIER1_COLOR,
 		parent = model,
 	})
 	PartUtils.CreateDisc({
@@ -156,7 +156,7 @@ local function buildOne(index: number, position: Vector3, parent: Instance): Mod
 		thickness = tier2Height,
 		position = position + Vector3.new(0, baseHeight + tier1Height + tier2Height / 2, 0),
 		material = Enum.Material.Marble,
-		color = Color3.fromRGB(18, 18, 22),
+		color = ArenaConfig.PODIUM_TIER2_COLOR,
 		parent = model,
 	})
 	PartUtils.CreateDisc({

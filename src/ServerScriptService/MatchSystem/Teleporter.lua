@@ -25,12 +25,41 @@
 local CollectionService = game:GetService("CollectionService")
 local Workspace = game:GetService("Workspace")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local DataSystem = require(ServerScriptService.DataSystem)
+local DifficultyPlacesConfig = require(ReplicatedStorage.Modules.DifficultyPlacesConfig)
+local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
 
 local Teleporter = {}
 
 local HOVERABLE_TAG = "HoverableCharacter"
+
+--[[
+	Which Workspace folder ReturnToLobby below should send players back to.
+	On a dedicated difficulty Place (DifficultyPlacesConfig.GetPlaceForPlaceId
+	returns non-nil), that's the one map this Place actually builds -
+	"Lobby" (Futuristic's folder name) doesn't exist there at all, since
+	Main.server.lua only ever builds that Place's one assigned map. On the
+	Hub (nil - the Hub isn't one of the five difficulty Places), this stays
+	"Lobby" exactly as before this multi-Place system existed - the Hub
+	always builds every map, but Futuristic/"Lobby" remains the one every
+	other Hub-only system (spawns, queue portal, etc.) treats as home.
+	Computed once at server start, same pattern as
+	PlaceTeleportSystem's own module-level `myPlace`.
+]]
+local function getLobbyFolderName(): string
+	local assignedPlace = DifficultyPlacesConfig.GetPlaceForPlaceId(game.PlaceId)
+	if assignedPlace then
+		local mapDef = MapsConfig.GetMap(assignedPlace.mapId)
+		if mapDef then
+			return mapDef.workspaceFolderName
+		end
+	end
+	return "Lobby"
+end
+
+local LOBBY_FOLDER_NAME = getLobbyFolderName()
 
 local function getSortedPlatforms(): { Model }
 	local tagged = CollectionService:GetTagged("ContestantPlatform")
@@ -141,7 +170,7 @@ end
 	across however many spawns exist.
 ]]
 function Teleporter.ReturnToLobby(players: { Player })
-	local lobby = Workspace:FindFirstChild("Lobby")
+	local lobby = Workspace:FindFirstChild(LOBBY_FOLDER_NAME)
 	local spawnsFolder = lobby and lobby:FindFirstChild("Spawns")
 	local spawnParts = spawnsFolder and spawnsFolder:GetChildren() or {}
 
