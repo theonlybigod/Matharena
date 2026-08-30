@@ -521,6 +521,14 @@ local function buildContinuousShell(opts)
 			continue
 		end
 
+		-- How far up the shell this ring sits, 0 at the foot and 1 at the
+		-- top. Passed to colorPicker so a theme can vary its surface by
+		-- HEIGHT rather than only at random - real weathering is stratified
+		-- (ash and oxidised rock collect low, fresher rock sits high), and a
+		-- purely random scatter reads as noise instead of geology. Pickers
+		-- that don't care simply ignore the extra argument.
+		local heightT = (y - baseY) / math.max(topY - baseY, 0.001)
+
 		-- Local surface tangent, from the profile either side of this ring.
 		-- dr < 0 means the surface is drawing inward as it rises (a dome or
 		-- cone flank); tiltX rotates each piece to lie flat along it.
@@ -568,9 +576,35 @@ local function buildContinuousShell(opts)
 					name = ("%sL%dT%dP%d"):format(opts.namePrefix, layer, i, p),
 					size = Vector3.new(pieceWidth, pieceLength, thickness),
 					cframe = cf,
-					material = if opts.materialPicker then opts.materialPicker(rng) else opts.material,
-					color = if opts.colorPicker then opts.colorPicker(rng) else opts.color,
-					canCollide = false,
+					material = if opts.materialPicker then opts.materialPicker(rng, heightT) else opts.material,
+					color = if opts.colorPicker then opts.colorPicker(rng, heightT) else opts.color,
+					--[[
+						THE OUTER LAYER IS SOLID. This is the fix for "you can
+						phase through the buildings".
+
+						Every piece of every custom exterior used to be
+						non-collidable, which meant the igloo dome, the volcano
+						mound and the submarine hull were pure decoration: a
+						player could walk straight through the mountainside and
+						end up standing inside the wrap, between it and the box
+						shell. The box shell's own walls were the only real
+						collision, and they sit far inside the visible silhouette.
+
+						Only layer 0 collides. Layers above 0 are the staggered
+						seam-filling copies (see angleOffset/layerInset above) -
+						they sit BEHIND the outer surface by construction, so
+						giving them collision would add a second redundant hull
+						just inside the first and double the static collision cost
+						for no gameplay difference.
+
+						The entrance stays open: the notch check above skips every
+						piece inside the doorway arc for all layers, so there is
+						simply no geometry across the entrance to collide with.
+
+						These are all Anchored, so this is static collision
+						geometry only - no physics simulation cost.
+					]]
+					canCollide = layer == 0,
 					--[[
 						Only the OUTER layer casts shadows.
 
@@ -638,8 +672,14 @@ local function buildGroundSkirt(opts)
 				cframe = CFrame.new(pos)
 					* CFrame.Angles(0, angle, 0)
 					* CFrame.Angles(math.rad(rng:NextNumber(-4, 4)), 0, 0),
-				material = if opts.materialPicker then opts.materialPicker(rng) else opts.material,
-				color = if opts.colorPicker then opts.colorPicker(rng) else opts.color,
+				-- The apron lies at the very FOOT of the shell, so it is shaded
+				-- from the bottom of the height ramp (see buildContinuousShell's
+				-- heightT) rather than the middle - ash and weathered scree, not
+				-- the charcoal of the mid flank. Without this the apron came out
+				-- darker than the rock immediately above it, which reads as a
+				-- shadow ring rather than as ground the mound grows out of.
+				material = if opts.materialPicker then opts.materialPicker(rng, 0.04) else opts.material,
+				color = if opts.colorPicker then opts.colorPicker(rng, 0.04) else opts.color,
 				canCollide = false,
 				-- The skirt is a very shallow band lying flat ON the ground at
 				-- the foot of the shell (see this function's own doc comment).
@@ -684,7 +724,13 @@ local function buildEntranceArch(opts)
 			cframe = CFrame.new(basePos + Vector3.new(x, y, z)) * CFrame.Angles(0, 0, angle - math.pi / 2),
 			material = opts.material,
 			color = opts.color,
-			canCollide = false,
+			-- Solid, like the shell it is cut into (see buildContinuousShell's
+			-- canCollide comment). The voussoirs trace a half-circle whose
+			-- springing line is at doorHeight - archRadius + 1.2, so the arch
+			-- only ever occupies the space ABOVE head height at the centre of
+			-- the opening - it frames the doorway without narrowing the
+			-- walkable gap between the jambs.
+			canCollide = true,
 			parent = model,
 		})
 	end
@@ -698,7 +744,10 @@ local function buildEntranceArch(opts)
 			position = basePos + Vector3.new(side * archRadius, (springLine + 1) / 2, z),
 			material = opts.material,
 			color = opts.color,
-			canCollide = false,
+			-- Genuinely solid door frame. archRadius is doorWidth/2 + 1.6, so
+			-- the two jambs stand just OUTSIDE the door opening and leave the
+			-- full doorWidth (8-14 studs) clear to walk through.
+			canCollide = true,
 			parent = model,
 		})
 	end
@@ -710,6 +759,12 @@ local function themedEntranceTunnel(def, model: Model, tunnelLength: number, tun
 	local doorWidth = math.clamp(def.size.X * 0.22, MIN_DOOR_WIDTH, MAX_DOOR_WIDTH)
 	local doorHeight = math.min(10, def.height - 4)
 
+	-- Tunnel walls and roof are SOLID: this is the corridor bridging the
+	-- mound's outer surface to the real doorway, so it has to be a genuine
+	-- passage rather than a decorative sleeve a player can step sideways
+	-- out of into the inside of the mountain. Each wall stands at
+	-- doorWidth/2 + 0.4, i.e. just outside the opening, so the full door
+	-- width stays walkable; the roof sits at doorHeight, above head height.
 	for _, side in ipairs({ -1, 1 }) do
 		PartUtils.CreatePart({
 			name = "EntranceTunnelWall",
@@ -717,7 +772,7 @@ local function themedEntranceTunnel(def, model: Model, tunnelLength: number, tun
 			position = basePos + Vector3.new(side * (doorWidth / 2 + 0.4), doorHeight / 2, halfZ + tunnelLength / 2),
 			material = tunnelMaterial,
 			color = tunnelColor,
-			canCollide = false,
+			canCollide = true,
 			parent = model,
 		})
 	end
@@ -727,7 +782,7 @@ local function themedEntranceTunnel(def, model: Model, tunnelLength: number, tun
 		position = basePos + Vector3.new(0, doorHeight + 0.4, halfZ + tunnelLength / 2),
 		material = tunnelMaterial,
 		color = tunnelColor,
-		canCollide = false,
+		canCollide = true,
 		parent = model,
 	})
 
@@ -1214,21 +1269,78 @@ local function addLavaVolcanoRoof(def, model: Model)
 		return craterRadius + (flankRadius - craterRadius) * (1 - t) ^ 1.3
 	end
 
-	local function rockMaterial(r: Random): Enum.Material
+	local function rockMaterial(r: Random, heightT: number?): Enum.Material
+		local t = heightT or 0.5
 		local roll = r:NextNumber()
-		if roll < 0.34 then
-			return Enum.Material.Rock
-		elseif roll < 0.62 then
+		-- Slate/Sand read as ash and weathered scree, so they are weighted
+		-- toward the FOOT of the mound where that debris actually collects;
+		-- Basalt (fresh, glassy flow rock) is weighted toward the crater.
+		if t < 0.35 and roll < 0.3 then
+			return Enum.Material.Slate
+		elseif roll < 0.3 then
 			return Enum.Material.Basalt
+		elseif roll < 0.58 then
+			return Enum.Material.Rock
+		elseif roll < 0.78 then
+			return Enum.Material.Cobblestone
 		end
 		return WALL_MATERIAL
 	end
-	local function rockColor(r: Random): Color3
-		local shade = r:NextInteger(-7, 9) / 255
+
+	--[[
+		COOLED-MAGMA SHADING - the fix for "every surface is the same grey all
+		the way through".
+
+		This used to be ROOFCAP_COLOR plus a shade offset of -7..+9 out of 255,
+		i.e. under 4% lightness variation on a single near-black base. At that
+		amplitude the variation is below what is perceptible against a dark
+		surface under lobby lighting, so all ~1,100 rocks per building read as
+		one flat mass.
+
+		It is now a real palette of cooled-lava tones, blended by HEIGHT so the
+		mound is stratified rather than randomly speckled - which is what makes
+		it read as rock instead of noise:
+		  - FOOT: pale ash grey and weathered brown - old, dust-covered scree.
+		  - MID: charcoal and iron-oxide rust - the bulk of the flank.
+		  - CRATER: near-black fresh basalt with a faint ember warmth, since
+		    this is the most recently cooled rock on the structure.
+
+		Every tone is still desaturated and dark enough to sit in the same
+		family as ROOFCAP_COLOR, so the buildings stay cohesive with the rest
+		of the Lava map rather than turning into a colour swatch.
+	]]
+	local ASH_LOW = Color3.fromRGB(104, 99, 96) -- pale ash / dust
+	local WEATHERED_LOW = Color3.fromRGB(78, 66, 58) -- weathered brown scree
+	local CHARCOAL_MID = Color3.fromRGB(54, 50, 50) -- charcoal flank
+	local RUST_MID = Color3.fromRGB(72, 47, 38) -- oxidised iron streak
+	local FRESH_HIGH = Color3.fromRGB(31, 27, 28) -- fresh black basalt
+	local EMBER_HIGH = Color3.fromRGB(58, 33, 26) -- faint ember warmth near the crater
+
+	local function rockColor(r: Random, heightT: number?): Color3
+		local t = math.clamp(heightT or 0.5, 0, 1)
+
+		-- Two candidate tones per band, picked between at random, then the
+		-- band itself is chosen by height with a soft overlap so there is no
+		-- hard seam between strata.
+		local low = if r:NextNumber() < 0.5 then ASH_LOW else WEATHERED_LOW
+		local mid = if r:NextNumber() < 0.5 then CHARCOAL_MID else RUST_MID
+		local high = if r:NextNumber() < 0.75 then FRESH_HIGH else EMBER_HIGH
+
+		-- Soften the boundary so a given ring can draw from either side of it.
+		local blend = math.clamp(t + r:NextNumber(-0.18, 0.18), 0, 1)
+		local base
+		if blend < 0.5 then
+			base = low:Lerp(mid, blend / 0.5)
+		else
+			base = mid:Lerp(high, (blend - 0.5) / 0.5)
+		end
+
+		-- Per-piece grain on top of the band, wide enough to actually see.
+		local grain = r:NextNumber(-0.055, 0.055)
 		return Color3.new(
-			math.clamp(ROOFCAP_COLOR.R + shade, 0, 1),
-			math.clamp(ROOFCAP_COLOR.G + shade * 0.8, 0, 1),
-			math.clamp(ROOFCAP_COLOR.B + shade * 0.7, 0, 1)
+			math.clamp(base.R + grain, 0, 1),
+			math.clamp(base.G + grain * 0.85, 0, 1),
+			math.clamp(base.B + grain * 0.75, 0, 1)
 		)
 	end
 
@@ -1285,7 +1397,10 @@ local function addLavaVolcanoRoof(def, model: Model)
 				* CFrame.Angles(rng:NextNumber(-0.14, 0.14), 0, rng:NextNumber(-0.1, 0.1)),
 			material = rockMaterial(rng),
 			color = rockColor(rng),
-			canCollide = false,
+			-- Solid, matching the flank it caps - the rim is the top edge of a
+			-- now-climbable mountain, so it needs to stop a player rather than
+			-- let them drop through into the crater.
+			canCollide = true,
 			parent = model,
 		})
 	end
@@ -1308,31 +1423,135 @@ local function addLavaVolcanoRoof(def, model: Model)
 		segments walking down the real surface, each segment tilted to the
 		local slope and overlapping the next.
 	]]
-	local channelCount = rng:NextInteger(3, 5)
+	--[[
+		LAVA THAT ACTUALLY DRIPS FROM THE TOP.
+
+		Three things were wrong with the previous flows. They STARTED partway
+		down (startT was a random 0.05-0.2 below the crater), so the lava
+		appeared out of nowhere on the flank instead of spilling over the rim.
+		They often STOPPED partway down (endT as low as 0.7), leaving a flow
+		hanging in mid-slope. And every segment was one flat ACCENT_COLOR at
+		full brightness, so a 40-stud flow had no sense of cooling as it ran.
+
+		Now: every flow begins AT the crater rim (t = 0) and runs the full
+		height of the mound to the apron, tapers as it descends the way a real
+		spill thins out, and is colour-graded from white-hot at the lip through
+		orange to a dark crusted red at the foot. A few segments per flow get a
+		PointLight so the flow genuinely casts light onto the rock beside it.
+	]]
+	local HOT_LIP = Color3.fromRGB(255, 238, 170) -- white-hot at the crater lip
+	local FLOW_MID = Color3.fromRGB(255, 116, 24) -- bright orange mid-flow
+	local CRUSTED = Color3.fromRGB(122, 28, 12) -- dark crusted red at the foot
+
+	local function lavaFlowColor(t: number): Color3
+		if t < 0.45 then
+			return HOT_LIP:Lerp(FLOW_MID, t / 0.45)
+		end
+		return FLOW_MID:Lerp(CRUSTED, (t - 0.45) / 0.55)
+	end
+
+	local flowBottomY = collarTop * 0.12
+	local flowSpan = craterY - flowBottomY
+	local channelCount = rng:NextInteger(4, 6)
 	for i = 1, channelCount do
-		local channelAngle = rng:NextNumber(0, 2 * math.pi)
-		local startT = rng:NextNumber(0.05, 0.2)
-		local endT = rng:NextNumber(0.7, 1.0)
-		local segments = 7
-		local channelWidth = rng:NextNumber(1.6, 3.2)
+		-- Spread the flows around the mound instead of letting them clump:
+		-- an even base angle with jitter, so no two spill over the same lip.
+		local channelAngle = (2 * math.pi / channelCount) * i + rng:NextNumber(-0.35, 0.35)
+		local segments = 16
+		local channelWidth = rng:NextNumber(2.2, 3.6)
+		local segStep = flowSpan / segments
+
 		for s = 0, segments do
-			local t = startT + (endT - startT) * (s / segments)
-			local y = craterY - (craterY - collarTop * 0.2) * t
-			local r = volcanoProfile(y) + 0.5
-			local dr = volcanoProfile(y + 1.2) - volcanoProfile(y - 1.2)
-			local segStep = ((craterY - collarTop * 0.2) * (endT - startT)) / segments
+			local t = s / segments
+			local y = craterY - flowSpan * t
+			-- +0.35 so the flow sits just proud of the rock rather than
+			-- z-fighting with the shell slabs it runs over.
+			local r = volcanoProfile(y) + 0.35
+			local dr = volcanoProfile(y + segStep * 0.5) - volcanoProfile(y - segStep * 0.5)
 			local slant = math.sqrt(dr * dr + segStep * segStep)
+
+			-- Wide and heavy where it pours over the rim, thinning as it runs
+			-- out of momentum near the bottom.
+			local widthTaper = channelWidth * (1 - 0.45 * t)
+			-- A slight wander across the slope, so a flow snakes rather than
+			-- dropping in a dead-straight vertical stripe.
+			local wander = math.sin(t * 3.1 + i) * 0.05
+
 			PartUtils.CreatePart({
 				name = ("LavaChannel%dS%d"):format(i, s),
-				size = Vector3.new(channelWidth, math.max(slant * SHELL_OVERLAP, 1.5), 0.6),
+				size = Vector3.new(widthTaper, math.max(slant * SHELL_OVERLAP, 1.5), 0.55),
 				cframe = CFrame.new(
-					basePos + Vector3.new(math.sin(channelAngle) * r, y, math.cos(channelAngle) * r)
-				) * CFrame.Angles(0, channelAngle, 0) * CFrame.Angles(math.atan2(dr, segStep), 0, 0),
+					basePos
+						+ Vector3.new(
+							math.sin(channelAngle + wander) * r,
+							y,
+							math.cos(channelAngle + wander) * r
+						)
+				) * CFrame.Angles(0, channelAngle + wander, 0) * CFrame.Angles(math.atan2(dr, segStep), 0, 0),
 				material = Enum.Material.CrackedLava,
-				color = ACCENT_COLOR,
+				color = lavaFlowColor(t),
 				canCollide = false,
 				parent = model,
 			})
+		end
+
+		-- Overflow tongue at the lip: a short, wider slab lying across the
+		-- rim itself, so the flow reads as spilling OVER the crater edge
+		-- rather than starting just below it.
+		local lipRadius = volcanoProfile(craterY) + 0.2
+		PartUtils.CreatePart({
+			name = ("LavaOverflowLip%d"):format(i),
+			size = Vector3.new(channelWidth * 1.5, 1.1, 3.2),
+			cframe = CFrame.new(
+				basePos + Vector3.new(math.sin(channelAngle) * lipRadius, craterY + 0.5, math.cos(channelAngle) * lipRadius)
+			) * CFrame.Angles(0, channelAngle, 0),
+			material = Enum.Material.CrackedLava,
+			color = HOT_LIP,
+			canCollide = false,
+			parent = model,
+		})
+
+		-- Hanging drips: short stubs breaking off the flow partway down,
+		-- which is what actually sells "dripping" rather than "painted on".
+		for d = 1, rng:NextInteger(2, 4) do
+			local dripT = rng:NextNumber(0.15, 0.8)
+			local dripY = craterY - flowSpan * dripT
+			local dripR = volcanoProfile(dripY) + 0.45
+			local dripAngle = channelAngle + rng:NextNumber(-0.12, 0.12)
+			PartUtils.CreatePart({
+				name = ("LavaDrip%dD%d"):format(i, d),
+				size = Vector3.new(rng:NextNumber(0.5, 1.1), rng:NextNumber(1.8, 4.2), 0.5),
+				cframe = CFrame.new(
+					basePos + Vector3.new(math.sin(dripAngle) * dripR, dripY, math.cos(dripAngle) * dripR)
+				) * CFrame.Angles(0, dripAngle, 0),
+				material = Enum.Material.Neon,
+				color = lavaFlowColor(dripT),
+				transparency = 0.1,
+				canCollide = false,
+				parent = model,
+			})
+		end
+
+		-- Two lights per flow (not per segment - 16 lights per flow across
+		-- four buildings would be a real rendering cost for no visual gain),
+		-- placed high and mid so the flow lights the rock it runs over.
+		for _, lightT in ipairs({ 0.08, 0.5 }) do
+			local lightY = craterY - flowSpan * lightT
+			local lightR = volcanoProfile(lightY) + 1
+			local glowPart = PartUtils.CreatePart({
+				name = ("LavaFlowGlow%d"):format(i),
+				size = Vector3.new(0.4, 0.4, 0.4),
+				position = basePos
+					+ Vector3.new(math.sin(channelAngle) * lightR, lightY, math.cos(channelAngle) * lightR),
+				transparency = 1,
+				canCollide = false,
+				parent = model,
+			})
+			local flowLight = Instance.new("PointLight")
+			flowLight.Color = lavaFlowColor(lightT)
+			flowLight.Range = 26
+			flowLight.Brightness = 1.6
+			flowLight.Parent = glowPart
 		end
 	end
 
@@ -2290,10 +2509,209 @@ end
 	straight from the door to the terminal, and the side walkways (between
 	the wall shelves and the freestanding islands) stay clear too.
 ]]
+--[[
+	=====================================================================
+	INTERIOR PROPS
+	=====================================================================
+
+	This is the fix for "there are weird/random objects inside them that
+	don't really make sense".
+
+	THE PROBLEM IT REPLACES. Every single object a player could actually
+	look at inside a building was the same primitive: an ACCENT_COLOR neon
+	CUBE. Shop merchandise was a 0.8 cube. Aisle stock was a 0.9 cube.
+	The featured display was a 1.2 cube. The Tutorial's "Chair" was a 1.5
+	cube. The Daily Rewards trophies were neon balls floating 1.95 studs
+	above their pedestals with nothing holding them up. So walking into the
+	shop showed you thirty-two identical glowing boxes on shelves - which
+	reads as placeholder geometry, not as stock.
+
+	THE FIX. Props are now built from a small vocabulary of recognisable
+	SHAPES (crate, carton, bottle, canister, orb) in a range of muted goods
+	colours, so a shelf carries an assortment of things rather than a row of
+	clones. Nothing here adds objects for the sake of filling space: the
+	counts are the same as before, it is the identity of each object that
+	changed.
+
+	Colours are deliberately NOT ACCENT_COLOR. Reserving the theme accent
+	for screens, trim and interaction points is what lets a player tell at a
+	glance which things in the room they can actually use - when the
+	merchandise glowed in exactly the same neon as the terminal, nothing
+	read as interactive.
+]]
+local GOODS_TINTS = {
+	Color3.fromRGB(196, 142, 74), -- kraft / cardboard
+	Color3.fromRGB(122, 148, 168), -- pale steel
+	Color3.fromRGB(150, 82, 74), -- clay red
+	Color3.fromRGB(96, 128, 108), -- muted green
+	Color3.fromRGB(168, 160, 132), -- sand
+	Color3.fromRGB(108, 96, 132), -- dusty violet
+}
+
+--[[
+	Places `count` assorted goods in a row centred on `center`, spread
+	across `spanX` studs and resting ON the surface at center.Y (each shape
+	is offset up by half its own height, so nothing floats and nothing sinks
+	into the shelf).
+]]
+local function stockGoods(model: Model, rng: Random, name: string, center: Vector3, spanX: number, count: number)
+	for n = 1, count do
+		-- Evenly spaced along the run, with a little jitter so the row isn't
+		-- mechanically regular.
+		local slot = if count == 1 then 0.5 else (n - 1) / (count - 1)
+		local offsetX = (slot - 0.5) * spanX + rng:NextNumber(-0.12, 0.12)
+		local offsetZ = rng:NextNumber(-0.15, 0.15)
+		local tint = GOODS_TINTS[rng:NextInteger(1, #GOODS_TINTS)]
+		local roll = rng:NextNumber()
+
+		if roll < 0.34 then
+			-- Stacked crate: a squat box, occasionally double-stacked.
+			local h = rng:NextNumber(0.55, 0.8)
+			local w = rng:NextNumber(0.7, 0.95)
+			PartUtils.CreatePart({
+				name = name,
+				size = Vector3.new(w, h, w * 0.85),
+				cframe = CFrame.new(center + Vector3.new(offsetX, h / 2, offsetZ))
+					* CFrame.Angles(0, rng:NextNumber(-0.3, 0.3), 0),
+				material = Enum.Material.WoodPlanks,
+				color = tint,
+				canCollide = false,
+				parent = model,
+			})
+			if rng:NextNumber() < 0.4 then
+				local h2 = rng:NextNumber(0.4, 0.6)
+				PartUtils.CreatePart({
+					name = name,
+					size = Vector3.new(w * 0.85, h2, w * 0.7),
+					cframe = CFrame.new(center + Vector3.new(offsetX, h + h2 / 2, offsetZ))
+						* CFrame.Angles(0, rng:NextNumber(-0.4, 0.4), 0),
+					material = Enum.Material.WoodPlanks,
+					color = GOODS_TINTS[rng:NextInteger(1, #GOODS_TINTS)],
+					canCollide = false,
+					parent = model,
+				})
+			end
+		elseif roll < 0.62 then
+			-- Bottle / canister: an upright cylinder with a small cap, the
+			-- silhouette that most obviously is not a box.
+			local h = rng:NextNumber(0.9, 1.3)
+			local d = rng:NextNumber(0.34, 0.5)
+			PartUtils.CreatePart({
+				name = name,
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(h, d, d),
+				cframe = CFrame.new(center + Vector3.new(offsetX, h / 2, offsetZ)) * CFrame.Angles(0, 0, math.rad(90)),
+				material = Enum.Material.Glass,
+				color = tint,
+				transparency = 0.25,
+				canCollide = false,
+				parent = model,
+			})
+			PartUtils.CreatePart({
+				name = name,
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(0.16, d * 0.62, d * 0.62),
+				cframe = CFrame.new(center + Vector3.new(offsetX, h + 0.06, offsetZ)) * CFrame.Angles(0, 0, math.rad(90)),
+				material = FURNITURE_MATERIAL,
+				color = FURNITURE_COLOR,
+				canCollide = false,
+				parent = model,
+			})
+		elseif roll < 0.85 then
+			-- Tall carton: a narrow upright box, e.g. a packaged product.
+			local h = rng:NextNumber(1.0, 1.45)
+			PartUtils.CreatePart({
+				name = name,
+				size = Vector3.new(rng:NextNumber(0.45, 0.62), h, rng:NextNumber(0.3, 0.42)),
+				cframe = CFrame.new(center + Vector3.new(offsetX, h / 2, offsetZ))
+					* CFrame.Angles(0, rng:NextNumber(-0.25, 0.25), 0),
+				material = Enum.Material.SmoothPlastic,
+				color = tint,
+				canCollide = false,
+				parent = model,
+			})
+		else
+			-- Orb in a cradle: the one genuinely "special" item, and the only
+			-- prop that still glows - so a rare accent read rather than the
+			-- default one.
+			local d = rng:NextNumber(0.5, 0.7)
+			PartUtils.CreatePart({
+				name = name,
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(0.14, d * 0.9, d * 0.9),
+				cframe = CFrame.new(center + Vector3.new(offsetX, 0.07, offsetZ)) * CFrame.Angles(0, 0, math.rad(90)),
+				material = FURNITURE_MATERIAL,
+				color = FURNITURE_COLOR,
+				canCollide = false,
+				parent = model,
+			})
+			PartUtils.CreatePart({
+				name = name,
+				shape = Enum.PartType.Ball,
+				size = Vector3.new(d, d, d),
+				position = center + Vector3.new(offsetX, 0.14 + d / 2, offsetZ),
+				material = Enum.Material.Neon,
+				color = ACCENT_COLOR,
+				transparency = 0.25,
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
+end
+
+--[[
+	A real, sittable chair - replaces the 1.5-stud cubes that were named
+	"Chair" and "DataStationBench" but were plain Parts a player could
+	neither sit on nor recognise as furniture. Faces `yaw` degrees.
+]]
+local function buildChair(model: Model, position: Vector3, yaw: number, name: string)
+	local cf = CFrame.new(position) * CFrame.Angles(0, math.rad(yaw), 0)
+	local seatH = 1.6
+
+	PartUtils.CreatePart({
+		className = "Seat",
+		name = name,
+		size = Vector3.new(2, 0.35, 1.9),
+		cframe = cf * CFrame.new(0, seatH, 0),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
+		parent = model,
+	})
+	-- Backrest on the Back (+Z) side, behind a player facing the seat's
+	-- Front/-Z direction - same convention as Seating.lua's bench.
+	PartUtils.CreatePart({
+		name = name .. "Back",
+		size = Vector3.new(2, 1.9, 0.25),
+		cframe = cf * CFrame.new(0, seatH + 0.95, 0.83),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sz in ipairs({ -1, 1 }) do
+			PartUtils.CreatePart({
+				name = name .. "Leg",
+				size = Vector3.new(0.22, seatH, 0.22),
+				cframe = cf * CFrame.new(sx * 0.8, seatH / 2, sz * 0.75),
+				material = FURNITURE_MATERIAL,
+				color = FURNITURE_COLOR,
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
+end
+
 function BuildingInteriors.FurnishShop(def, model: Model)
 	local basePos = def.position
 	local halfX = def.size.X / 2
 	local halfZ = def.size.Y / 2
+	-- Deterministic per-building, so the shop's stock is identical on every
+	-- rebuild and on every map that has one - same seeding convention the
+	-- exterior builders use.
+	local rng = Random.new(math.floor(basePos.X * 131 + basePos.Z * 977))
 
 	-- Roof-mounted "identity massing" (storefront bays/marquee here; reward
 	-- tower/data spire/turret for the other three buildings below) is
@@ -2319,19 +2737,18 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 					color = FURNITURE_COLOR,
 					parent = model,
 				})
-				-- Resting ON the shelf. At +0.55 above a 0.25-thick shelf an
-				-- 0.8-cube's underside sat 0.025 studs clear of the shelf top -
-				-- a hairline float, but a float, and it read as merchandise
-				-- hovering. Lowered so the item genuinely sits on the board.
-				PartUtils.CreatePart({
-					name = "ShelfItem",
-					size = Vector3.new(0.8, 0.8, 0.8),
-					position = basePos + Vector3.new(side * (halfX - 2.1), shelfY + 0.45, offsetZ),
-					material = ACCENT_MATERIAL,
-					color = ACCENT_COLOR,
-					canCollide = false,
-					parent = model,
-				})
+				-- Assorted stock resting ON the shelf board (shelf is 0.25
+				-- thick, so its top face is at shelfY + 0.125 and stockGoods
+				-- seats each item up from there by half its own height). Three
+				-- varied goods per board instead of one identical neon cube.
+				stockGoods(
+					model,
+					rng,
+					"ShelfItem",
+					basePos + Vector3.new(side * (halfX - 2.1), shelfY + 0.125, offsetZ),
+					2.2,
+					3
+				)
 			end
 		end
 	end
@@ -2350,18 +2767,20 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 			color = FURNITURE_COLOR,
 			parent = model,
 		})
+		-- Goods along the TOP of each island (the island is 4 tall, so its
+		-- deck is at y=4), two runs offset either side of the centreline so
+		-- the island is stocked from both browsing aisles - the same
+		-- double-sided read as before, but with real merchandise.
 		for _, itemOffsetZ in ipairs({ -halfZ * 0.25, 0, halfZ * 0.25 }) do
 			for _, faceX in ipairs({ -1, 1 }) do
-				PartUtils.CreatePart({
-					name = "AisleItem",
-					size = Vector3.new(0.9, 0.9, 0.9),
-					position = basePos
-						+ Vector3.new(aisleX + faceX * 1.5, 4.2, itemOffsetZ + halfZ * 0.05),
-					material = ACCENT_MATERIAL,
-					color = ACCENT_COLOR,
-					canCollide = false,
-					parent = model,
-				})
+				stockGoods(
+					model,
+					rng,
+					"AisleItem",
+					basePos + Vector3.new(aisleX + faceX * 0.55, 4, itemOffsetZ + halfZ * 0.05),
+					0.9,
+					2
+				)
 			end
 		end
 	end
@@ -2390,10 +2809,24 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 			color = FURNITURE_COLOR,
 			parent = model,
 		})
+		-- The featured item on each plinth, under a glass case - this is the
+		-- "look but don't buy yet" showcase, so unlike the open shelving the
+		-- goods here are deliberately presented behind glass.
+		stockGoods(model, rng, "DisplayItem", basePos + Vector3.new(x, 3, -halfZ * 0.35), 0.9, 1)
 		PartUtils.CreatePart({
-			name = "DisplayItem",
-			size = Vector3.new(1.2, 1.2, 1.2),
-			position = basePos + Vector3.new(x, 3.6, -halfZ * 0.35),
+			name = "DisplayCase",
+			size = Vector3.new(1.7, 2, 1.7),
+			position = basePos + Vector3.new(x, 4, -halfZ * 0.35),
+			material = Enum.Material.Glass,
+			color = Color3.fromRGB(210, 225, 235),
+			transparency = 0.72,
+			canCollide = false,
+			parent = model,
+		})
+		PartUtils.CreatePart({
+			name = "DisplayCaseTrim",
+			size = Vector3.new(1.85, 0.14, 1.85),
+			position = basePos + Vector3.new(x, 5.05, -halfZ * 0.35),
 			material = ACCENT_MATERIAL,
 			color = ACCENT_COLOR,
 			canCollide = false,
@@ -2522,16 +2955,73 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 			color = FURNITURE_COLOR,
 			parent = model,
 		})
-		PartUtils.CreatePart({
-			name = "MilestoneTrophy" .. i,
-			size = Vector3.new(1.4, 1.4, 1.4),
-			position = basePos + Vector3.new(0, 3.2, offsetZ),
-			material = Enum.Material.Neon,
-			color = if i == 2 then Color3.fromRGB(255, 215, 0) else ACCENT_COLOR,
-			shape = Enum.PartType.Ball,
+		--[[
+			An actual TROPHY standing on the pedestal, not a neon sphere
+			hovering 1.95 studs above it with nothing underneath.
+
+			The pedestal is 2.5 tall, so its top face is at y=2.5; every piece
+			below stacks up from there and physically touches the piece under
+			it. Built as base -> stem -> bowl -> handles, which is the
+			silhouette that actually reads as "trophy" - the previous floating
+			ball read as an unexplained energy orb, which is exactly the kind of
+			object that doesn't make sense in a rewards hall.
+		]]
+		local isCentre = i == 2
+		local trophyTint = if isCentre then Color3.fromRGB(255, 200, 62) else Color3.fromRGB(186, 190, 198)
+		local trophyScale = if isCentre then 1.25 else 1
+
+		PartUtils.CreateDisc({
+			name = "MilestoneTrophyBase" .. i,
+			diameter = 1.5 * trophyScale,
+			thickness = 0.35,
+			position = basePos + Vector3.new(0, 2.68, offsetZ),
+			material = Enum.Material.Marble,
+			color = Color3.fromRGB(48, 46, 52),
 			canCollide = false,
 			parent = model,
 		})
+		PartUtils.CreatePart({
+			name = "MilestoneTrophyStem" .. i,
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.85 * trophyScale, 0.28, 0.28),
+			cframe = CFrame.new(basePos + Vector3.new(0, 3.28 * 1, offsetZ)) * CFrame.Angles(0, 0, math.rad(90)),
+			material = Enum.Material.Metal,
+			color = trophyTint,
+			canCollide = false,
+			parent = model,
+		})
+		local bowl = PartUtils.CreatePart({
+			name = "MilestoneTrophyCup" .. i,
+			shape = Enum.PartType.Ball,
+			size = Vector3.new(1.25 * trophyScale, 1.1 * trophyScale, 1.25 * trophyScale),
+			position = basePos + Vector3.new(0, 4.15, offsetZ),
+			material = Enum.Material.Metal,
+			color = trophyTint,
+			canCollide = false,
+			parent = model,
+		})
+		for _, side in ipairs({ -1, 1 }) do
+			PartUtils.CreateDisc({
+				name = "MilestoneTrophyHandle" .. i,
+				diameter = 0.62 * trophyScale,
+				thickness = 0.13,
+				position = basePos + Vector3.new(side * 0.72 * trophyScale, 4.25, offsetZ),
+				material = Enum.Material.Metal,
+				color = trophyTint,
+				canCollide = false,
+				parent = model,
+			})
+		end
+		-- Only the centre (gold) trophy is lit, so the row has a clear focal
+		-- point rather than three equally glowing objects.
+		if isCentre then
+			local trophyLight = Instance.new("PointLight")
+			trophyLight.Color = trophyTint
+			trophyLight.Range = 12
+			trophyLight.Brightness = 1.2
+			trophyLight.Shadows = true
+			trophyLight.Parent = bowl
+		end
 	end
 
 	PartUtils.CreatePart({
@@ -2658,14 +3148,11 @@ function BuildingInteriors.FurnishStatistics(def, model: Model)
 			canCollide = false,
 			parent = model,
 		})
-		PartUtils.CreatePart({
-			name = "DataStationBench",
-			size = Vector3.new(2.6, 1, 1.2),
-			position = basePos + Vector3.new(0, 0.6, offsetZ + 1.6),
-			material = FURNITURE_MATERIAL,
-			color = FURNITURE_COLOR,
-			parent = model,
-		})
+		-- A real seat facing the station's screen (yaw 180 = facing -Z, the
+		-- direction the DataStationScreen is mounted), so a player can
+		-- actually sit down and read their stats. This was a 2.6x1x1.2 box
+		-- named "DataStationBench" that could not be sat on.
+		buildChair(model, basePos + Vector3.new(0, 0, offsetZ + 2.2), 180, "DataStationSeat")
 	end
 
 	PartUtils.CreatePart({
@@ -2805,15 +3292,11 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 		canCollide = false,
 		parent = model,
 	})
-	for _, x in ipairs({ -4, 4 }) do
-		PartUtils.CreatePart({
-			name = "Chair",
-			size = Vector3.new(1.5, 1.5, 1.5),
-			position = basePos + Vector3.new(x, 0.75, 4),
-			material = FURNITURE_MATERIAL,
-			color = FURNITURE_COLOR,
-			parent = model,
-		})
+	-- Real chairs facing the demo screen, angled slightly inward the way
+	-- seating around a lesson actually is. These used to be 1.5-stud cubes
+	-- named "Chair" - not sittable, and not recognisable as furniture.
+	for _, side in ipairs({ -1, 1 }) do
+		buildChair(model, basePos + Vector3.new(side * 4, 0, 4), 180 - side * 18, "Chair")
 	end
 
 	-- Wall info-panels flanking the final stretch toward the terminal.

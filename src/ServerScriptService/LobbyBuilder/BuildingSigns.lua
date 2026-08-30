@@ -104,7 +104,7 @@ end
 	BuildingInteriors.GetExteriorTopY now reports each theme's true peak,
 	and this is the clean air kept above it.
 ]]
-local SIGN_CLEARANCE_ABOVE_EXTERIOR = 20
+local SIGN_CLEARANCE_ABOVE_EXTERIOR = 30
 --[[
 	SIZE UNITS: a BillboardGui's Size Offset is in PIXELS, not studs, and
 	does NOT shrink with distance. Verified live: AbsoluteSize stayed
@@ -123,12 +123,37 @@ local SIGN_CLEARANCE_ABOVE_EXTERIOR = 20
 local BILLBOARD_SIZE = Vector2.new(200, 66) -- PIXELS (see above)
 
 --[[
-	Readable from anywhere a player can stand. MapConfig.USABLE_RADIUS is
-	the walkable half-width of a map, so twice it comfortably covers the
-	longest sightline across one map while still falling off well before a
-	neighbouring map 1050 studs away.
+	HEADERS NO LONGER CROWD THE CENTRAL BOARD.
+
+	This used to be 900 - far enough that all four building headers stayed
+	drawn at full pixel size from anywhere on the map, including from the
+	spawn row looking north at the MatharenaBoard. Because a BillboardGui's
+	Size is in PIXELS and does not shrink with distance (see BILLBOARD_SIZE),
+	four 200x66px badges sat permanently across the middle of the screen -
+	directly over the central board a player is walking toward. That is the
+	"headers block the screen" problem: not the signs' world positions, but
+	their screen-constant size combined with unlimited draw distance.
+
+	260 is a deliberate "walk up to it" range: comfortably wider than the
+	gap between adjacent buildings (~44 studs of clearance, ~115 studs
+	centre to centre), so a header is readable well before you reach its
+	building and its click target stays usable - but short enough that
+	standing at the spawn row or the plaza, where the central board is the
+	thing you are meant to be reading, draws none of them.
+
+	VERIFIED IN PLAY MODE against the built Lava map, which is where the
+	final number comes from. The distance that matters is the 3D one to the
+	sign ANCHOR, and the anchor sits ~83 studs above ground (crater peak
+	plus SIGN_CLEARANCE_ABOVE_EXTERIOR), so it is much larger than the
+	ground distance to the building. Measured from the plaza at (1050,14,60):
+		Shop 166, StatisticsBuilding 161, DailyRewards 191, Tutorial 191.
+	Measured walking up to the Shop entrance: 97.
+	So 260 - and even 120 - still drew every header across the middle of the
+	screen from the plaza. 100 is the value that actually separates the two
+	cases: nothing draws from the spawn row or the plaza, and a building's
+	header appears once you are approaching it.
 ]]
-local SIGN_MAX_DISTANCE = 900
+local SIGN_MAX_DISTANCE = 100
 
 --[[
 	Builds one building's overhead sign + connector beam, parented into
@@ -188,15 +213,27 @@ function BuildingSigns.BuildOne(def, parent: Instance, mapId: string, exteriorTo
 	billboard.Adornee = anchor
 	billboard.Size = UDim2.fromOffset(BILLBOARD_SIZE.X, BILLBOARD_SIZE.Y)
 	--[[
-		AlwaysOnTop guarantees the two things this sign exists for: it stays
-		VISIBLE over the terrain, trees and volcano peaks that now crowd the
-		skyline, and it stays CLICKABLE - a BillboardGui occluded by geometry
-		does not receive input, which is how the teleport button could look
-		present but do nothing. The anchor is already placed in clear air
-		above the structure, so this is belt-and-braces rather than the sign
-		punching through a building it sits inside.
+		AlwaysOnTop is now FALSE, and that is the other half of the "headers
+		block the main screen" fix (see SIGN_MAX_DISTANCE above for the first).
+
+		AlwaysOnTop renders a BillboardGui over ALL world geometry regardless
+		of depth, so a header behind the MatharenaBoard still drew in front of
+		it - the board is at Z=-45 and the buildings sit at Z=-34..-116 behind
+		it, so every approach from the spawn side put a header squarely on top
+		of the board's text. With depth testing on, the board (and the volcano
+		flanks, and anything else genuinely in front) correctly occludes it.
+
+		This costs nothing in clickability. The old comment justifying
+		AlwaysOnTop was written when the sign's label was a TextButton and the
+		GUI itself had to receive input. It does not anymore: the click is
+		owned entirely by the ClickDetector on the anchor Part (see
+		MakeTeleportTarget and the SignContent comment below), which raycasts
+		against real geometry and is unaffected by GUI depth testing. The
+		anchor also sits in clear air SIGN_CLEARANCE_ABOVE_EXTERIOR studs above
+		the true exterior peak, so nothing occludes it from the building's own
+		approach either.
 	]]
-	billboard.AlwaysOnTop = true
+	billboard.AlwaysOnTop = false
 	billboard.MaxDistance = SIGN_MAX_DISTANCE
 	billboard.LightInfluence = 0
 	billboard.Parent = anchor
