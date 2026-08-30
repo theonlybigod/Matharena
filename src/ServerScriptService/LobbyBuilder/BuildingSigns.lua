@@ -104,7 +104,7 @@ end
 	BuildingInteriors.GetExteriorTopY now reports each theme's true peak,
 	and this is the clean air kept above it.
 ]]
-local SIGN_CLEARANCE_ABOVE_EXTERIOR = 20
+local SIGN_CLEARANCE_ABOVE_EXTERIOR = 30
 --[[
 	SIZE UNITS: a BillboardGui's Size Offset is in PIXELS, not studs, and
 	does NOT shrink with distance. Verified live: AbsoluteSize stayed
@@ -120,15 +120,46 @@ local SIGN_CLEARANCE_ABOVE_EXTERIOR = 20
 	At pixel scale the sign is screen-constant, so this only has to be sized
 	once for readability rather than balanced against building spacing.
 ]]
-local BILLBOARD_SIZE = Vector2.new(200, 66) -- PIXELS (see above)
+local BILLBOARD_SIZE = Vector2.new(300, 100) -- PIXELS (see above)
 
 --[[
-	Readable from anywhere a player can stand. MapConfig.USABLE_RADIUS is
-	the walkable half-width of a map, so twice it comfortably covers the
-	longest sightline across one map while still falling off well before a
-	neighbouring map 1050 studs away.
+	HEADERS NO LONGER CROWD THE CENTRAL BOARD.
+
+	This used to be 900 - far enough that all four building headers stayed
+	drawn at full pixel size from anywhere on the map, including from the
+	spawn row looking north at the MatharenaBoard. Because a BillboardGui's
+	Size is in PIXELS and does not shrink with distance (see BILLBOARD_SIZE),
+	four 200x66px badges sat permanently across the middle of the screen -
+	directly over the central board a player is walking toward. That is the
+	"headers block the screen" problem: not the signs' world positions, but
+	their screen-constant size combined with unlimited draw distance.
+
+	260 is a deliberate "walk up to it" range: comfortably wider than the
+	gap between adjacent buildings (~44 studs of clearance, ~115 studs
+	centre to centre), so a header is readable well before you reach its
+	building and its click target stays usable - but short enough that
+	standing at the spawn row or the plaza, where the central board is the
+	thing you are meant to be reading, draws none of them.
+
+	VERIFIED IN PLAY MODE against the built Lava map, which is where the
+	final number comes from. The distance that matters is the 3D one to the
+	sign ANCHOR, and the anchor sits ~83 studs above ground (crater peak
+	plus SIGN_CLEARANCE_ABOVE_EXTERIOR), so it is much larger than the
+	ground distance to the building. Measured from the plaza at (1050,14,60):
+		Shop 166, StatisticsBuilding 161, DailyRewards 191, Tutorial 191.
+	Measured walking up to the Shop entrance: 97.
+	So 260 - and even 120 - still drew every header across the middle of the
+	screen from the plaza.
+
+	WHY THIS IS BACK UP AT 420. The previous value of 100/55 existed purely
+	to stop headers covering the central screen, by culling them before a
+	player ever got close enough to see one. That is no longer the mechanism
+	doing that job: GameplayCameraController now disables these billboards
+	outright for the duration of Practice and Competitive question views (see
+	its setSignageHidden), which removes them from exactly the situation that
+	mattered and leaves them free to be large and readable everywhere else.
 ]]
-local SIGN_MAX_DISTANCE = 900
+local SIGN_MAX_DISTANCE = 420
 
 --[[
 	Builds one building's overhead sign + connector beam, parented into
@@ -188,13 +219,20 @@ function BuildingSigns.BuildOne(def, parent: Instance, mapId: string, exteriorTo
 	billboard.Adornee = anchor
 	billboard.Size = UDim2.fromOffset(BILLBOARD_SIZE.X, BILLBOARD_SIZE.Y)
 	--[[
-		AlwaysOnTop guarantees the two things this sign exists for: it stays
-		VISIBLE over the terrain, trees and volcano peaks that now crowd the
-		skyline, and it stays CLICKABLE - a BillboardGui occluded by geometry
-		does not receive input, which is how the teleport button could look
-		present but do nothing. The anchor is already placed in clear air
-		above the structure, so this is belt-and-braces rather than the sign
-		punching through a building it sits inside.
+		AlwaysOnTop is TRUE so the header stays readable even when a wall, a
+		screen, a decorative prop or an effect passes between the camera and
+		the sign - explicitly requested, and the reason it is safe now is that
+		the one case where an always-visible header WAS a problem (covering the
+		central MATHARENA board during a question) is handled directly:
+		GameplayCameraController disables these billboards for the whole
+		Practice/Competitive question view and re-enables them on release.
+
+		So the two requirements are no longer in tension. Depth testing is not
+		doing the hiding; the gameplay camera is.
+
+		Clickability is unaffected either way - the teleport is owned by the
+		ClickDetector on the anchor Part (see MakeTeleportTarget), which
+		raycasts against real geometry and does not depend on GUI depth.
 	]]
 	billboard.AlwaysOnTop = true
 	billboard.MaxDistance = SIGN_MAX_DISTANCE

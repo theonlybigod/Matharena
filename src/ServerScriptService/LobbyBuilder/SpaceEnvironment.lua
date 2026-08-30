@@ -294,6 +294,37 @@ local function buildCelestialBodies(parent: Instance)
 	buildCelestialBody(Vector3.new(150, 100, 140), 42, Color3.fromRGB(90, 140, 220), nil, folder, "BlueMoon")
 	buildCelestialBody(Vector3.new(-120, 140, 160), 26, Color3.fromRGB(180, 90, 200), nil, folder, "VioletMoon")
 
+	--[[
+		Additional worlds, added to fill out the skybox now that the buildings
+		are rockets and the sky is a bigger part of the map's identity.
+
+		Placement rules kept consistent with the three above: all are well
+		above head height and out past the walkable plate, none share a bearing
+		with an existing body or a SkySaucer, and sizes descend with distance so
+		the sky reads as having depth rather than as a flat collage. Two get
+		rings (the second argument pair to buildCelestialBody) for variety.
+	]]
+	buildCelestialBody(
+		Vector3.new(210, 165, -40),
+		58,
+		Color3.fromRGB(120, 200, 165),
+		Color3.fromRGB(200, 235, 220),
+		folder,
+		"RingedTealGiant"
+	)
+	buildCelestialBody(Vector3.new(-215, 90, -110), 48, Color3.fromRGB(206, 118, 74), nil, folder, "RustPlanet")
+	buildCelestialBody(Vector3.new(40, 200, 210), 34, Color3.fromRGB(235, 214, 130), nil, folder, "SandMoon")
+	buildCelestialBody(Vector3.new(-70, 210, -200), 30, Color3.fromRGB(96, 112, 190), nil, folder, "DeepBlueMoon")
+	buildCelestialBody(Vector3.new(190, 125, 195), 22, Color3.fromRGB(170, 175, 185), nil, folder, "GreyMoonlet")
+	buildCelestialBody(
+		Vector3.new(-180, 175, 55),
+		40,
+		Color3.fromRGB(150, 95, 205),
+		Color3.fromRGB(215, 190, 240),
+		folder,
+		"RingedVioletWorld"
+	)
+
 	-- Soft nebula haze: large, mostly-transparent tinted spheres far away
 	-- - cheap atmospheric color variation, not meant to be inspected up
 	-- close. Kept to two spots so the sky reads as "accented", not busy.
@@ -391,6 +422,114 @@ end
 	Workspace folder), in a single "SpaceEnvironment" folder - see
 	LobbyBuilder/init.lua for the (Space-map-only) call site.
 ]]
+--[[
+	FLYING SAUCERS IN THE SKY.
+
+	The same half-hull/half-saucer silhouette the buildings now use (see
+	BuildingInteriors.addSpaceCraftBody), but small, decorative, and hung up
+	among the planets - so the craft parked on the ground read as part of a
+	fleet rather than as one-off scenery.
+
+	Built from simple primitives rather than the continuous-shell builder:
+	at this distance the silhouette and the glowing underside ring are the
+	only things that register, and a full plated shell per saucer would cost
+	hundreds of parts for detail nobody can resolve.
+
+	Everything is non-collidable and sits far above head height, so none of
+	it affects walking or the map's playable space. Each saucer is tilted a
+	little so the group doesn't read as a row of identical discs.
+]]
+local function buildSkySaucers(parent: Instance)
+	local folder = Instance.new("Folder")
+	folder.Name = "SkySaucers"
+	folder.Parent = parent
+
+	local HULL_LIGHT = Color3.fromRGB(150, 158, 178)
+	local HULL_DARK = Color3.fromRGB(74, 80, 96)
+
+	-- Hand-placed so they sit in clear sky between the existing planets and
+	-- nebula spots rather than intersecting them.
+	local saucers = {
+		{ position = Vector3.new(60, 145, -95), scale = 1.0, tilt = 12, yaw = 20 },
+		{ position = Vector3.new(-95, 118, 40), scale = 0.7, tilt = -9, yaw = 130 },
+		{ position = Vector3.new(120, 160, 55), scale = 0.5, tilt = 16, yaw = 260 },
+		{ position = Vector3.new(-40, 175, -140), scale = 0.62, tilt = -14, yaw = 75 },
+		{ position = Vector3.new(10, 132, 150), scale = 0.45, tilt = 8, yaw = 310 },
+	}
+
+	for i, s in ipairs(saucers) do
+		local discWidth = 34 * s.scale
+		local orientation = CFrame.new(s.position)
+			* CFrame.Angles(0, math.rad(s.yaw), 0)
+			* CFrame.Angles(math.rad(s.tilt), 0, math.rad(s.tilt * 0.5))
+
+		-- Saucer disc (the wide flange).
+		--[[
+			CreateDisc builds a Cylinder already rotated to lie flat. Assigning
+			`orientation` straight onto .CFrame would throw that rotation away
+			and stand the disc on its edge, so the craft's own tilt is applied
+			ON TOP of whatever rotation the disc was created with. Subtracting
+			a CFrame's Position leaves the rotation-only component.
+		]]
+		local disc = PartUtils.CreateDisc({
+			name = ("SkySaucer%dDisc"):format(i),
+			diameter = discWidth,
+			thickness = 3.2 * s.scale,
+			position = s.position,
+			material = Enum.Material.Metal,
+			color = HULL_LIGHT,
+			canCollide = false,
+			parent = folder,
+		})
+		local discRotation = disc.CFrame - disc.CFrame.Position
+		disc.CFrame = orientation * discRotation
+
+		-- Lower hull, tapering under the disc - the "half hull" half.
+		PartUtils.CreatePart({
+			name = ("SkySaucer%dHull"):format(i),
+			size = Vector3.new(discWidth * 0.52, 5 * s.scale, discWidth * 0.52),
+			cframe = orientation * CFrame.new(0, -3.4 * s.scale, 0),
+			material = Enum.Material.Metal,
+			color = HULL_DARK,
+			canCollide = false,
+			parent = folder,
+		})
+
+		-- Cockpit dome on top.
+		PartUtils.CreatePart({
+			name = ("SkySaucer%dCockpit"):format(i),
+			shape = Enum.PartType.Ball,
+			size = Vector3.new(discWidth * 0.4, discWidth * 0.3, discWidth * 0.4),
+			cframe = orientation * CFrame.new(0, 2.6 * s.scale, 0),
+			material = Enum.Material.Glass,
+			color = Color3.fromRGB(150, 220, 255),
+			transparency = 0.35,
+			canCollide = false,
+			parent = folder,
+		})
+
+		-- Glowing underside ring - the part that actually reads as a UFO from
+		-- across the map, especially against a dark sky.
+		local glow = PartUtils.CreateDisc({
+			name = ("SkySaucer%dUnderGlow"):format(i),
+			diameter = discWidth * 0.66,
+			thickness = 0.9,
+			position = s.position,
+			material = Enum.Material.Neon,
+			color = Color3.fromRGB(120, 235, 255),
+			canCollide = false,
+			parent = folder,
+		})
+		glow.CFrame = orientation * CFrame.new(0, -6.2 * s.scale, 0) * (glow.CFrame - glow.CFrame.Position)
+
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(120, 235, 255)
+		light.Range = 34 * s.scale
+		light.Brightness = 2
+		light.Parent = glow
+	end
+end
+
 function SpaceEnvironment.BuildAll(parent: Instance): Folder
 	local folder = Instance.new("Folder")
 	folder.Name = "SpaceEnvironment"
@@ -402,6 +541,7 @@ function SpaceEnvironment.BuildAll(parent: Instance): Folder
 	buildStars(folder)
 	buildCelestialBodies(folder)
 	buildFloatingAsteroids(folder)
+	buildSkySaucers(folder)
 
 	return folder
 end

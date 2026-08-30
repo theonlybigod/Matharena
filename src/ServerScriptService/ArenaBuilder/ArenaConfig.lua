@@ -102,9 +102,16 @@ ArenaConfig.QUESTION_SCREEN_HEIGHT_ABOVE_STAGE = 21 -- studs above the stage sur
 
 ArenaConfig.WINNER_AREA_DIAMETER = 10
 
--- Spectator seating: concentric rings beyond the platform ring.
+--[[
+	SPECTATOR SEATING REMOVED (see ArenaBuilder/ArenaDecorations.lua).
+	SPECTATOR_SEAT_SPACING is gone with the seat rings it spaced.
+
+	SPECTATOR_RING_OFFSETS is KEPT and still used: CompetitionGameplay/
+	Elimination.lua now places eliminated players STANDING on the arena rim
+	at these same offsets beyond the platform ring, so the spectator area
+	stays exactly where it always was - only the physical Seats are gone.
+]]
 ArenaConfig.SPECTATOR_RING_OFFSETS = { 20, 36 } -- studs beyond the platform ring radius
-ArenaConfig.SPECTATOR_SEAT_SPACING = 10
 
 -- Rim light rigs (spotlights + moving beams) mounted above the arena.
 ArenaConfig.RIM_LIGHT_COUNT = 8

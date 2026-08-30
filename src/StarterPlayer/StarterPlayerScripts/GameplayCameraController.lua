@@ -50,6 +50,7 @@
 ]]
 
 local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local CollectionService = game:GetService("CollectionService")
 
@@ -80,6 +81,89 @@ local ZOOM_FOV = 60
 local VIEW_DISTANCE = 65 -- final resting distance - verified (see above) to fit the full 80x40 screen with a real margin at ZOOM_FOV
 local PUSH_IN_START_DISTANCE = 78 -- where the SHORT, SAFE tween starts from - further back along the exact same viewing axis, never anywhere else
 local VERTICAL_OFFSET = 2 -- a slight camera elevation above the screen's own center - reads as an intentional broadcast angle, not a flat straight-on snapshot
+
+--[[
+	WORLD SIGNAGE SUPPRESSION DURING GAMEPLAY.
+
+	The arena shares the lobby's origin (see ArenaConfig.ORIGIN), so the
+	QuestionScreen stands in the middle of the same plaza the buildings ring.
+	When the camera pulls in to frame that screen, the four overhead building
+	headers and the tutorial's world waypoint marker sit between the camera
+	and the board - directly over the question the player is trying to read.
+
+	This hides them for exactly as long as the gameplay camera is active, and
+	restores them on Release. Deliberately NOT destructive: it only toggles
+	`.Enabled` on GUI objects that are still needed in the lobby, so nothing
+	is deleted and nothing has to be rebuilt afterwards. Purely client-side
+	presentation, like the rest of this module.
+
+	What gets hidden:
+	  - BuildingSignBillboard - the four "<Name> / click to visit" headers
+	    above the buildings (LobbyBuilder/BuildingSigns.lua).
+	  - TutorialWaypointBillboard / TutorialWaypointMarker - the floating
+	    tutorial waypoint, which is what shows "THE LOBBY" mid-walkthrough.
+	  - TutorialGuideBanner - the tutorial's on-screen step banner, which
+	    otherwise overlaps the top of the question board.
+	  - TutorialHighlight - the tutorial's Highlight adornment, which uses
+	    AlwaysOnTop and therefore draws straight through the screen.
+
+	Only instances that were actually enabled when we hid them are restored,
+	so this can never switch something ON that the tutorial had deliberately
+	turned off.
+]]
+local HIDDEN_WORLD_SIGN_NAMES = {
+	BuildingSignBillboard = true,
+	TutorialWaypointBillboard = true,
+	TutorialGuideBanner = true,
+}
+
+local suppressedSignage: { [Instance]: boolean } = {}
+local signageSuppressed = false
+
+local function setSignageHidden(hidden: boolean)
+	if hidden == signageSuppressed then
+		return
+	end
+	signageSuppressed = hidden
+
+	if hidden then
+		table.clear(suppressedSignage)
+		for _, descendant in ipairs(Workspace:GetDescendants()) do
+			if HIDDEN_WORLD_SIGN_NAMES[descendant.Name] and descendant:IsA("LayerCollector") then
+				if descendant.Enabled then
+					suppressedSignage[descendant] = true
+					descendant.Enabled = false
+				end
+			elseif descendant:IsA("Highlight") and descendant.Name == "TutorialHighlight" then
+				if descendant.Enabled then
+					suppressedSignage[descendant] = true
+					descendant.Enabled = false
+				end
+			end
+		end
+
+		-- The tutorial's step banner lives in PlayerGui, not Workspace.
+		local playerGui = Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")
+		local mainUI = playerGui and playerGui:FindFirstChild("MainUI")
+		local banner = mainUI and mainUI:FindFirstChild("TutorialGuideBanner")
+		if banner and banner:IsA("GuiObject") and banner.Visible then
+			suppressedSignage[banner] = true
+			banner.Visible = false
+		end
+	else
+		for instance in pairs(suppressedSignage) do
+			if instance.Parent then
+				if instance:IsA("GuiObject") then
+					instance.Visible = true
+				else
+					local collector = instance :: any
+					collector.Enabled = true
+				end
+			end
+		end
+		table.clear(suppressedSignage)
+	end
+end
 
 local function getScreen(): BasePart?
 	local tagged = CollectionService:GetTagged("QuestionScreen")[1]
@@ -114,6 +198,8 @@ end
 	always sees the correctly-oriented, fully-readable side.
 ]]
 function GameplayCameraController.FocusOnScreen(platformIndex: number?, transitionSeconds: number?)
+	-- Clear the plaza signage out of the shot before the camera cuts in.
+	setSignageHidden(true)
 	local screen = getScreen()
 	if not screen then
 		return
@@ -211,6 +297,9 @@ end
 	the open air around the platform.
 ]]
 function GameplayCameraController.FocusOnPlatform(platformIndex: number?, transitionSeconds: number?)
+	-- The platform intro shot looks back across the plaza too, so the same
+	-- headers can sit in frame - suppress them for this shot as well.
+	setSignageHidden(true)
 	if not platformIndex then
 		return
 	end
@@ -283,6 +372,9 @@ end
 	anything either.
 ]]
 function GameplayCameraController.Release()
+	-- Always restore signage, even if the camera was already released - the
+	-- lobby needs its headers and the tutorial needs its waypoint back.
+	setSignageHidden(false)
 	stopActiveTweens()
 	if cameraActive then
 		camera.CameraType = Enum.CameraType.Custom
