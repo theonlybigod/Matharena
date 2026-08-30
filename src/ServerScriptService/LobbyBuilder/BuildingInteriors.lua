@@ -138,6 +138,11 @@ local CUSTOM_EXTERIOR_THEMES = {
 	IceAge = true,
 	Lava = true,
 	UnderTheSea = true,
+	-- Space now gets a full-body exterior too: a vertical rocket ship (see
+	-- addSpaceRocketBody). Being in this table is what makes BuildShell skip
+	-- the box's own windows/canopy/roof cap, so the plain prism underneath
+	-- never shows through the hull wrapped around it.
+	Space = true,
 }
 
 --[[
@@ -274,6 +279,156 @@ local function buildSpaceFlourish(model: Model, position: Vector3)
 	light.Range = LightingConfig.ACCENT_LIGHT_RANGE * 0.6
 	light.Brightness = LightingConfig.ACCENT_LIGHT_BRIGHTNESS * 0.7
 	light.Parent = planet
+end
+
+--[[
+	SHIP-INTERIOR FIT-OUT (Space theme only).
+
+	The buildings are rockets now, but their interiors were still generic
+	rooms - a flat floor, flat walls and freestanding furniture, which reads
+	as a shop that happens to be inside a rocket rather than as a deck of the
+	ship itself.
+
+	This adds the structure that makes a room read as a spacecraft interior,
+	and it is applied to EVERY Space building on top of whatever that
+	building's own furniture already is (see the call in BuildShell), so the
+	Shop still reads as a shop and the Tutorial still reads as a classroom -
+	they are just now unmistakably aboard a ship:
+
+	  - RIBS: structural hoops arching over the ceiling at intervals down the
+	    room, the single strongest "inside a hull" cue.
+	  - FLOOR GRATING: a lit strip runway down the centre aisle.
+	  - CONSOLE BANKS: low instrument benches against the side walls, angled
+	    screens facing inward.
+	  - VIEWPORTS: glowing round windows set into both side walls at eye
+	    height, matching the portholes on the outside of the hull.
+	  - OVERHEAD PIPING: conduit runs along the wall/ceiling junction.
+
+	Everything here is non-collidable and kept above waist height or flush to
+	a wall, so it never narrows the walkable floor or blocks the doorway.
+]]
+local function addSpaceInteriorFitOut(def, model: Model)
+	local basePos = def.position
+	local halfX = def.size.X / 2 - WALL_THICKNESS
+	local halfZ = def.size.Y / 2 - WALL_THICKNESS
+	local ceilingY = def.height - 1.5
+
+	-- 1. Structural ribs arching over the ceiling.
+	local ribCount = math.max(3, math.floor(def.size.Y / 7))
+	for i = 0, ribCount do
+		local z = -halfZ + (halfZ * 2) * (i / ribCount)
+		local segs = 9
+		for s = 0, segs do
+			local a = math.pi * (s / segs)
+			local x = math.cos(a) * halfX
+			local y = ceilingY - 4 + math.sin(a) * 3.4
+			PartUtils.CreatePart({
+				name = ("HullRib%dS%d"):format(i, s),
+				size = Vector3.new(1.1, (math.pi * halfX / segs) * 1.5, 1.1),
+				cframe = CFrame.new(basePos + Vector3.new(x, y, z)) * CFrame.Angles(0, 0, a - math.pi / 2),
+				material = Enum.Material.Metal,
+				color = Color3.fromRGB(96, 102, 118),
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
+
+	-- 2. Lit floor grating down the centre aisle (flush, walk-over).
+	for i = 0, math.floor(def.size.Y / 3) do
+		local z = -halfZ + i * 3
+		PartUtils.CreatePart({
+			name = "DeckGrate" .. i,
+			size = Vector3.new(3.2, 0.08, 2.2),
+			position = basePos + Vector3.new(0, SOLID_SLAB_THICKNESS + 0.05, z),
+			material = Enum.Material.DiamondPlate,
+			color = Color3.fromRGB(70, 76, 90),
+			canCollide = false,
+			parent = model,
+		})
+		if i % 2 == 0 then
+			PartUtils.CreatePart({
+				name = "DeckGrateLight" .. i,
+				size = Vector3.new(0.35, 0.1, 2),
+				position = basePos + Vector3.new(1.9, SOLID_SLAB_THICKNESS + 0.06, z),
+				material = Enum.Material.Neon,
+				color = ACCENT_COLOR,
+				canCollide = false,
+				parent = model,
+			})
+			PartUtils.CreatePart({
+				name = "DeckGrateLight" .. i,
+				size = Vector3.new(0.35, 0.1, 2),
+				position = basePos + Vector3.new(-1.9, SOLID_SLAB_THICKNESS + 0.06, z),
+				material = Enum.Material.Neon,
+				color = ACCENT_COLOR,
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
+
+	for _, side in ipairs({ -1, 1 }) do
+		-- 3. Viewports set into the side walls, matching the hull portholes.
+		for w = 1, 3 do
+			local z = -halfZ * 0.6 + (halfZ * 1.2) * ((w - 1) / 2)
+			local port = PartUtils.CreatePart({
+				name = "InteriorViewport" .. w,
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(0.5, 4, 4),
+				cframe = CFrame.new(basePos + Vector3.new(side * (halfX - 0.2), 7.5, z))
+					* CFrame.Angles(0, 0, math.rad(90)) * CFrame.Angles(0, math.rad(90), 0),
+				material = Enum.Material.Neon,
+				color = Color3.fromRGB(120, 190, 255),
+				transparency = 0.25,
+				canCollide = false,
+				parent = model,
+			})
+			local pl = Instance.new("PointLight")
+			pl.Color = Color3.fromRGB(120, 190, 255)
+			pl.Range = 12
+			pl.Brightness = 1
+			pl.Shadows = true
+			pl.Parent = port
+		end
+
+		-- 4. Console bank along the wall, below the viewports.
+		PartUtils.CreatePart({
+			name = "ConsoleBank",
+			size = Vector3.new(1.8, 2.6, def.size.Y * 0.42),
+			position = basePos + Vector3.new(side * (halfX - 1.1), SOLID_SLAB_THICKNESS + 1.3, 0),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(64, 70, 84),
+			canCollide = false,
+			parent = model,
+		})
+		PartUtils.CreatePart({
+			name = "ConsoleScreen",
+			size = Vector3.new(0.2, 1.5, def.size.Y * 0.36),
+			cframe = CFrame.new(basePos + Vector3.new(side * (halfX - 2.0), SOLID_SLAB_THICKNESS + 2.7, 0))
+				* CFrame.Angles(0, 0, math.rad(side * 22)),
+			material = ACCENT_MATERIAL,
+			color = ACCENT_COLOR,
+			transparency = 0.15,
+			canCollide = false,
+			parent = model,
+		})
+
+		-- 5. Conduit run at the wall/ceiling junction.
+		for _, pipeOffset in ipairs({ 0, 1.3 }) do
+			PartUtils.CreatePart({
+				name = "CeilingConduit",
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(def.size.Y - 2, 0.7, 0.7),
+				cframe = CFrame.new(basePos + Vector3.new(side * (halfX - 1.4 - pipeOffset), ceilingY - 1.2, 0))
+					* CFrame.Angles(0, math.rad(90), 0) * CFrame.Angles(0, 0, math.rad(90)),
+				material = Enum.Material.Metal,
+				color = Color3.fromRGB(108, 114, 130),
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
 end
 
 local function buildUnderTheSeaFlourish(model: Model, position: Vector3)
@@ -557,7 +712,27 @@ local function buildContinuousShell(opts)
 
 			for p = 1, count do
 				local angle = (2 * math.pi / count) * p + angleOffset
-				if doorWidth and y <= notchTopY and isInEntranceNotch(angle, radius, doorWidth) then
+				--[[
+					ENTRANCE NOTCH MUST ACCOUNT FOR PIECE WIDTH.
+
+					This used to test the raw `doorWidth`, which left the doorway
+					physically blocked. The notch correctly skips any piece whose
+					CENTRE falls inside it - but every piece is `pieceWidth` wide,
+					and pieceWidth is arcSpacing * SHELL_OVERLAP (1.9x). So the
+					first piece OUTSIDE the notch still reached back across it by
+					up to half its own width.
+
+					Measured on the Space Shop: pieces 13.2 studs wide centred at
+					x = +/-6.9, i.e. spanning inward to x = +/-0.3 - the two sides
+					nearly touched, leaving a 0.6-stud slot. A raycast down the
+					centreline slipped through it and reported the door open, but a
+					character (~4 studs wide) could not fit.
+
+					Widening the notch by pieceWidth pushes the nearest surviving
+					piece a full half-width clear of the opening, so the doorway is
+					genuinely `doorWidth` studs of open air.
+				]]
+				if doorWidth and y <= notchTopY and isInEntranceNotch(angle, radius, doorWidth + pieceWidth) then
 					continue
 				end
 
@@ -662,7 +837,11 @@ local function buildGroundSkirt(opts)
 
 		for p = 1, count do
 			local angle = (2 * math.pi / count) * p
-			if opts.doorWidth and isInEntranceNotch(angle, radius, opts.doorWidth) then
+			-- Same piece-width correction as buildContinuousShell above: the
+			-- apron's chunks are also SHELL_OVERLAP times wider than their
+			-- spacing, so a raw doorWidth notch leaves them overhanging the
+			-- walk-up to the entrance.
+			if opts.doorWidth and isInEntranceNotch(angle, radius, opts.doorWidth + pieceWidth) then
 				continue
 			end
 			local pos = basePos + Vector3.new(math.sin(angle) * radius, y, math.cos(angle) * radius)
@@ -925,6 +1104,12 @@ local EXTERIOR_ENVELOPE = {
 	IceAge = { radius = 1.35, capHeight = 0.62, skirt = 1.5 },
 	Lava = { radius = 1.18, capHeight = 1.35, skirt = 1.75 },
 	UnderTheSea = { radius = 1.2, capHeight = 0.55, skirt = 1.45 },
+	-- Space: a vertical ROCKET. Narrow radius (a rocket is a slim cylinder,
+	-- only just wider than the box it wraps) and a large capHeight, because
+	-- almost all of a rocket's silhouette is the tall body and nose cone
+	-- rising above the roofline. This makes the craft noticeably taller than
+	-- the Lava volcanoes, which was the brief.
+	Space = { radius = 1.06, capHeight = 2.2, skirt = 1.45 },
 }
 
 local function halfDiagonalOf(def): number
@@ -1916,10 +2101,671 @@ local function addUnderTheSeaHull(def, model: Model)
 	end
 end
 
+--[[
+	"Landed Craft" (Space): half angular HULL, half flying-saucer DISC.
+
+	The lower two thirds is a faceted, straight-flanked hull - a grounded
+	ship's body, built from the same continuous overlapping-slab shell every
+	other theme uses, so it is one solid mass rather than stacked plates.
+	Above the roofline it flares OUT into a saucer: a broad overhanging
+	flange far wider than the hull, capped by a shallow dome and a cockpit
+	blister. That flare is what makes the silhouette read as a UFO rather
+	than as a tower - a saucer's defining feature is that it is widest well
+	above its base and overhangs what is underneath it.
+
+	SOLID, BUT STILL ENTERABLE. buildContinuousShell makes its OUTER layer
+	collidable (layer 0), so a player cannot walk through the hull. The
+	doorway stays open because every shell ring skips the pieces inside the
+	entrance notch, and the entrance tunnel bridges out through the flange
+	to the real doorway - the same arrangement the Lava volcano uses.
+
+	The underside ring of landing lights and the landing legs are decorative
+	only (non-collide) so they can never trip a player walking up to the door.
+]]
+local function addSpaceCraftBody(def, model: Model)
+	local basePos = def.position
+	local halfZ = def.size.Y / 2
+	local halfDiag, hullRadius, hullTop, peakY =
+		computeEnclosingEnvelope(def, EXTERIOR_ENVELOPE.Space.radius, EXTERIOR_ENVELOPE.Space.capHeight)
+	local rng = Random.new(math.floor(basePos.X * 613 + basePos.Z * 149))
+	local doorWidth = math.clamp(def.size.X * 0.22, MIN_DOOR_WIDTH, MAX_DOOR_WIDTH)
+	local doorHeight = math.min(10, def.height - 4)
+
+	-- Where the hull stops and the saucer flange begins. Two thirds hull,
+	-- one third saucer, per the brief's "half hull half saucer" split
+	-- measured by silhouette rather than by strict height.
+	local flangeY = hullTop * 0.72
+	local flangeRadius = hullRadius * 1.34 -- the overhang that makes it a saucer
+	local rimThickness = 3.2
+
+	--[[
+		Profile: straight-flanked hull, then a rapid outward flare to the
+		saucer rim, then a shallow dome closing to the cockpit.
+	]]
+	local function craftProfile(y: number): number
+		if y <= flangeY then
+			-- Hull: very slight inward batter so it reads as machined.
+			local t = y / math.max(flangeY, 0.001)
+			return hullRadius * (1 - 0.06 * t)
+		elseif y <= hullTop then
+			-- Flare out to the saucer rim.
+			local t = (y - flangeY) / math.max(hullTop - flangeY, 0.001)
+			return hullRadius * 0.94 + (flangeRadius - hullRadius * 0.94) * math.sin(t * math.pi / 2)
+		end
+		-- Dome above the rim, closing toward the cockpit.
+		local t = math.clamp((y - hullTop) / math.max(peakY - hullTop, 0.001), 0, 1)
+		return flangeRadius * math.cos(t * math.pi / 2) * 0.98 + 1.5
+	end
+
+	local HULL_LIGHT = Color3.fromRGB(150, 158, 178)
+	local HULL_DARK = Color3.fromRGB(74, 80, 96)
+	local function plateColor(r: Random, heightT: number?): Color3
+		-- Panelled metal: alternating light/dark plates with a little grain,
+		-- so the hull reads as built from sections rather than one flat skin.
+		local base = if r:NextNumber() < 0.5 then HULL_LIGHT else HULL_DARK
+		local g = r:NextNumber(-0.05, 0.05)
+		return Color3.new(
+			math.clamp(base.R + g, 0, 1),
+			math.clamp(base.G + g, 0, 1),
+			math.clamp(base.B + g, 0, 1)
+		)
+	end
+	local function plateMaterial(r: Random): Enum.Material
+		return if r:NextNumber() < 0.5 then Enum.Material.Metal else Enum.Material.DiamondPlate
+	end
+
+	buildContinuousShell({
+		model = model,
+		basePos = basePos,
+		rng = rng,
+		profile = craftProfile,
+		topY = peakY,
+		stepY = 2.6,
+		pieceTarget = 7,
+		thickness = 3.0,
+		layers = 2,
+		-- Machined hull: almost no jitter, unlike the volcano's broken rock.
+		radialJitter = 0.12,
+		tiltJitter = 0.015,
+		namePrefix = "CraftPlate",
+		materialPicker = plateMaterial,
+		colorPicker = plateColor,
+		doorWidth = doorWidth,
+		notchTopY = doorHeight + 2.5,
+	})
+
+	-- Saucer rim band: a hard edge right at the widest point, which is what
+	-- actually sells the overhang.
+	local rimCount = math.max(20, math.ceil((2 * math.pi * flangeRadius) / 4))
+	local rimSpacing = (2 * math.pi * flangeRadius) / rimCount
+	for c = 1, rimCount do
+		local ang = (2 * math.pi / rimCount) * c
+		PartUtils.CreatePart({
+			name = "SaucerRim" .. c,
+			size = Vector3.new(rimSpacing * SHELL_OVERLAP, rimThickness, 5),
+			cframe = CFrame.new(basePos + Vector3.new(math.sin(ang) * flangeRadius, hullTop, math.cos(ang) * flangeRadius))
+				* CFrame.Angles(0, ang, 0),
+			material = Enum.Material.Metal,
+			color = HULL_LIGHT,
+			canCollide = true, -- part of the solid body
+			parent = model,
+		})
+		-- Underside landing lights, inset under the overhang.
+		if c % 2 == 0 then
+			local lamp = PartUtils.CreatePart({
+				name = "SaucerUnderLight" .. c,
+				size = Vector3.new(2.2, 0.5, 2.2),
+				position = basePos
+					+ Vector3.new(math.sin(ang) * (flangeRadius - 2.5), hullTop - rimThickness / 2 - 0.3, math.cos(ang) * (flangeRadius - 2.5)),
+				material = Enum.Material.Neon,
+				color = ACCENT_COLOR,
+				canCollide = false,
+				parent = model,
+			})
+			if c % 6 == 0 then
+				local l = Instance.new("PointLight")
+				l.Color = ACCENT_COLOR
+				l.Range = 22
+				l.Brightness = 1.6
+				l.Parent = lamp
+			end
+		end
+	end
+
+	-- Cockpit blister on top - the saucer's dome canopy.
+	local cockpit = PartUtils.CreatePart({
+		name = "SaucerCockpit",
+		shape = Enum.PartType.Ball,
+		size = Vector3.new(flangeRadius * 0.5, flangeRadius * 0.42, flangeRadius * 0.5),
+		position = basePos + Vector3.new(0, peakY, 0),
+		material = Enum.Material.Glass,
+		color = GLASS_COLOR,
+		transparency = 0.35,
+		canCollide = true,
+		parent = model,
+	})
+	local cockpitLight = Instance.new("PointLight")
+	cockpitLight.Color = ACCENT_COLOR
+	cockpitLight.Range = 26
+	cockpitLight.Brightness = 1.4
+	cockpitLight.Parent = cockpit
+
+	-- Beacon at the very top.
+	local beacon = PartUtils.CreatePart({
+		name = "CraftBeacon",
+		size = Vector3.new(1.4, 1.4, 1.4),
+		position = basePos + Vector3.new(0, peakY + flangeRadius * 0.26, 0),
+		material = Enum.Material.Neon,
+		color = ACCENT_COLOR,
+		shape = Enum.PartType.Ball,
+		canCollide = false,
+		parent = model,
+	})
+	local bl = Instance.new("PointLight")
+	bl.Color = ACCENT_COLOR
+	bl.Range = 30
+	bl.Brightness = 2
+	bl.Parent = beacon
+
+	--[[
+		Landing legs. Non-collidable on purpose: they splay outward across
+		the ground exactly where a player walks up to the entrance, and a
+		solid strut at shin height there would be a constant snag. The hull
+		above them is what actually stops the player.
+	]]
+	for leg = 1, 4 do
+		local ang = (math.pi / 2) * leg + math.pi / 4
+		-- Skip a leg that would land across the doorway approach.
+		if not isInEntranceNotch(ang, hullRadius, doorWidth * 2.2) then
+			local footR = hullRadius * 1.12
+			local top = basePos + Vector3.new(math.sin(ang) * hullRadius * 0.8, flangeY * 0.55, math.cos(ang) * hullRadius * 0.8)
+			local foot = basePos + Vector3.new(math.sin(ang) * footR, 0.6, math.cos(ang) * footR)
+			local mid = (top + foot) / 2
+			PartUtils.CreatePart({
+				name = "LandingLeg" .. leg,
+				size = Vector3.new(2, (top - foot).Magnitude, 2),
+				cframe = CFrame.lookAt(mid, foot) * CFrame.Angles(math.rad(90), 0, 0),
+				material = Enum.Material.Metal,
+				color = HULL_DARK,
+				canCollide = false,
+				parent = model,
+			})
+			PartUtils.CreateDisc({
+				name = "LandingFoot" .. leg,
+				diameter = 6,
+				thickness = 0.8,
+				position = foot - Vector3.new(0, 0.3, 0),
+				material = Enum.Material.Metal,
+				color = HULL_DARK,
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
+
+	-- Boarding tunnel out through the flange to the real doorway, framed by
+	-- a metal archway - same functional arrangement as the other themes.
+	local tunnelLength = math.max(6, flangeRadius - halfZ + 3)
+	themedEntranceTunnel(def, model, tunnelLength, Enum.Material.Metal, HULL_DARK)
+
+	local ringCount = math.max(2, math.ceil((tunnelLength - 2.5) / 2.4))
+	for r = 0, ringCount do
+		buildEntranceArch({
+			model = model,
+			basePos = basePos,
+			doorWidth = doorWidth,
+			doorHeight = doorHeight,
+			z = halfZ + ((tunnelLength - 2.5) / ringCount) * r,
+			segments = 11,
+			blockDepth = 2.0,
+			thickness = ((tunnelLength - 2.5) / ringCount) * SHELL_OVERLAP,
+			material = Enum.Material.Metal,
+			color = if r % 2 == 0 then HULL_LIGHT else HULL_DARK,
+		})
+	end
+end
+
+--[[
+	"Rocket Ship" (Space): a vertical launch vehicle standing on its fins.
+
+	Classic storybook rocket, in the colours that read as one instantly: a
+	white body with a red nose cone and red fins, banded with dark trim, a
+	row of portholes up one side and an engine skirt at the base. Deliberately
+	taller than the Lava volcanoes (see EXTERIOR_ENVELOPE.Space) so the Space
+	map's skyline is the tallest of the five.
+
+	SHAPE. The profile is a near-straight cylinder for the whole body - a
+	rocket's defining feature is that it does NOT taper until the very top -
+	then a short shoulder and a long conical nose. buildContinuousShell tiles
+	it with overlapping plates exactly like every other theme, so the hull is
+	one continuous mass rather than stacked rings.
+
+	SOLID, BUT ENTERABLE. The shell's outer layer collides, so a player
+	cannot walk through the hull; the entrance notch (now width-corrected -
+	see buildContinuousShell) leaves a genuinely clear doorway, and the
+	boarding tunnel bridges out to it.
+
+	The fins are placed at 90-degree intervals and any fin that would land
+	across the doorway approach is skipped, so nothing ever fouls the walk-in.
+]]
+local function addSpaceRocketBody(def, model: Model)
+	local basePos = def.position
+	local halfZ = def.size.Y / 2
+	local halfDiag, bodyRadius, collarTop, peakY =
+		computeEnclosingEnvelope(def, EXTERIOR_ENVELOPE.Space.radius, EXTERIOR_ENVELOPE.Space.capHeight)
+	local rng = Random.new(math.floor(basePos.X * 613 + basePos.Z * 149))
+	local doorWidth = math.clamp(def.size.X * 0.22, MIN_DOOR_WIDTH, MAX_DOOR_WIDTH)
+	local doorHeight = math.min(10, def.height - 4)
+
+	-- Classic rocket palette.
+	local BODY_WHITE = Color3.fromRGB(238, 240, 245)
+	local ROCKET_RED = Color3.fromRGB(196, 40, 42)
+	local TRIM_DARK = Color3.fromRGB(44, 46, 54)
+
+	-- Vertical layout. The body runs straight up most of the height; the
+	-- nose cone occupies the top third.
+	local shoulderY = collarTop + (peakY - collarTop) * 0.34 -- body stops tapering here
+	local noseBase = shoulderY
+
+	local function rocketProfile(y: number): number
+		if y <= noseBase then
+			-- Straight body with only the faintest taper, so it reads as a
+			-- machined cylinder rather than a cone.
+			local t = y / math.max(noseBase, 0.001)
+			return bodyRadius * (1 - 0.07 * t)
+		end
+		-- Conical nose: radius falls to a point at the tip.
+		local t = math.clamp((y - noseBase) / math.max(peakY - noseBase, 0.001), 0, 1)
+		return bodyRadius * 0.93 * (1 - t) ^ 0.82
+	end
+
+	--[[
+		Paint scheme as a pure function of height (0..1 up the rocket), with no
+		random component. The old version jittered each plate's colour to break
+		up the tiling; with a smooth cylindrical hull there is no tiling to
+		break up, and per-segment noise would instead show as visible banding.
+	]]
+	local noseFraction = noseBase / math.max(peakY, 0.001)
+	local function plateColorAt(t: number): Color3
+		if t >= noseFraction then
+			return ROCKET_RED
+		elseif t < 0.05 then
+			return TRIM_DARK -- scorched engine skirt at the very bottom
+		end
+		-- Two red bands up the white body, a classic rocket detail.
+		local band = (t > 0.30 and t < 0.36) or (t > 0.58 and t < 0.63)
+		return if band then ROCKET_RED else BODY_WHITE
+	end
+
+	--[[
+		SMOOTH HULL.
+
+		This used to go through buildContinuousShell, which tiles a surface with
+		overlapping rectangular slabs and jitters each one. That technique is
+		right for broken rock (the volcano) but wrong for a manufactured hull:
+		a rocket's cross-section is a CIRCLE, and approximating a circle with
+		rectangles is faceted by construction. It also cost 3,838 parts per map.
+
+		A rocket is a surface of revolution, so the honest primitive is a
+		CYLINDER - which Roblox renders as a genuinely round surface, not an
+		approximation. Stacking thin cylinders of varying radius gives a hull
+		that is perfectly smooth around its circumference, with the only
+		stepping being vertical (and that is hidden by using fine steps through
+		the curved nose, where radius actually changes).
+
+		The doorway is the one thing a cylinder cannot express, since it has no
+		hole. So the hull is built in two zones:
+
+		  - ABOVE the door (the large majority of the height): solid cylinders.
+		  - THE DOOR BAND: arc segments with the entrance notch carved out,
+		    exactly as before, so the opening is preserved.
+
+		Part count drops by roughly 98%, which is also why the map now runs
+		better with four of these on it.
+	]]
+	local notchTop = doorHeight + 2.5
+
+	-- Zone 1: the door band, arc segments leaving the entrance open.
+	do
+		local bandStep = 2.2
+		for y = 0, notchTop, bandStep do
+			local radius = rocketProfile(y)
+			local circumference = 2 * math.pi * radius
+			local count = math.max(24, math.ceil(circumference / 4))
+			local arcSpacing = circumference / count
+			local pieceWidth = arcSpacing * 1.25 -- modest overlap; no jitter to hide
+			for s = 1, count do
+				local a = (2 * math.pi / count) * s
+				if not isInEntranceNotch(a, radius, doorWidth + pieceWidth) then
+					PartUtils.CreatePart({
+						name = ("HullBandY%dS%d"):format(math.floor(y), s),
+						size = Vector3.new(pieceWidth, bandStep * 1.25, 2.4),
+						cframe = CFrame.new(basePos + Vector3.new(math.sin(a) * radius, y, math.cos(a) * radius))
+							* CFrame.Angles(0, a, 0),
+						material = Enum.Material.SmoothPlastic,
+						color = plateColorAt(y / peakY),
+						canCollide = true,
+						parent = model,
+					})
+				end
+			end
+		end
+	end
+
+	-- Zone 2: solid cylinders from just above the door band to the tip.
+	do
+		local y = notchTop
+		while y < peakY do
+			-- Fine steps through the nose (where the radius is changing fast),
+			-- coarser up the straight body where consecutive rings are the same
+			-- size and a taller segment is indistinguishable from several short
+			-- ones.
+			local step = if y >= noseBase then 1.1 else 4.0
+			local segTop = math.min(y + step, peakY)
+			-- Use the radius at the segment's MIDPOINT so a tapering section is
+			-- centred on the true profile rather than always erring wide.
+			local radius = rocketProfile((y + segTop) / 2)
+			if radius > 0.4 then
+				local segHeight = (segTop - y) * 1.06 -- slight overlap, no visible seam
+				PartUtils.CreatePart({
+					name = ("HullSection%d"):format(math.floor(y)),
+					shape = Enum.PartType.Cylinder,
+					-- A Cylinder's length is on X, so it is laid on its side and
+					-- rotated upright.
+					size = Vector3.new(segHeight, radius * 2, radius * 2),
+					cframe = CFrame.new(basePos + Vector3.new(0, (y + segTop) / 2, 0))
+						* CFrame.Angles(0, 0, math.rad(90)),
+					material = Enum.Material.SmoothPlastic,
+					color = plateColorAt(((y + segTop) / 2) / peakY),
+					canCollide = true,
+					parent = model,
+				})
+			end
+			y = segTop
+		end
+	end
+
+	-- Nose tip cap, so the cone closes to a real point instead of a ragged
+	-- ring of plates.
+	PartUtils.CreatePart({
+		name = "RocketNoseTip",
+		shape = Enum.PartType.Ball,
+		size = Vector3.new(bodyRadius * 0.42, bodyRadius * 0.55, bodyRadius * 0.42),
+		position = basePos + Vector3.new(0, peakY - bodyRadius * 0.12, 0),
+		material = Enum.Material.Metal,
+		color = ROCKET_RED,
+		canCollide = true,
+		parent = model,
+	})
+
+	--[[
+		SOLID DECK UNDER THE WHOLE HULL.
+
+		The box shell's own Floor only spans def.size (the rectangle), but the
+		rocket hull is a CIRCLE of bodyRadius around it. Between the box's edge
+		and the hull wall there is a ring of floorless space, and the boarding
+		tunnel outside the front wall has no floor of its own either - both are
+		places a player can end up standing on nothing but the map ground far
+		below, which reads as falling through the interior.
+
+		This deck is one solid disc covering the entire hull footprint, set so
+		its TOP is flush with the box floor's top surface (no lip to trip on),
+		plus a matching strip down the boarding tunnel.
+	]]
+	--[[
+		Deck height is READ FROM THE BOX FLOOR, not assumed.
+
+		An earlier version set this to SOLID_SLAB_THICKNESS on the theory that
+		the box floor's top sat there. It does not: BuildShell positions the
+		Floor slab relative to basePos differently, and the whole map is then
+		bulk-translated by MapConfig.GROUND_ELEVATION. The result was a deck
+		whose top stood at world Y 8.5 against a box floor top of 4.5 and a
+		plaza at 4.0 - a 4-stud wall right across the entrance, which stopped a
+		walking character dead every time.
+
+		BuildShell has already created "Floor" by the time this runs (see the
+		addThemedRoofSilhouette call site), so the honest answer is simply to
+		ask it how high its own surface is and match. Falls back to the old
+		constant only if the Floor is somehow absent.
+	]]
+	local boxFloor = model:FindFirstChild("Floor")
+	local FLOOR_TOP = if boxFloor and boxFloor:IsA("BasePart")
+		then (boxFloor.Position.Y + boxFloor.Size.Y / 2) - basePos.Y
+		else SOLID_SLAB_THICKNESS
+	local DECK_THICKNESS = 2
+	PartUtils.CreateDisc({
+		name = "RocketDeck",
+		diameter = bodyRadius * 2.1,
+		thickness = DECK_THICKNESS,
+		position = basePos + Vector3.new(0, FLOOR_TOP - DECK_THICKNESS / 2, 0),
+		material = Enum.Material.DiamondPlate,
+		color = TRIM_DARK,
+		canCollide = true,
+		parent = model,
+	})
+
+	local gantryLength = math.max(6, bodyRadius - halfZ + 4)
+	PartUtils.CreatePart({
+		name = "RocketGantryFloor",
+		size = Vector3.new(doorWidth + 3, DECK_THICKNESS, gantryLength + 6),
+		position = basePos + Vector3.new(0, FLOOR_TOP - DECK_THICKNESS / 2, halfZ + gantryLength / 2),
+		material = Enum.Material.DiamondPlate,
+		color = TRIM_DARK,
+		canCollide = true,
+		parent = model,
+	})
+
+	--[[
+		NO BOARDING RAMP. An earlier version stepped four solid blocks up from
+		the plaza to the gantry, which turned out to be both unnecessary and
+		actively harmful: the gantry deck's top sits at SOLID_SLAB_THICKNESS
+		(4.5) and the plaza ground is at 4.0, so the lip is half a stud - a
+		character walks over it without noticing. The ramp blocks instead
+		overlapped the gantry floor and stopped a walking character dead in the
+		tunnel (measured: character halted 16 studs short of the room).
+	]]
+
+	-- Beacon on the very tip.
+	local beacon = PartUtils.CreatePart({
+		name = "RocketBeacon",
+		size = Vector3.new(1.5, 1.5, 1.5),
+		position = basePos + Vector3.new(0, peakY + 1.6, 0),
+		material = Enum.Material.Neon,
+		color = ACCENT_COLOR,
+		shape = Enum.PartType.Ball,
+		canCollide = false,
+		parent = model,
+	})
+	local bl = Instance.new("PointLight")
+	bl.Color = ACCENT_COLOR
+	bl.Range = 30
+	bl.Brightness = 2
+	bl.Parent = beacon
+
+	--[[
+		FINS. Four tapered red fins standing at the base, each a wedge running
+		from the hull outward and downward to the ground - the silhouette that
+		makes a cylinder read as a rocket.
+
+		Any fin whose bearing falls across the doorway approach is skipped
+		entirely, so a fin can never stand in front of the entrance. Fins are
+		non-collidable: they splay out at ankle height exactly where players
+		walk, and the hull behind them is what actually stops anyone.
+	]]
+	local finHeight = math.min(collarTop * 0.9, 26)
+	for fin = 1, 4 do
+		local ang = (math.pi / 2) * fin + math.pi / 4
+		if not isInEntranceNotch(ang, bodyRadius, doorWidth * 2.4) then
+			local outR = bodyRadius * 1.55
+			for seg = 1, 5 do
+				-- Stepped wedge: wider and lower as it runs outward, which gives
+				-- the swept-back fin profile without needing a mesh.
+				local t = seg / 5
+				local r = bodyRadius * 0.9 + (outR - bodyRadius * 0.9) * t
+				local h = finHeight * (1 - t * 0.78)
+				PartUtils.CreatePart({
+					name = ("RocketFin%dS%d"):format(fin, seg),
+					size = Vector3.new(1.6, h, (outR - bodyRadius * 0.9) / 5 * 1.9),
+					cframe = CFrame.new(basePos + Vector3.new(math.sin(ang) * r, h / 2, math.cos(ang) * r))
+						* CFrame.Angles(0, ang, 0),
+					material = Enum.Material.Metal,
+					color = ROCKET_RED,
+					canCollide = false,
+					parent = model,
+				})
+			end
+		end
+	end
+
+	-- Engine skirt + nozzles tucked under the base, visible between the fins.
+	PartUtils.CreateDisc({
+		name = "RocketEngineSkirt",
+		diameter = bodyRadius * 2.1,
+		thickness = 2.4,
+		position = basePos + Vector3.new(0, 1.2, 0),
+		material = Enum.Material.Metal,
+		color = TRIM_DARK,
+		canCollide = false,
+		parent = model,
+	})
+
+	--[[
+		DETAIL PASS - the difference between "a cylinder painted like a rocket"
+		and something that reads as engineered:
+		  - three engine nozzles under the skirt, each with an exhaust glow
+		  - a vertical hull spine / cable run down one side
+		  - riveted girth rings at the band seams
+		  - a capsule collar under the nose
+		All non-collidable so none of it changes how the building plays.
+	]]
+	for n = 1, 3 do
+		local a = (2 * math.pi / 3) * n
+		local nr = bodyRadius * 0.42
+		local nozzle = PartUtils.CreatePart({
+			name = "RocketNozzle" .. n,
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(4.5, 5.2, 5.2),
+			cframe = CFrame.new(basePos + Vector3.new(math.sin(a) * nr, 1.6, math.cos(a) * nr))
+				* CFrame.Angles(0, 0, math.rad(90)),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(96, 100, 112),
+			canCollide = false,
+			parent = model,
+		})
+		local exhaust = PartUtils.CreateDisc({
+			name = "RocketExhaustGlow" .. n,
+			diameter = 4.4,
+			thickness = 0.5,
+			position = basePos + Vector3.new(math.sin(a) * nr, 0.5, math.cos(a) * nr),
+			material = Enum.Material.Neon,
+			color = Color3.fromRGB(255, 150, 60),
+			canCollide = false,
+			parent = model,
+		})
+		local el = Instance.new("PointLight")
+		el.Color = Color3.fromRGB(255, 150, 60)
+		el.Range = 18
+		el.Brightness = 1.5
+		el.Parent = exhaust
+	end
+
+	-- Cable run / spine down the back of the hull (opposite the door).
+	for s = 1, 10 do
+		local sy = collarTop * (0.08 * s)
+		if sy < noseBase then
+			PartUtils.CreatePart({
+				name = "RocketSpine" .. s,
+				size = Vector3.new(2.4, collarTop * 0.085, 1.2),
+				cframe = CFrame.new(basePos + Vector3.new(0, sy, -(rocketProfile(sy) + 0.5)))
+					* CFrame.Angles(0, math.pi, 0),
+				material = Enum.Material.Metal,
+				color = TRIM_DARK,
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
+
+	-- Girth rings at the painted band seams. These are single discs rather
+	-- than rings of small blocks: a block ring around a smooth cylinder would
+	-- reintroduce exactly the faceting the cylindrical hull exists to avoid.
+	for _, bandT in ipairs({ 0.33, 0.60 }) do
+		local by = peakY * bandT
+		PartUtils.CreateDisc({
+			name = "RocketGirthRing",
+			diameter = rocketProfile(by) * 2 + 1.4,
+			thickness = 1.6,
+			position = basePos + Vector3.new(0, by, 0),
+			material = Enum.Material.Metal,
+			color = TRIM_DARK,
+			canCollide = false,
+			parent = model,
+		})
+	end
+
+	-- Capsule collar where the body meets the nose cone.
+	PartUtils.CreateDisc({
+		name = "RocketCapsuleCollar",
+		diameter = rocketProfile(noseBase) * 2.25,
+		thickness = 2.2,
+		position = basePos + Vector3.new(0, noseBase, 0),
+		material = Enum.Material.Metal,
+		color = TRIM_DARK,
+		canCollide = false,
+		parent = model,
+	})
+
+	--[[
+		Portholes up the body. Placed on the two SIDE bearings only (+/-90
+		degrees from the door), so none of them land on the entrance face where
+		the name plate goes.
+	]]
+	for _, sideAng in ipairs({ math.pi / 2, -math.pi / 2 }) do
+		for w = 1, 4 do
+			local wy = collarTop * (0.28 + 0.2 * (w - 1))
+			local wr = rocketProfile(wy) + 0.3
+			PartUtils.CreatePart({
+				name = ("RocketPorthole%d"):format(w),
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(0.6, 3.2, 3.2),
+				cframe = CFrame.new(basePos + Vector3.new(math.sin(sideAng) * wr, wy, math.cos(sideAng) * wr))
+					* CFrame.Angles(0, sideAng, 0)
+					* CFrame.Angles(0, 0, math.rad(90)),
+				material = Enum.Material.Neon,
+				color = ACCENT_COLOR,
+				transparency = 0.25,
+				canCollide = false,
+				parent = model,
+			})
+		end
+	end
+
+	-- Boarding gantry out to the real doorway, framed by metal arch rings.
+	local tunnelLength = math.max(6, bodyRadius - halfZ + 4)
+	themedEntranceTunnel(def, model, tunnelLength, Enum.Material.Metal, TRIM_DARK)
+
+	local ringCount = math.max(2, math.ceil((tunnelLength - 2.5) / 2.4))
+	for r = 0, ringCount do
+		buildEntranceArch({
+			model = model,
+			basePos = basePos,
+			doorWidth = doorWidth,
+			doorHeight = doorHeight,
+			z = halfZ + ((tunnelLength - 2.5) / ringCount) * r,
+			segments = 11,
+			blockDepth = 2.0,
+			thickness = ((tunnelLength - 2.5) / ringCount) * SHELL_OVERLAP,
+			material = Enum.Material.Metal,
+			color = if r % 2 == 0 then BODY_WHITE else TRIM_DARK,
+		})
+	end
+end
+
 local ROOF_SILHOUETTE_BUILDERS = {
 	IceAge = addIceAgeDome,
 	Lava = addLavaVolcanoRoof,
 	UnderTheSea = addUnderTheSeaHull,
+	Space = addSpaceRocketBody,
 }
 
 local function addThemedRoofSilhouette(def, model: Model)
@@ -2305,6 +3151,18 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 	-- map gets one automatically, rather than needing a call added to each
 	-- of the four separate Furnish* functions below.
 	addThemedFlourish(def, model)
+
+	--[[
+		Space-only ship fit-out: hull ribs, deck grating, viewports, console
+		banks and conduit. Applied here in the shared shell, alongside
+		addThemedFlourish above, so every Space building gets it without
+		touching the four Furnish* functions - each of those keeps owning what
+		its room is FOR (shop stock, reward plinths, tutorial stations, stat
+		terminals), and this only supplies the surrounding ship structure.
+	]]
+	if CURRENT_THEME_ID == "Space" then
+		addSpaceInteriorFitOut(def, model)
+	end
 
 	-- Per-map themed EXTERIOR silhouette (igloo dome/volcano cone with
 	-- lava falls/ship hull with portholes - see ROOF_SILHOUETTE_BUILDERS
@@ -3233,12 +4091,29 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 		addTutorialIdentity(def, model)
 	end
 
-	-- Welcome desk just inside the entrance - the first thing a new player
-	-- reaches.
+	--[[
+		Welcome desk just inside the entrance - the first thing a new player
+		reaches.
+
+		OFFSET OFF THE CENTRELINE. This used to sit at x = 0, i.e. squarely in
+		the doorway's path four studs inside the front wall, so walking in put
+		you straight into it - a character-width sweep down the entrance axis
+		hit this desk before reaching the room. It now stands to one side, the
+		way a reception desk actually does, leaving the centre aisle from the
+		door to the terminal completely clear.
+
+		The offset is sized, not guessed: the desk is 8 studs wide, so its inner
+		edge sits at |deskX| - 4. A walk-in corridor needs about 2.5 studs of
+		half-width for a character, so |deskX| must exceed ~6.5. At 0.42 * halfX
+		(5.5 on the 26-wide Tutorial building) the desk still clipped the
+		corridor by roughly a stud; 0.58 * halfX puts the inner edge clear with
+		margin while keeping the desk well inside the far wall.
+	]]
+	local deskX = -halfX * 0.58
 	PartUtils.CreatePart({
 		name = "WelcomeDesk",
 		size = Vector3.new(8, 3, 2),
-		position = basePos + Vector3.new(0, 1.5, halfZ - 4),
+		position = basePos + Vector3.new(deskX, 1.5, halfZ - 4),
 		material = FURNITURE_MATERIAL,
 		color = FURNITURE_COLOR,
 		parent = model,
@@ -3246,7 +4121,7 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 	PartUtils.CreatePart({
 		name = "WelcomeSign",
 		size = Vector3.new(6, 1.4, 0.15),
-		position = basePos + Vector3.new(0, 3.6, halfZ - 4),
+		position = basePos + Vector3.new(deskX, 3.6, halfZ - 4),
 		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,

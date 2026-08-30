@@ -120,7 +120,7 @@ local SIGN_CLEARANCE_ABOVE_EXTERIOR = 30
 	At pixel scale the sign is screen-constant, so this only has to be sized
 	once for readability rather than balanced against building spacing.
 ]]
-local BILLBOARD_SIZE = Vector2.new(200, 66) -- PIXELS (see above)
+local BILLBOARD_SIZE = Vector2.new(300, 100) -- PIXELS (see above)
 
 --[[
 	HEADERS NO LONGER CROWD THE CENTRAL BOARD.
@@ -151,22 +151,15 @@ local BILLBOARD_SIZE = Vector2.new(200, 66) -- PIXELS (see above)
 	So 260 - and even 120 - still drew every header across the middle of the
 	screen from the plaza.
 
-	WHY 55 AND NOT 100. At 100 three of the four culled correctly but the
-	StatisticsBuilding header kept drawing at 165 studs, well past its own
-	limit - Roblox's billboard distance culling did not apply consistently
-	across the four signs at that value. 55 is below the threshold where
-	that inconsistency showed up, and was verified in Play Mode from the
-	plaza with all four confirmed gone and the central MATHARENA board
-	fully unobstructed.
-
-	The trade-off is deliberate: at 55 the overhead header only appears once
-	you are close to a mound. That is acceptable because it is not the only
-	wayfinding - every building already carries a large EntranceNamePlate on
-	its facade at the tunnel mouth (see themedEntranceTunnel in
-	BuildingInteriors.lua), which is readable from across the plaza and is
-	itself a teleport click target.
+	WHY THIS IS BACK UP AT 420. The previous value of 100/55 existed purely
+	to stop headers covering the central screen, by culling them before a
+	player ever got close enough to see one. That is no longer the mechanism
+	doing that job: GameplayCameraController now disables these billboards
+	outright for the duration of Practice and Competitive question views (see
+	its setSignageHidden), which removes them from exactly the situation that
+	mattered and leaves them free to be large and readable everywhere else.
 ]]
-local SIGN_MAX_DISTANCE = 55
+local SIGN_MAX_DISTANCE = 420
 
 --[[
 	Builds one building's overhead sign + connector beam, parented into
@@ -226,27 +219,22 @@ function BuildingSigns.BuildOne(def, parent: Instance, mapId: string, exteriorTo
 	billboard.Adornee = anchor
 	billboard.Size = UDim2.fromOffset(BILLBOARD_SIZE.X, BILLBOARD_SIZE.Y)
 	--[[
-		AlwaysOnTop is now FALSE, and that is the other half of the "headers
-		block the main screen" fix (see SIGN_MAX_DISTANCE above for the first).
+		AlwaysOnTop is TRUE so the header stays readable even when a wall, a
+		screen, a decorative prop or an effect passes between the camera and
+		the sign - explicitly requested, and the reason it is safe now is that
+		the one case where an always-visible header WAS a problem (covering the
+		central MATHARENA board during a question) is handled directly:
+		GameplayCameraController disables these billboards for the whole
+		Practice/Competitive question view and re-enables them on release.
 
-		AlwaysOnTop renders a BillboardGui over ALL world geometry regardless
-		of depth, so a header behind the MatharenaBoard still drew in front of
-		it - the board is at Z=-45 and the buildings sit at Z=-34..-116 behind
-		it, so every approach from the spawn side put a header squarely on top
-		of the board's text. With depth testing on, the board (and the volcano
-		flanks, and anything else genuinely in front) correctly occludes it.
+		So the two requirements are no longer in tension. Depth testing is not
+		doing the hiding; the gameplay camera is.
 
-		This costs nothing in clickability. The old comment justifying
-		AlwaysOnTop was written when the sign's label was a TextButton and the
-		GUI itself had to receive input. It does not anymore: the click is
-		owned entirely by the ClickDetector on the anchor Part (see
-		MakeTeleportTarget and the SignContent comment below), which raycasts
-		against real geometry and is unaffected by GUI depth testing. The
-		anchor also sits in clear air SIGN_CLEARANCE_ABOVE_EXTERIOR studs above
-		the true exterior peak, so nothing occludes it from the building's own
-		approach either.
+		Clickability is unaffected either way - the teleport is owned by the
+		ClickDetector on the anchor Part (see MakeTeleportTarget), which
+		raycasts against real geometry and does not depend on GUI depth.
 	]]
-	billboard.AlwaysOnTop = false
+	billboard.AlwaysOnTop = true
 	billboard.MaxDistance = SIGN_MAX_DISTANCE
 	billboard.LightInfluence = 0
 	billboard.Parent = anchor

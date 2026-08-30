@@ -1,8 +1,25 @@
 --[[
 	ArenaDecorations.lua
 
-	Builds the arena's floor ring decals and spectator seating (tagged
-	"SpectatorSeat").
+	Builds the arena's floor ring decals.
+
+	SPECTATOR SEATING REMOVED. The rings of "SpectatorSeat"-tagged Seats
+	that used to circle the contestant platforms were deleted manually in
+	Studio, per explicit direction, and are removed from source here so a
+	future ArenaBuilder.Rebuild() reproduces that deletion instead of
+	silently recreating them.
+
+	The empty "Decorations" folder is still created and returned: it is this
+	function's documented return value, ArenaBuilder parents it into the
+	arena, and keeping it means anything that walks the arena tree still
+	finds the structure it expects.
+
+	What this change required elsewhere - see CompetitionGameplay/
+	Elimination.lua. Eliminated players used to be seated in one of these
+	Seats; with no seats tagged anywhere, that code path did nothing but
+	warn, leaving eliminated players standing on their platforms. It now
+	moves them to a standing spectator position on the arena rim instead,
+	so elimination still visibly removes a player from the contest.
 
 	Spotlight removal pass: rim spotlights and rotating "moving beam"
 	fixtures have been removed entirely, per explicit direction ("I know
@@ -12,12 +29,10 @@
 	was actually asked for.
 ]]
 
-local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local ArenaConfig = require(script.Parent.ArenaConfig)
-local Platforms = require(script.Parent.Platforms)
 
 local ArenaDecorations = {}
 
@@ -64,47 +79,12 @@ local function buildFloorRings(parent: Instance)
 	end
 end
 
-local function buildSeatRing(radius: number, parent: Instance)
-	local circumference = 2 * math.pi * radius
-	local count = math.floor(circumference / ArenaConfig.SPECTATOR_SEAT_SPACING)
-
-	for i = 1, count do
-		local angle = (i - 1) / count * math.pi * 2
-		local position = Vector3.new(math.sin(angle) * radius, 1, math.cos(angle) * radius)
-
-		local seat = PartUtils.CreatePart({
-			className = "Seat",
-			name = "Seat" .. i,
-			size = Vector3.new(2, 1, 2),
-			cframe = CFrame.new(position) * CFrame.Angles(0, angle + math.pi, 0),
-			material = Enum.Material.Fabric,
-			color = Color3.fromRGB(40, 45, 60),
-			parent = parent,
-		})
-
-		CollectionService:AddTag(seat, "SpectatorSeat")
-	end
-end
-
-local function buildSpectatorSeating(parent: Instance)
-	local folder = Instance.new("Folder")
-	folder.Name = "SpectatorSeating"
-	folder.Parent = parent
-
-	local platformRingRadius = Platforms.ComputeRingRadius()
-
-	for _, offset in ipairs(ArenaConfig.SPECTATOR_RING_OFFSETS) do
-		buildSeatRing(platformRingRadius + offset, folder)
-	end
-end
-
 function ArenaDecorations.BuildAll(parent: Instance): Folder
 	local folder = Instance.new("Folder")
 	folder.Name = "Decorations"
 	folder.Parent = parent
 
 	buildFloorRings(parent)
-	buildSpectatorSeating(folder)
 
 	return folder
 end
