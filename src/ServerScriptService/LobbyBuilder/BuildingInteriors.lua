@@ -56,6 +56,9 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- Used to tag the Rival Board so RivalBoardController can find it on any
+-- map without depending on a hardcoded instance path.
+local CollectionService = game:GetService("CollectionService")
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
 local LobbyTheme = require(script.Parent.LobbyTheme)
@@ -393,26 +396,14 @@ local function addSpaceInteriorFitOut(def, model: Model)
 		end
 
 		-- 4. Console bank along the wall, below the viewports.
-		PartUtils.CreatePart({
-			name = "ConsoleBank",
-			size = Vector3.new(1.8, 2.6, def.size.Y * 0.42),
-			position = basePos + Vector3.new(side * (halfX - 1.1), SOLID_SLAB_THICKNESS + 1.3, 0),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(64, 70, 84),
-			canCollide = false,
-			parent = model,
-		})
-		PartUtils.CreatePart({
-			name = "ConsoleScreen",
-			size = Vector3.new(0.2, 1.5, def.size.Y * 0.36),
-			cframe = CFrame.new(basePos + Vector3.new(side * (halfX - 2.0), SOLID_SLAB_THICKNESS + 2.7, 0))
-				* CFrame.Angles(0, 0, math.rad(side * 22)),
-			material = ACCENT_MATERIAL,
-			color = ACCENT_COLOR,
-			transparency = 0.15,
-			canCollide = false,
-			parent = model,
-		})
+		--[[
+			REMOVED. These were two solid blocks per room with an angled accent
+			panel on top, standing in as "instrumentation". They were not
+			interactive, not sittable and not readable - furniture-shaped filler.
+			The ribs, viewports, conduit and deck grating below/above still carry
+			the "inside a ship" read, and those are STRUCTURE rather than props,
+			which is why they stay.
+		]]
 
 		-- 5. Conduit run at the wall/ceiling junction.
 		for _, pipeOffset in ipairs({ 0, 1.3 }) do
@@ -3150,7 +3141,14 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 	-- above) - added here in the shared shell so every building on every
 	-- map gets one automatically, rather than needing a call added to each
 	-- of the four separate Furnish* functions below.
-	addThemedFlourish(def, model)
+	--[[
+		NO DECORATIVE FLOURISH. addThemedFlourish used to drop a small floating
+		orrery (a tilted neon ring with a glowing ball at its centre, hovering
+		unsupported) into every building on every map. It is exactly the kind of
+		object that reads as placeholder: it hangs in mid-air, means nothing,
+		and does nothing. Each building's purpose now supplies its own contents,
+		so there is nothing to pad out.
+	]]
 
 	--[[
 		Space-only ship fit-out: hull ribs, deck grating, viewports, console
@@ -3187,7 +3185,24 @@ end
 	interact with", replacing what used to just be "a stand and a
 	screen" sitting among otherwise-unexplained furniture.
 ]]
-local function terminal(model: Model, position: Vector3, promptName: string, promptText: string, objectText: string)
+--[[
+	Builds a terminal: dais, archway frame, header sign, stand and prompt.
+
+	`bare` builds ONLY the stand and its ProximityPrompt, skipping the dais,
+	arch and header. That exists because the Daily Rewards terminal's arch and
+	header were deleted by hand in Studio while its stand and prompt were
+	kept - a rebuild through the full path put them straight back, which was
+	exactly the opposite of what the manual pass intended.
+]]
+local function terminal(
+	model: Model,
+	position: Vector3,
+	promptName: string,
+	promptText: string,
+	objectText: string,
+	bare: boolean?
+)
+	if not bare then
 	-- Raised circular dais at floor level - a real platform reading as
 	-- "this spot matters", not just a stand plunked on bare floor.
 	PartUtils.CreateDisc({
@@ -3250,6 +3265,7 @@ local function terminal(model: Model, position: Vector3, promptName: string, pro
 	headerLabel.TextColor3 = Color3.fromRGB(10, 10, 12)
 	headerLabel.Text = objectText:upper()
 	headerLabel.Parent = headerGui
+	end -- closes `if not bare`
 
 	local stand = PartUtils.CreatePart({
 		name = promptName:gsub("Prompt$", "Stand"),
@@ -3571,6 +3587,76 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 	-- exterior builders use.
 	local rng = Random.new(math.floor(basePos.X * 131 + basePos.Z * 977))
 
+	--[[
+		FEATURED ITEM OF THE DAY - the reason to walk into the Shop.
+
+		A display stand carrying one cosmetic, rotating daily: a board with the
+		item's name, category, description and price, and a full-height preview
+		column beside it tinted to that item's previewColor so you can see the
+		colour at scale before spending on it. The bottom-bar Shop button shows
+		the catalogue as a list of small swatches; this shows one item properly.
+
+		DELIBERATELY THE SIMPLE VERSION. It is a SPOTLIGHT, not a discount: no
+		price is changed, no purchase happens here, and no server code is
+		involved. Buying still goes through the existing Shop terminal and
+		ShopSystem exactly as before.
+
+		That matters because a discounted daily deal would mean touching
+		ShopSystem's purchase validation - live economy code where a mistake
+		lets players buy at the wrong price. A display-only spotlight gets most
+		of the "come and look" value with none of that risk.
+
+		Which item is featured is derived from the UTC date on the client (see
+		ShopFeaturedController), so every player sees the same item on the same
+		day without needing a remote or any stored state.
+	]]
+	local featuredBoard = PartUtils.CreatePart({
+		name = "FeaturedItemBoard",
+		size = Vector3.new(math.min(def.size.X - 14, 13), 8, 0.5),
+		position = basePos + Vector3.new(-halfX * 0.34, 8.5, -halfZ + WALL_THICKNESS + 0.4),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(16, 18, 26),
+		canCollide = false,
+		parent = model,
+	})
+	CollectionService:AddTag(featuredBoard, "FeaturedItemBoard")
+
+	PartUtils.CreatePart({
+		name = "FeaturedItemBoardFrame",
+		size = Vector3.new(math.min(def.size.X - 14, 13) + 1, 9.2, 0.3),
+		position = basePos + Vector3.new(-halfX * 0.34, 8.5, -halfZ + WALL_THICKNESS + 0.15),
+		material = ACCENT_MATERIAL,
+		color = ACCENT_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+
+	-- Preview column: a plinth with a tall tinted shaft above it, recoloured
+	-- by the client to the featured item's previewColor.
+	local previewX = halfX * 0.34
+	PartUtils.CreateDisc({
+		name = "FeaturedPreviewBase",
+		diameter = 5,
+		thickness = 0.8,
+		position = basePos + Vector3.new(previewX, 0.4, -halfZ * 0.55),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(52, 56, 68),
+		canCollide = false,
+		parent = model,
+	})
+	local previewShaft = PartUtils.CreatePart({
+		name = "FeaturedPreviewShaft",
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(9, 3, 3),
+		cframe = CFrame.new(basePos + Vector3.new(previewX, 5.3, -halfZ * 0.55)) * CFrame.Angles(0, 0, math.rad(90)),
+		material = Enum.Material.Neon,
+		color = ACCENT_COLOR,
+		transparency = 0.2,
+		canCollide = false,
+		parent = model,
+	})
+	CollectionService:AddTag(previewShaft, "FeaturedPreviewShaft")
+
 	-- Roof-mounted "identity massing" (storefront bays/marquee here; reward
 	-- tower/data spire/turret for the other three buildings below) is
 	-- exterior BOX dressing exactly like the shell's own canopy/roof cap -
@@ -3780,42 +3866,124 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 	local halfX = def.size.X / 2
 	local halfZ = def.size.Y / 2
 
+	--[[
+		STREAK VAULT - the reason to walk into this building.
+
+		A wall panel showing the full seven-day claim ring: which days you have
+		already collected on this pass, which one is next, and what each day
+		pays out. The bottom-bar Daily button opens the claim popup; this shows
+		the whole cycle laid out at once, which the popup does not.
+
+		Like the Rival Board, it is a SurfaceGui on a real part rather than a
+		ScreenGui - a world surface cannot be mirrored onto the bottom bar, so
+		being in the room is the only way to read it.
+
+		No new server code backs this. DailyRewardsSystem already exposes
+		"GetDailyRewardSnapshot", which returns the reordered seven-day track
+		with each day's label and collected state, computed server-side from the
+		player's profile. Adding a second source of truth for streak state would
+		be a way for the vault and the popup to start disagreeing.
+	]]
+	local vaultWidth = math.min(def.size.X - 6, 22)
+	local vault = PartUtils.CreatePart({
+		name = "StreakVaultBoard",
+		size = Vector3.new(vaultWidth, 10, 0.5),
+		position = basePos + Vector3.new(0, 9, -halfZ + WALL_THICKNESS + 0.4),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(16, 18, 26),
+		canCollide = false,
+		parent = model,
+	})
+	CollectionService:AddTag(vault, "StreakVaultBoard")
+
+	PartUtils.CreatePart({
+		name = "StreakVaultFrame",
+		size = Vector3.new(vaultWidth + 1.2, 11.2, 0.3),
+		position = basePos + Vector3.new(0, 9, -halfZ + WALL_THICKNESS + 0.15),
+		material = ACCENT_MATERIAL,
+		color = ACCENT_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+
 	if not CUSTOM_EXTERIOR_THEMES[CURRENT_THEME_ID] then
 		addRewardsIdentity(def, model)
 	end
 
 	-- Side-wall milestone screens - small floating panels suggesting
 	-- individual reward tiers, flanking the walk from door to terminal.
-	for _, side in ipairs({ -1, 1 }) do
-		for i, offsetZ in ipairs({ halfZ - 6, 0, -halfZ + 8 }) do
-			PartUtils.CreatePart({
-				name = "MilestonePanel" .. i,
-				size = Vector3.new(0.2, 2.4, 2.4),
-				position = basePos + Vector3.new(side * (halfX - 0.3), 5, offsetZ),
-				material = ACCENT_MATERIAL,
-				color = ACCENT_COLOR,
-				transparency = 0.2,
-				canCollide = false,
-				parent = model,
-			})
-		end
-	end
+	--[[
+		THE STREAK RING AS PHYSICAL GEOMETRY.
 
-	-- Center row of milestone pedestals - the actual "hall" walk-through,
-	-- filling the room's middle rather than leaving it empty between the
-	-- door and the back wall. Spaced to leave clear side walkways.
-	for i, offsetZ in ipairs({ halfZ * 0.45, 0, -halfZ * 0.45 }) do
-		PartUtils.CreatePart({
-			name = "MilestonePedestal" .. i,
-			size = Vector3.new(3, 2.5, 3),
-			position = basePos + Vector3.new(0, 1.25, offsetZ),
+		Seven day-plinths in a row down the room, one per day of the claim
+		cycle, each with its own small BillboardGui showing the day number, what
+		it pays and whether it is already collected. You walk PAST your streak
+		rather than reading it as a list - the wall panel above gives the
+		overview, these are the thing you physically move along.
+
+		The plinths are laid out along the room's depth and offset to one side of
+		the centre aisle, so the walk from the door to the terminal is never
+		obstructed - the same clearance rule the Tutorial welcome desk needed.
+
+		State comes from the same server snapshot the wall panel uses; the
+		client controller drives both, so a plinth can never disagree with the
+		panel two metres above it.
+	]]
+	local DAYS = 7
+	for day = 1, DAYS do
+		local t = (day - 1) / (DAYS - 1)
+		local z = halfZ * 0.55 - t * (halfZ * 1.25)
+		local x = -halfX * 0.55
+
+		local plinth = PartUtils.CreatePart({
+			name = ("StreakDayPlinth%d"):format(day),
+			size = Vector3.new(3.2, 3.4, 3.2),
+			position = basePos + Vector3.new(x, 1.7, z),
 			material = FURNITURE_MATERIAL,
 			color = FURNITURE_COLOR,
 			parent = model,
 		})
+		plinth:SetAttribute("StreakDay", day)
+		CollectionService:AddTag(plinth, "StreakDayPlinth")
+
+		-- Lit cap: recoloured per state by the client (collected / next / later).
+		local cap = PartUtils.CreateDisc({
+			name = ("StreakDayCap%d"):format(day),
+			diameter = 2.8,
+			thickness = 0.45,
+			position = basePos + Vector3.new(x, 3.6, z),
+			material = Enum.Material.Neon,
+			color = ACCENT_COLOR,
+			canCollide = false,
+			parent = model,
+		})
+		cap:SetAttribute("StreakDay", day)
+		CollectionService:AddTag(cap, "StreakDayCap")
+	end
+
+	--[[
+		MILESTONE PEDESTALS AND TROPHIES REMOVED. Reconciled with a manual pass
+		in Studio where all three pedestals and their trophies were deleted by
+		hand - verified by inspection (no MilestonePedestal or MilestoneTrophy*
+		parts remain in the built room).
+
+		Removed from source rather than left in, so LobbyBuilder.Rebuild()
+		reproduces the deletion instead of putting them back.
+
+		They also no longer had a job: the seven StreakDayPlinths above are the
+		room's physical walk-past progression, and the Streak Vault panel is its
+		summary. Three trophies in the middle of the aisle were the older idea
+		of the same thing, standing in the way of the newer one.
+	]]
+
+	--[==[ ORPHANED TROPHY BODY - dead with the pedestals removed above.
+		Commented out with a leveled long-bracket because the block contains its
+		own nested long comments, which a plain double-bracket cannot survive.
+		Its loop variables (i, offsetZ, trophyScale, isCentre, bowl) no longer
+		exist, so leaving it live would error at build time.
+
 		--[[
 			An actual TROPHY standing on the pedestal, not a neon sphere
-			hovering 1.95 studs above it with nothing underneath.
 
 			The pedestal is 2.5 tall, so its top face is at y=2.5; every piece
 			below stacks up from there and physically touches the piece under
@@ -3881,18 +4049,18 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 			trophyLight.Parent = bowl
 		end
 	end
+	]==]
 
-	PartUtils.CreatePart({
-		name = "ProgressionWall",
-		size = Vector3.new(def.size.X - 6, def.height - 8, 0.3),
-		position = basePos + Vector3.new(0, def.height / 2, -halfZ + 1),
-		material = ACCENT_MATERIAL,
-		color = ACCENT_COLOR,
-		canCollide = false,
-		parent = model,
-	})
-
-	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 5), "DailyRewardsTerminalPrompt", "Claim Daily Reward", "Daily Rewards")
+	--[[
+		PROGRESSION WALL REMOVED. Another blank accent slab across the back
+		wall, and it is where the Streak Vault board now sits - reconciled with
+		the manual Studio pass, which deleted it.
+	]]
+	--[[
+		BARE terminal: stand and prompt only. The dais, arch and header were
+		deleted by hand in Studio here; rebuilding them would undo that.
+	]]
+	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 5), "DailyRewardsTerminalPrompt", "Claim Daily Reward", "Daily Rewards", true)
 end
 
 --[[
@@ -3958,72 +4126,83 @@ function BuildingInteriors.FurnishStatistics(def, model: Model)
 	local halfX = def.size.X / 2
 	local halfZ = def.size.Y / 2
 
-	if not CUSTOM_EXTERIOR_THEMES[CURRENT_THEME_ID] then
-		addStatisticsIdentity(def, model)
-	end
+	--[[
+		RIVAL BOARD - the reason to actually walk into this building.
 
-	-- Side monitor screens along both walls, spanning the room's depth.
-	for _, side in ipairs({ -1, 1 }) do
-		for _, offsetZ in ipairs({ halfZ - 4, 0, -halfZ + 5 }) do
-			PartUtils.CreatePart({
-				name = "MonitorStand",
-				size = Vector3.new(0.4, 2.5, 1.6),
-				position = basePos + Vector3.new(side * (halfX - 1.5), 2.5, offsetZ),
-				material = FURNITURE_MATERIAL,
-				color = FURNITURE_COLOR,
-				parent = model,
-			})
-			PartUtils.CreatePart({
-				name = "MonitorScreen",
-				size = Vector3.new(0.15, 1.6, 1.2),
-				position = basePos + Vector3.new(side * (halfX - 1.25), 2.9, offsetZ),
-				material = ACCENT_MATERIAL,
-				color = ACCENT_COLOR,
-				canCollide = false,
-				parent = model,
-			})
-		end
-	end
+		A large panel mounted on the back wall, directly facing the doorway, so
+		it is the first thing in view on entering. RivalBoardSystem (server)
+		supplies the data and RivalBoardController (client) fills the
+		SurfaceGui; this only builds the physical surface and tags it so the
+		controller can find it on any map without hardcoded paths.
 
-	-- Center row of player-data terminal stations with a bench each, so
-	-- the room's middle reads as a place to actually sit and review your
-	-- own stats, not empty floor between the door and the back wall.
-	for _, offsetZ in ipairs({ halfZ * 0.4, -halfZ * 0.15 }) do
-		PartUtils.CreatePart({
-			name = "DataStation",
-			size = Vector3.new(3, 2.8, 1.4),
-			position = basePos + Vector3.new(0, 1.4, offsetZ),
-			material = FURNITURE_MATERIAL,
-			color = FURNITURE_COLOR,
-			parent = model,
-		})
-		PartUtils.CreatePart({
-			name = "DataStationScreen",
-			size = Vector3.new(2.2, 1.3, 0.15),
-			position = basePos + Vector3.new(0, 2.9, offsetZ - 0.6),
-			material = ACCENT_MATERIAL,
-			color = ACCENT_COLOR,
-			canCollide = false,
-			parent = model,
-		})
-		-- A real seat facing the station's screen (yaw 180 = facing -Z, the
-		-- direction the DataStationScreen is mounted), so a player can
-		-- actually sit down and read their stats. This was a 2.6x1x1.2 box
-		-- named "DataStationBench" that could not be sat on.
-		buildChair(model, basePos + Vector3.new(0, 0, offsetZ + 2.2), 180, "DataStationSeat")
-	end
+		It is a world surface rather than a ScreenGui deliberately - see
+		RivalBoardSystem's header. A SurfaceGui cannot be shown on the bottom
+		bar, which is exactly the property that stops this building being
+		redundant with the Stats button.
 
+		Mounted at eye height on the back wall's INNER face (basePos.Z - halfZ
+		plus the wall thickness), rotated to face +Z toward the entrance.
+	]]
+	local boardWidth = math.min(def.size.X - 6, 22)
+	local board = PartUtils.CreatePart({
+		name = "RivalBoard",
+		size = Vector3.new(boardWidth, 11, 0.5),
+		position = basePos + Vector3.new(0, 9, -halfZ + WALL_THICKNESS + 0.4),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(16, 18, 26),
+		canCollide = false,
+		parent = model,
+	})
+	CollectionService:AddTag(board, "RivalBoard")
+
+	-- Lit frame so the panel reads as a powered display rather than a dark
+	-- rectangle painted on the wall.
 	PartUtils.CreatePart({
-		name = "StatScreen",
-		size = Vector3.new(def.size.X - 8, def.height - 6, 0.3),
-		position = basePos + Vector3.new(0, def.height / 2, -halfZ + 1),
+		name = "RivalBoardFrame",
+		size = Vector3.new(boardWidth + 1.2, 12.2, 0.3),
+		position = basePos + Vector3.new(0, 9, -halfZ + WALL_THICKNESS + 0.15),
 		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
 	})
 
-	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 5), "StatisticsTerminalPrompt", "View Statistics", "Statistics")
+	if not CUSTOM_EXTERIOR_THEMES[CURRENT_THEME_ID] then
+		addStatisticsIdentity(def, model)
+	end
+
+	--[[
+		DECLUTTERED. This room used to hold six wall monitors, two "DataStation"
+		desks with their own screens, and a StatScreen - none of which did
+		anything. They were furniture-shaped blocks standing in for a purpose
+		the room did not have.
+
+		The room now has exactly one job: the Rival Board above. So the fit-out
+		is just seating placed to READ that board - two chairs on the centre
+		line, set back from the wall and facing it. Everything a player sees in
+		here is either the board, a way to look at the board, or the teleport
+		terminal they arrived through.
+
+		Seats face -Z (yaw 180 in buildChair's convention) because the board is
+		mounted on the -Z back wall.
+	]]
+	for _, seatX in ipairs({ -3.5, 3.5 }) do
+		buildChair(model, basePos + Vector3.new(seatX, 0, -halfZ * 0.05), 180, "ViewingSeat")
+	end
+
+	--[[
+		NO TERMINAL IN THIS ROOM. Reconciled with a manual pass in Studio where
+		the Statistics terminal (stand, arch and header) was deleted by hand -
+		verified by inspection: the building now contains no ProximityPrompt at
+		all, where every other terminal room still has one.
+
+		Removed from source rather than rebuilt, so LobbyBuilder.Rebuild()
+		reproduces the deletion instead of silently putting the terminal back.
+
+		Nothing is lost by this: the room's purpose is the Rival Board, and the
+		Stats overlay is still one click away on the bottom bar. The terminal
+		was a second route to a panel that was already reachable.
+	]]
 end
 
 --[[
@@ -4092,41 +4271,97 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 	end
 
 	--[[
-		Welcome desk just inside the entrance - the first thing a new player
-		reaches.
+		TUTORIAL WALL SCREEN - the reason to walk into this building.
 
-		OFFSET OFF THE CENTRELINE. This used to sit at x = 0, i.e. squarely in
-		the doorway's path four studs inside the front wall, so walking in put
-		you straight into it - a character-width sweep down the entrance axis
-		hit this desk before reaching the room. It now stands to one side, the
-		way a reception desk actually does, leaving the centre aisle from the
-		door to the terminal completely clear.
+		The same seven topics the bottom-bar Tutorial button shows, presented on
+		a big screen you sit down in front of instead of in a popup over the
+		game. The bottom-bar button is deliberately KEPT: this is an additional
+		way to read the tutorial, not a replacement, so a player who just wants
+		the text quickly is never forced to walk here.
 
-		The offset is sized, not guessed: the desk is 8 studs wide, so its inner
-		edge sits at |deskX| - 4. A walk-in corridor needs about 2.5 studs of
-		half-width for a character, so |deskX| must exceed ~6.5. At 0.42 * halfX
-		(5.5 on the 26-wide Tutorial building) the desk still clipped the
-		corridor by roughly a stud; 0.58 * halfX puts the inner edge clear with
-		margin while keeping the desk well inside the far wall.
+		Content comes from ReplicatedStorage.Modules.TutorialTopicsConfig, which
+		the overlay also reads - one source of text, two presentations.
+
+		The screen is paged with two physical buttons flanking it, each carrying
+		a ClickDetector. Physical click targets rather than GUI buttons for the
+		same reason the building signs use them: a transparent GUI button laid
+		over world space would swallow clicks meant for anything behind it.
 	]]
-	local deskX = -halfX * 0.58
-	PartUtils.CreatePart({
-		name = "WelcomeDesk",
-		size = Vector3.new(8, 3, 2),
-		position = basePos + Vector3.new(deskX, 1.5, halfZ - 4),
-		material = FURNITURE_MATERIAL,
-		color = FURNITURE_COLOR,
+	local screenWidth = math.min(def.size.X - 6, 22)
+	local tutorialScreen = PartUtils.CreatePart({
+		name = "TutorialScreen",
+		size = Vector3.new(screenWidth, 11, 0.5),
+		position = basePos + Vector3.new(0, 9, -halfZ + WALL_THICKNESS + 0.4),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(16, 18, 26),
+		canCollide = false,
 		parent = model,
 	})
+	CollectionService:AddTag(tutorialScreen, "TutorialScreen")
+
 	PartUtils.CreatePart({
-		name = "WelcomeSign",
-		size = Vector3.new(6, 1.4, 0.15),
-		position = basePos + Vector3.new(deskX, 3.6, halfZ - 4),
+		name = "TutorialScreenFrame",
+		size = Vector3.new(screenWidth + 1.2, 12.2, 0.3),
+		position = basePos + Vector3.new(0, 9, -halfZ + WALL_THICKNESS + 0.15),
 		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
 		canCollide = false,
 		parent = model,
 	})
+
+	-- Paging buttons, one either side of the screen at standing height.
+	for _, button in
+		ipairs({
+			{ name = "TutorialPrevButton", x = -(screenWidth / 2 + 1.6), tag = "TutorialPrev" },
+			{ name = "TutorialNextButton", x = screenWidth / 2 + 1.6, tag = "TutorialNext" },
+		})
+	do
+		local pad = PartUtils.CreatePart({
+			name = button.name,
+			size = Vector3.new(2.6, 2.6, 0.6),
+			position = basePos + Vector3.new(button.x, 6, -halfZ + WALL_THICKNESS + 0.5),
+			material = ACCENT_MATERIAL,
+			color = ACCENT_COLOR,
+			canCollide = false,
+			parent = model,
+		})
+		CollectionService:AddTag(pad, button.tag)
+		local click = Instance.new("ClickDetector")
+		click.MaxActivationDistance = 40
+		click.Parent = pad
+	end
+
+	--[[
+		Seating facing the screen, in two rows like a small lecture room. Seats
+		face -Z (yaw 180 in buildChair's convention) because the screen is on
+		the -Z back wall. Rows are set back far enough that a seated player has
+		the whole screen in view rather than craning at it.
+	]]
+	for rowIndex, rowZ in ipairs({ -halfZ * 0.10, halfZ * 0.32 }) do
+		for _, seatX in ipairs({ -4.5, 0, 4.5 }) do
+			buildChair(model, basePos + Vector3.new(seatX, 0, rowZ), 180, ("LectureSeatR%d"):format(rowIndex))
+		end
+	end
+
+	--[[
+		NO TERMINAL IN THIS ROOM. Same manual-deletion reconciliation as the
+		Statistics building - the Tutorial terminal was removed by hand in
+		Studio (verified: no ProximityPrompt remains in this building), so it is
+		removed from source too and a rebuild will not recreate it.
+
+		The room's purpose is now the wall screen and its seating, and the
+		bottom-bar Tutorial button still opens the overlay, so the terminal was
+		a third route to content already available two other ways.
+	]]
+end
+
+return BuildingInteriors
+
+--[==[ REMOVED - old Tutorial walk-through layout, replaced by the wall screen
+	and lecture seating above. A leveled long-bracket is used here because the
+	block below contains its own long comments, and Lua long comments do NOT
+	nest - a plain double-bracket comment would be closed by the first inner
+	closing bracket and leave real code exposed after the return.
 
 	--[[
 		Example question station in the middle of the room - a "12 x 8 = ?"
@@ -4174,21 +4409,8 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 		buildChair(model, basePos + Vector3.new(side * 4, 0, 4), 180 - side * 18, "Chair")
 	end
 
-	-- Wall info-panels flanking the final stretch toward the terminal.
-	for _, side in ipairs({ -1, 1 }) do
-		PartUtils.CreatePart({
-			name = "InfoPanel",
-			size = Vector3.new(0.2, 3, 4),
-			position = basePos + Vector3.new(side * (halfX - 0.3), 4, -halfZ * 0.4),
-			material = ACCENT_MATERIAL,
-			color = ACCENT_COLOR,
-			transparency = 0.25,
-			canCollide = false,
-			parent = model,
-		})
-	end
-
+	-- Wall info-panels removed with the rest of the old walk-through layout:
+	-- they were blank accent slabs implying information they never carried.
 	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 5), "TutorialTerminalPrompt", "Learn How to Play", "Tutorial")
 end
-
-return BuildingInteriors
+]==]
