@@ -149,11 +149,24 @@ local BILLBOARD_SIZE = Vector2.new(200, 66) -- PIXELS (see above)
 		Shop 166, StatisticsBuilding 161, DailyRewards 191, Tutorial 191.
 	Measured walking up to the Shop entrance: 97.
 	So 260 - and even 120 - still drew every header across the middle of the
-	screen from the plaza. 100 is the value that actually separates the two
-	cases: nothing draws from the spawn row or the plaza, and a building's
-	header appears once you are approaching it.
+	screen from the plaza.
+
+	WHY 55 AND NOT 100. At 100 three of the four culled correctly but the
+	StatisticsBuilding header kept drawing at 165 studs, well past its own
+	limit - Roblox's billboard distance culling did not apply consistently
+	across the four signs at that value. 55 is below the threshold where
+	that inconsistency showed up, and was verified in Play Mode from the
+	plaza with all four confirmed gone and the central MATHARENA board
+	fully unobstructed.
+
+	The trade-off is deliberate: at 55 the overhead header only appears once
+	you are close to a mound. That is acceptable because it is not the only
+	wayfinding - every building already carries a large EntranceNamePlate on
+	its facade at the tunnel mouth (see themedEntranceTunnel in
+	BuildingInteriors.lua), which is readable from across the plaza and is
+	itself a teleport click target.
 ]]
-local SIGN_MAX_DISTANCE = 100
+local SIGN_MAX_DISTANCE = 55
 
 --[[
 	Builds one building's overhead sign + connector beam, parented into

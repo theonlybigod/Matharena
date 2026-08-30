@@ -35,14 +35,16 @@ TreeConfig.VARIANT_ATTRIBUTE = "TreeVariant"
 
 TreeConfig.VARIANT_IDS = { "Spire", "CanopyBurst", "TwinBough", "CrystalCluster" }
 
--- Roughly double the old trunk range (was 5-10).
-TreeConfig.TRUNK_HEIGHT_MIN = 10
-TreeConfig.TRUNK_HEIGHT_MAX = 16
--- Roughly double the old trunk width range (was 1.0-2.1) - sharper/
--- heavier taper (lower segment noticeably wider than upper) reads as
--- more "intentional angles" than the old subtle taper.
-TreeConfig.TRUNK_WIDTH_MIN = 1.8
-TreeConfig.TRUNK_WIDTH_MAX = 3.4
+-- Scaled up again for the Lava map's "bigger and more noticeable" pass:
+-- trunk range raised from 10-16. Trees now stand well clear of the
+-- street lamps and read as landmarks from across the plaza rather than
+-- as background dressing.
+TreeConfig.TRUNK_HEIGHT_MIN = 16
+TreeConfig.TRUNK_HEIGHT_MAX = 26
+-- Trunk widths raised in proportion (was 1.8-3.4) so the taller trunks
+-- don't read as spindly poles.
+TreeConfig.TRUNK_WIDTH_MIN = 2.8
+TreeConfig.TRUNK_WIDTH_MAX = 5.2
 TreeConfig.TRUNK_TAPER_RATIO = 0.45 -- upper trunk segment width = lower width * this (was 0.65 - a sharper step)
 
 -- Canopy sized so it's a substantial fraction of - often taller than -
@@ -50,10 +52,10 @@ TreeConfig.TRUNK_TAPER_RATIO = 0.45 -- upper trunk segment width = lower width *
 -- Bumped up from an initial 12-22 pass after measuring realized tree
 -- heights in Studio came in under the "roughly double" target once each
 -- variant's own internal proportion multipliers were accounted for.
-TreeConfig.CANOPY_HEIGHT_MIN = 16
-TreeConfig.CANOPY_HEIGHT_MAX = 26
-TreeConfig.CANOPY_WIDTH_MIN = 10
-TreeConfig.CANOPY_WIDTH_MAX = 18
+TreeConfig.CANOPY_HEIGHT_MIN = 24
+TreeConfig.CANOPY_HEIGHT_MAX = 38
+TreeConfig.CANOPY_WIDTH_MIN = 15
+TreeConfig.CANOPY_WIDTH_MAX = 27
 
 TreeConfig.LEAN_DEGREES_MAX = 6 -- kept modest - these are meant to read as "designed", not wind-blown
 TreeConfig.ROTATION_JITTER_DEGREES = 360 -- full free yaw per tree
@@ -66,10 +68,9 @@ TreeConfig.RING_SPACING = 48
 TreeConfig.RING_JITTER = 9 -- studs; more than before - "avoid evenly spaced rows"
 TreeConfig.CLUSTER_CHANCE = 0.22
 TreeConfig.SKIP_CHANCE = 0.18 -- slightly more open breathing room than before (was 0.15)
--- Clearance from buildings/paths/seating/lamps/spawns/portal - larger
--- than before since the trees themselves are roughly double the size AND
--- the map itself is 50% bigger, so their canopies need proportionally
--- more clearance to avoid crowding those objects.
-TreeConfig.AVOID_RADIUS = 20
+-- Clearance raised with the tree size (was 20). The canopies are now up
+-- to 27 wide, so a 20-stud avoid radius would let a branch overhang a
+-- path or a bench.
+TreeConfig.AVOID_RADIUS = 26
 
 return TreeConfig

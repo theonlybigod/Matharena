@@ -1249,6 +1249,185 @@ end
 	Workspace folder), in a single "LavaEnvironment" folder - see
 	LobbyBuilder/init.lua for the (Lava map-only) call site.
 ]]
+--[[
+	MOLTEN MAGMA SCATTERED THROUGH THE PLAYABLE AREA.
+
+	The map already had thin GroundFissures (hairline glowing cracks) and
+	lava on the volcano flanks, but the plaza floor itself between them was
+	large stretches of unbroken dark basalt - so the map read as "dark rock
+	with some cracks" rather than as an active volcanic environment.
+
+	This adds three kinds of magma across the walkable area:
+	  1. POOLS - broad, irregular molten pools built from overlapping discs,
+	     each ringed by a raised cooled-crust rim so the pool reads as sunk
+	     into the ground rather than painted onto it.
+	  2. SEAMS - wide molten bands, heavier than the existing hairline
+	     fissures, bridging between pools.
+	  3. VENTS - small glowing spatter cones that emit rising heat particles.
+
+	PLAYABILITY. Every piece here is CanCollide = false and sits flush with
+	or barely proud of the floor, so none of it blocks movement or forms a
+	ledge to trip on - the brief calls for the map to stay playable and
+	readable. Placement is kept clear of the map centre (the queue portal
+	plaza) and of the outer ring where the buildings sit, so magma fills the
+	open ground between them rather than crowding either.
+]]
+local function buildMagmaField(parent: Instance)
+	local folder = Instance.new("Folder")
+	folder.Name = "MagmaField"
+	folder.Parent = parent
+
+	local rng = Random.new(778241)
+
+	-- Keep clear of the portal plaza at the centre and stay inside the
+	-- walkable plate.
+	local INNER = MapConfig.USABLE_RADIUS * 0.16
+	local OUTER = MapConfig.USABLE_RADIUS * 0.94
+
+	local function scatterPoint()
+		local a = rng:NextNumber(0, 2 * math.pi)
+		-- sqrt keeps the distribution even by AREA instead of clumping near
+		-- the centre, which a uniform radius roll would do.
+		local t = math.sqrt(rng:NextNumber())
+		local r = INNER + (OUTER - INNER) * t
+		return Vector3.new(math.sin(a) * r, 0, math.cos(a) * r)
+	end
+
+	-- 1. POOLS
+	local poolCentres = {}
+	for p = 1, 14 do
+		local centre = scatterPoint()
+		table.insert(poolCentres, centre)
+		local poolRadius = rng:NextNumber(7, 16)
+
+		-- Irregular molten body: overlapping discs offset around the centre.
+		local lobes = rng:NextInteger(3, 5)
+		for l = 1, lobes do
+			local ang = (2 * math.pi / lobes) * l + rng:NextNumber(-0.4, 0.4)
+			local off = rng:NextNumber(0, poolRadius * 0.45)
+			local d = poolRadius * rng:NextNumber(0.75, 1.15)
+			local lobe = PartUtils.CreateDisc({
+				name = ("MagmaPool%dLobe%d"):format(p, l),
+				diameter = d,
+				thickness = 0.5,
+				position = centre + Vector3.new(math.sin(ang) * off, 0.18, math.cos(ang) * off),
+				material = Enum.Material.Neon,
+				color = if l % 2 == 0 then LAVA_CORE else LAVA_EDGE,
+				canCollide = false,
+				parent = folder,
+			})
+			addLavaGlow(lobe, 2.4, 30)
+		end
+
+		-- Cooled crust rim: low chunks around the pool edge so the molten
+		-- surface is contained by something rather than ending at a hard
+		-- circle on flat ground.
+		local rimCount = math.max(9, math.floor(poolRadius * 1.6))
+		for c = 1, rimCount do
+			local ang = (2 * math.pi / rimCount) * c
+			local rr = poolRadius * rng:NextNumber(0.92, 1.06)
+			PartUtils.CreatePart({
+				name = ("MagmaPool%dCrust%d"):format(p, c),
+				size = Vector3.new(rng:NextNumber(2.2, 4.0), rng:NextNumber(0.5, 1.1), rng:NextNumber(1.6, 2.8)),
+				cframe = CFrame.new(centre + Vector3.new(math.sin(ang) * rr, 0.3, math.cos(ang) * rr))
+					* CFrame.Angles(0, ang, 0)
+					* CFrame.Angles(math.rad(rng:NextNumber(-8, 8)), 0, 0),
+				material = Enum.Material.Basalt,
+				color = Color3.fromRGB(38, 31, 29),
+				canCollide = false,
+				castShadow = false,
+				parent = folder,
+			})
+		end
+	end
+
+	-- 2. SEAMS between nearby pools - wide molten bands, not hairlines.
+	for i = 1, #poolCentres do
+		local a = poolCentres[i]
+		local b = poolCentres[(i % #poolCentres) + 1]
+		local delta = b - a
+		local dist = delta.Magnitude
+		-- Only bridge pools that are genuinely near each other; a seam
+		-- stretching the width of the map would read as a drawn line.
+		if dist > 20 and dist < 110 then
+			local steps = math.ceil(dist / 6)
+			for s = 0, steps do
+				local t = s / steps
+				-- Bow the seam sideways so it wanders instead of running straight.
+				local perp = Vector3.new(-delta.Z, 0, delta.X).Unit
+				local bow = math.sin(t * math.pi) * rng:NextNumber(-14, 14)
+				local pos = a + delta * t + perp * bow
+				local seg = PartUtils.CreatePart({
+					name = ("MagmaSeam%dS%d"):format(i, s),
+					size = Vector3.new(rng:NextNumber(1.8, 3.6), 0.4, 7),
+					cframe = CFrame.new(pos + Vector3.new(0, 0.16, 0))
+						* CFrame.Angles(0, math.atan2(delta.X, delta.Z) + rng:NextNumber(-0.25, 0.25), 0),
+					material = Enum.Material.Neon,
+					color = LAVA_EDGE,
+					canCollide = false,
+					castShadow = false,
+					parent = folder,
+				})
+				if s % 3 == 0 then
+					addLavaGlow(seg, 1.6, 20)
+				end
+			end
+		end
+	end
+
+	-- 3. VENTS - small spatter cones venting heat.
+	for v = 1, 20 do
+		local pos = scatterPoint()
+		local mouth = PartUtils.CreateDisc({
+			name = ("MagmaVent%dMouth"):format(v),
+			diameter = rng:NextNumber(2.4, 4.4),
+			thickness = 0.4,
+			position = pos + Vector3.new(0, 0.9, 0),
+			material = Enum.Material.Neon,
+			color = LAVA_CORE,
+			canCollide = false,
+			parent = folder,
+		})
+		addLavaGlow(mouth, 2.0, 22)
+
+		-- Cone of cooled spatter around the mouth.
+		for c = 1, 7 do
+			local ang = (2 * math.pi / 7) * c
+			PartUtils.CreatePart({
+				name = ("MagmaVent%dSpatter%d"):format(v, c),
+				size = Vector3.new(rng:NextNumber(1.4, 2.4), rng:NextNumber(0.8, 1.6), rng:NextNumber(1.4, 2.2)),
+				cframe = CFrame.new(pos + Vector3.new(math.sin(ang) * 2.2, 0.5, math.cos(ang) * 2.2))
+					* CFrame.Angles(0, ang, 0),
+				material = Enum.Material.Basalt,
+				color = Color3.fromRGB(34, 28, 26),
+				canCollide = false,
+				castShadow = false,
+				parent = folder,
+			})
+		end
+
+		-- Rising heat shimmer, so vents read as active rather than painted.
+		local heat = Instance.new("ParticleEmitter")
+		heat.Name = "VentHeat"
+		heat.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		heat.Color = ColorSequence.new(LAVA_CORE, Color3.fromRGB(60, 40, 34))
+		heat.LightEmission = 0.6
+		heat.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1.4),
+			NumberSequenceKeypoint.new(1, 5.5),
+		})
+		heat.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.45),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		heat.Lifetime = NumberRange.new(1.8, 3.2)
+		heat.Rate = 5
+		heat.Speed = NumberRange.new(3, 6)
+		heat.Acceleration = Vector3.new(0, 5, 0)
+		heat.Parent = mouth
+	end
+end
+
 function LavaEnvironment.BuildAll(parent: Instance): Folder
 	local folder = Instance.new("Folder")
 	folder.Name = "LavaEnvironment"
@@ -1261,6 +1440,7 @@ function LavaEnvironment.BuildAll(parent: Instance): Folder
 	buildDistantVolcanoes(folder)
 	buildGroundFissures(folder)
 	buildGroundPattern(folder)
+	buildMagmaField(folder)
 
 	return folder
 end

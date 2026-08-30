@@ -552,6 +552,76 @@ end
 	which now originates from a point along ITS OWN parent branch's
 	length rather than independently) always starts from solid geometry.
 ]]
+--[[
+	Large, visually impressive FIRE for the Lava map's scorched trees.
+
+	The Lava trees previously carried only a 0.45-0.65 stud Neon "ember"
+	ball at each branch tip - a few dozen tiny dots per tree that read as
+	faint glowing specks from more than a few studs away, not as a tree that
+	is on fire.
+
+	`igniteBranch` attaches a real fire cluster to one branch tip:
+	  - A Fire instance, which is the actual animated flame. Roblox caps
+	    Fire.Size at 30, so `size` is clamped rather than silently ignored.
+	  - A ParticleEmitter throwing embers UPWARD off the flame, which is
+	    what gives the fire visible scale and motion at distance - Fire
+	    alone is a fairly compact billboard.
+	  - A PointLight so the fire actually illuminates the trunk, the ground
+	    and anything standing near it, rather than being a flat sprite.
+
+	Everything is parented to the tip part that already exists, so no new
+	structural geometry is introduced and the tree silhouette is unchanged.
+]]
+local FLAME_INNER = Color3.fromRGB(255, 214, 108) -- pale yellow heart of the flame
+local FLAME_OUTER = Color3.fromRGB(255, 96, 16) -- deep orange outer body
+
+local function igniteBranch(tip: BasePart, size: number, heat: number)
+	local fire = Instance.new("Fire")
+	fire.Name = "BranchFire"
+	-- Fire.Size is capped at 30 by the engine; clamp so a large request
+	-- degrades predictably instead of being silently rejected.
+	fire.Size = math.clamp(size, 2, 30)
+	fire.Heat = heat
+	fire.Color = FLAME_INNER
+	fire.SecondaryColor = FLAME_OUTER
+	fire.Parent = tip
+
+	-- Rising embers. This is what reads as "large fire" from across the
+	-- map - the Fire billboard alone stays fairly tight to its emitter.
+	local embers = Instance.new("ParticleEmitter")
+	embers.Name = "BranchEmbers"
+	embers.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	embers.Color = ColorSequence.new(FLAME_INNER, FLAME_OUTER)
+	embers.LightEmission = 1
+	embers.LightInfluence = 0
+	embers.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, size * 0.35),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	embers.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	embers.Lifetime = NumberRange.new(1.1, 2.4)
+	embers.Rate = 14
+	embers.Speed = NumberRange.new(5, 11)
+	embers.SpreadAngle = Vector2.new(24, 24)
+	-- Negative acceleration on Y would pull embers down; positive lifts
+	-- them, which is how hot ash actually behaves.
+	embers.Acceleration = Vector3.new(0, 7, 0)
+	embers.Parent = tip
+
+	local light = Instance.new("PointLight")
+	light.Name = "FireLight"
+	light.Color = FLAME_OUTER
+	light.Brightness = 2.2
+	light.Range = 18 + size * 1.6
+	-- Shadows off: these are numerous and small, and shadow-casting lights
+	-- at this count is a real render cost for no visible gain outdoors.
+	light.Shadows = false
+	light.Parent = tip
+end
+
 local function buildScorchedBranchCanopy(canopyBase: Vector3, rng: Random, model: Model, foliageColor: Color3)
 	local canopyHeight = rng:NextNumber(TreeConfig.CANOPY_HEIGHT_MIN, TreeConfig.CANOPY_HEIGHT_MAX)
 	local canopyWidth = rng:NextNumber(TreeConfig.CANOPY_WIDTH_MIN, TreeConfig.CANOPY_WIDTH_MAX)
@@ -622,32 +692,57 @@ local function buildScorchedBranchCanopy(canopyBase: Vector3, rng: Random, model
 				model,
 				("ScorchedTwig%d_%d"):format(i, t)
 			)
-			PartUtils.CreatePart({
+			local twigTip = PartUtils.CreatePart({
 				name = ("EmberTwigTip%d_%d"):format(i, t),
-				size = Vector3.new(0.45, 0.45, 0.45),
+				size = Vector3.new(1.1, 1.1, 1.1),
 				position = twig.Position + twig.CFrame.RightVector * (twigLength / 2),
 				material = Enum.Material.Neon,
-				color = foliageColor,
+				color = FLAME_INNER,
 				shape = Enum.PartType.Ball,
 				canCollide = false,
 				parent = model,
 			})
+			-- Smaller secondary flame on the twig, so fire reads across the
+			-- whole crown rather than only at the main branch ends.
+			igniteBranch(twigTip, rng:NextNumber(7, 11), 12)
 		end
 
 		-- Ember tip at the main branch's far end - branch.CFrame.RightVector is
 		-- the branch's own long axis (angledBlock translates along local
 		-- X, i.e. RightVector, by length/2 from the origin).
-		PartUtils.CreatePart({
+		local tip = PartUtils.CreatePart({
 			name = "EmberTip" .. i,
-			size = Vector3.new(0.65, 0.65, 0.65),
+			size = Vector3.new(1.6, 1.6, 1.6),
 			position = branch.Position + branch.CFrame.RightVector * (length / 2),
 			material = Enum.Material.Neon,
-			color = foliageColor,
+			color = FLAME_INNER,
 			shape = Enum.PartType.Ball,
 			canCollide = false,
 			parent = model,
 		})
+		-- The main flames. Sized off the branch itself so a big lower bough
+		-- carries a bigger fire than a short upper one.
+		igniteBranch(tip, math.clamp(length * 0.85, 10, 26), 18)
 	end
+
+	--[[
+		One large fire at the heart of the tree, on the charred core itself.
+		The per-branch flames give the crown its spread, but without a central
+		blaze the trunk stays dark and the tree reads as "branches with flames
+		on the ends" rather than as a burning tree.
+	]]
+	local heart = PartUtils.CreatePart({
+		name = "TreeFireHeart",
+		size = Vector3.new(2.4, 2.4, 2.4),
+		position = canopyBase + Vector3.new(0, coreTopY * 0.45, 0),
+		material = Enum.Material.Neon,
+		color = FLAME_INNER,
+		shape = Enum.PartType.Ball,
+		transparency = 0.25,
+		canCollide = false,
+		parent = model,
+	})
+	igniteBranch(heart, 30, 25)
 end
 
 --[[
