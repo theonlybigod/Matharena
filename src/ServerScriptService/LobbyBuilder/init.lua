@@ -51,6 +51,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
+local BuildVersion = require(ReplicatedStorage.Modules.BuildVersion)
 local LobbyTheme = require(script.LobbyTheme)
 local MapConfig = require(script.MapConfig)
 local Buildings = require(script.Buildings)
@@ -108,15 +109,38 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?, enableS
 	end
 
 	local alreadyBuilt = root:GetAttribute("MathArenaBuilt") == true
-	if alreadyBuilt and not force then
-		print(("[LobbyBuilder] %s already built; skipping. Call LobbyBuilder.Rebuild() to force a full rebuild."):format(def.id))
+
+	-- Stale-geometry check (see BuildVersion.lua's doc comment for the full
+	-- reasoning): geometry built by an older version of the builder code is
+	-- regenerated automatically, even without `force`. Without this, the
+	-- MathArenaBuilt attribute saved into a published place file froze that
+	-- Place's world at whatever the code produced the day it was first
+	-- built - which is exactly why edits reached some Places and not others.
+	-- A folder built before this system existed has no stored version at
+	-- all (nil ~= CURRENT), so it counts as stale and rebuilds once.
+	local storedVersion = root:GetAttribute("MathArenaBuildVersion")
+	local versionStale = storedVersion ~= BuildVersion.CURRENT
+
+	-- Also rebuild if this folder currently holds a DIFFERENT map than the
+	-- one being requested (e.g. a Place reassigned to another difficulty).
+	-- Cheap to check, and prevents silently keeping the wrong map forever.
+	local storedMapId = root:GetAttribute("MathArenaMapId")
+	local mapChanged = storedMapId ~= nil and storedMapId ~= def.id
+
+	if alreadyBuilt and not force and not versionStale and not mapChanged then
+		print(("[LobbyBuilder] %s already built and current; skipping. Call LobbyBuilder.Rebuild() to force a full rebuild."):format(def.id))
 		return
 	end
 
-	if alreadyBuilt and force then
+	if alreadyBuilt then
+		local reason = if force
+			then "forced"
+			elseif mapChanged then ("folder previously held map '%s'"):format(tostring(storedMapId))
+			else ("built by an older build version (%s -> %d)"):format(tostring(storedVersion), BuildVersion.CURRENT)
 		warn(
-			("[LobbyBuilder] Rebuilding %s: destroying %d existing top-level instance(s) under Workspace.%s (and everything inside them)."):format(
+			("[LobbyBuilder] Rebuilding %s (%s): destroying %d existing top-level instance(s) under Workspace.%s (and everything inside them)."):format(
 				def.id,
+				reason,
 				#root:GetChildren(),
 				def.workspaceFolderName
 			)
@@ -230,6 +254,7 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?, enableS
 	root:SetAttribute("MathArenaBuilt", true)
 	root:SetAttribute("MathArenaBuiltAt", DateTime.now().UnixTimestamp)
 	root:SetAttribute("MathArenaMapId", def.id)
+	root:SetAttribute("MathArenaBuildVersion", BuildVersion.CURRENT)
 
 	print(("[LobbyBuilder] %s build complete."):format(def.id))
 end

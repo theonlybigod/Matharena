@@ -53,6 +53,7 @@ local Platforms = require(script.Platforms)
 local CenterStage = require(script.CenterStage)
 local ArenaDecorations = require(script.ArenaDecorations)
 local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
+local BuildVersion = require(ReplicatedStorage.Modules.BuildVersion)
 local LobbyTheme = require(ServerScriptService.LobbyBuilder.LobbyTheme)
 local MapConfig = require(ServerScriptService.LobbyBuilder.MapConfig)
 
@@ -116,18 +117,45 @@ end
 	ArenaConfig.ORIGIN exactly as before - the Hub's own call site (below,
 	Main.server.lua) never passes this, so its behavior is unchanged.
 ]]
-function ArenaBuilder.Build(force: boolean?, origin: Vector3?)
-	local arena = Workspace:WaitForChild("Arena")
+function ArenaBuilder.Build(force: boolean?, origin: Vector3?, themeMapId: string?)
+	-- FindFirstChild + create, NOT WaitForChild: every project.json declares
+	-- a Workspace.Arena folder, but if a sync hasn't produced it yet (or
+	-- this runs in Studio Edit mode via the MathArenaAutoBuild plugin before
+	-- Rojo has connected), WaitForChild would yield forever with no error -
+	-- a silent hang. Mirrors LobbyBuilder.Build's own root-folder fallback.
+	local arena = Workspace:FindFirstChild("Arena")
+	if not arena then
+		arena = Instance.new("Folder")
+		arena.Name = "Arena"
+		arena.Parent = Workspace
+	end
 
 	local alreadyBuilt = arena:GetAttribute("MathArenaBuilt") == true
-	if alreadyBuilt and not force then
-		print("[ArenaBuilder] Arena already built; skipping. Call ArenaBuilder.Rebuild() to force a full rebuild.")
+
+	-- Same stale-geometry rule LobbyBuilder uses - see BuildVersion.lua.
+	local storedVersion = arena:GetAttribute("MathArenaBuildVersion")
+	local versionStale = storedVersion ~= BuildVersion.CURRENT
+
+	-- The arena is themed/positioned per-Place now (BuildForMap below), so
+	-- an arena built for a different map than the one being requested is
+	-- just as stale as one built by older code - it would keep the wrong
+	-- theme and, worse, sit at the wrong map's world origin.
+	local storedThemeMapId = arena:GetAttribute("MathArenaArenaThemeMapId")
+	local themeChanged = storedThemeMapId ~= themeMapId
+
+	if alreadyBuilt and not force and not versionStale and not themeChanged then
+		print("[ArenaBuilder] Arena already built and current; skipping. Call ArenaBuilder.Rebuild() to force a full rebuild.")
 		return
 	end
 
-	if alreadyBuilt and force then
+	if alreadyBuilt then
+		local reason = if force
+			then "forced"
+			elseif themeChanged then ("themed for '%s', now needs '%s'"):format(tostring(storedThemeMapId), tostring(themeMapId))
+			else ("built by an older build version (%s -> %d)"):format(tostring(storedVersion), BuildVersion.CURRENT)
 		warn(
-			("[ArenaBuilder] Rebuilding arena: destroying %d existing top-level instance(s) under Workspace.Arena (and everything inside them)."):format(
+			("[ArenaBuilder] Rebuilding arena (%s): destroying %d existing top-level instance(s) under Workspace.Arena (and everything inside them)."):format(
+				reason,
 				#arena:GetChildren()
 			)
 		)
@@ -148,6 +176,10 @@ function ArenaBuilder.Build(force: boolean?, origin: Vector3?)
 
 	arena:SetAttribute("MathArenaBuilt", true)
 	arena:SetAttribute("MathArenaBuiltAt", DateTime.now().UnixTimestamp)
+	arena:SetAttribute("MathArenaBuildVersion", BuildVersion.CURRENT)
+	-- nil on the Hub (unthemed shared arena) - deliberately stored as nil so
+	-- the themeChanged check above stays correct in both directions.
+	arena:SetAttribute("MathArenaArenaThemeMapId", themeMapId)
 
 	print("[ArenaBuilder] Arena build complete.")
 end
@@ -159,6 +191,18 @@ end
 		require(game.ServerScriptService.ArenaBuilder).Rebuild()
 ]]
 function ArenaBuilder.Rebuild()
+	-- Preserve whatever theme/position this Place's arena was last built
+	-- with, so a manual Rebuild() on a difficulty Place doesn't silently
+	-- strip its theming and drop the arena back at the Hub's 0,0,0 origin.
+	-- On the Hub this attribute is nil, giving the original plain rebuild.
+	local arena = Workspace:FindFirstChild("Arena")
+	local themeMapId = arena and arena:GetAttribute("MathArenaArenaThemeMapId")
+	if typeof(themeMapId) == "string" then
+		local mapDef = MapsConfig.GetMap(themeMapId)
+		if mapDef then
+			return ArenaBuilder.BuildForMap(mapDef, true)
+		end
+	end
 	return ArenaBuilder.Build(true)
 end
 
@@ -185,7 +229,7 @@ end
 	Arena is already marked built (recoloring only happens as part of an
 	actual build/rebuild, never retroactively on an already-built Arena).
 ]]
-function ArenaBuilder.BuildForMap(mapDef: MapsConfig.MapDef)
+function ArenaBuilder.BuildForMap(mapDef: MapsConfig.MapDef, force: boolean?)
 	local theme = LobbyTheme.Get(mapDef.themeId)
 
 	ArenaConfig.NEON_COLOR = theme.portalAccentColor
@@ -195,7 +239,7 @@ function ArenaBuilder.BuildForMap(mapDef: MapsConfig.MapDef)
 	ArenaConfig.PODIUM_TIER2_COLOR = darken(theme.spawnPadColor, 0.25)
 
 	local origin = mapDef.origin + Vector3.new(0, MapConfig.GROUND_ELEVATION, 0)
-	return ArenaBuilder.Build(nil, origin)
+	return ArenaBuilder.Build(force, origin, mapDef.id)
 end
 
 return ArenaBuilder

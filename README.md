@@ -156,6 +156,42 @@ Do not create folders simply to match this document if they are not currently ne
 
 The architecture should evolve deliberately rather than through unnecessary duplication.
 
+### `tools/` — developer tooling, not game code
+
+`tools/` sits outside `src/` and is deliberately never synced by Rojo into
+any Place. It holds things that run on a developer's machine rather than
+inside the game.
+
+`tools/StudioPlugins/` contains this project's Roblox Studio plugins plus
+per-platform install scripts. A Studio plugin runs inside Studio in Edit
+mode, so Roblox loads it from a fixed per-user folder on disk — it can never
+arrive through Rojo or through publishing, which is why each developer runs
+the install script once after cloning (and again whenever a plugin changes).
+
+See `tools/StudioPlugins/README.md` for install commands and for what
+`MathArenaAutoBuild.lua` does — in short, it keeps a Place's world in Edit
+mode matching what the builder code currently produces, since ordinary
+`Script`s never run in Edit mode and so `Main.server.lua` never builds
+there.
+
+### Build staleness: `ReplicatedStorage/Modules/BuildVersion.lua`
+
+`LobbyBuilder`/`ArenaBuilder` skip rebuilding anything already marked
+`MathArenaBuilt`, and that attribute is saved into each published place
+file — so without a staleness signal, a Place's world stays frozen at
+whatever the code produced the day it was first built, no matter how many
+times the code is edited and republished.
+
+`BuildVersion.CURRENT` is that signal for **live servers and Play tests**:
+both builders stamp it alongside `MathArenaBuilt` and regenerate
+automatically when the stored value is older. **Increment it whenever you
+change what the builders produce** (any builder module, or the
+theme/map/config values feeding them). Bumping it unnecessarily is harmless —
+it just costs one regeneration per Place.
+
+In **Edit mode** the `MathArenaAutoBuild` plugin detects change directly, by
+fingerprinting script sources and built geometry, so no bump is needed there.
+
 ---
 
 # 4. Rojo
