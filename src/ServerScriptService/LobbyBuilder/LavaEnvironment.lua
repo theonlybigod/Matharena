@@ -1428,6 +1428,101 @@ local function buildMagmaField(parent: Instance)
 	end
 end
 
+--[[
+	EMBER ASHFALL.
+
+	A light fall of glowing red-orange ash drifting down across the whole
+	playable area - a subtle atmospheric touch, not a blizzard.
+
+	DELIBERATELY BUILT AT MAP-BUILD TIME, not by a client script. A
+	ParticleEmitter parented to a real Part in Workspace renders in Studio's
+	Edit viewport as well as in Play, so this is visible while building the
+	map rather than only appearing once you hit Play. Anything created by a
+	LocalScript at runtime is invisible in Edit by definition.
+
+	RATE AND COVERAGE. Emitters are placed on THREE height layers rather than
+	a single plane at y=165. A single high plane looks fine from the ground
+	but is nearly invisible when the camera is up at sky level, because you
+	are then above the only place particles exist. Layering at 60 / 120 / 185
+	means there is ash in the air whatever height you view from.
+
+	Nine emitters (3 layers x 3 positions) at Rate 14 with 8-14s lifetimes
+	puts a few thousand flecks in the air at once across a ~450 stud plaza -
+	still sparse enough to read as drifting ash rather than snow, but now
+	actually visible from above.
+
+	The emitter parts are invisible, non-collidable anchored anchors;
+	particles fall under negative Y acceleration with a slight sideways drift
+	so the ash drifts rather than dropping straight.
+]]
+local function buildAshfall(parent: Instance)
+	local folder = Instance.new("Folder")
+	folder.Name = "EmberAshfall"
+	folder.Parent = parent
+
+	local EMBER_HOT = Color3.fromRGB(255, 138, 46)
+	local EMBER_COOL = Color3.fromRGB(148, 32, 16)
+
+	local span = MapConfig.USABLE_RADIUS * 0.62
+	local spots = {
+		Vector3.new(0, 0, 0),
+		Vector3.new(-span, 0, -span),
+		Vector3.new(span, 0, span),
+	}
+	-- Three height bands: low enough to see at head height, mid, and high
+	-- enough to still be above a camera pulled up into the sky.
+	local layers = { 60, 120, 185 }
+
+	local index = 0
+	for _, height in ipairs(layers) do
+		for _, spot in ipairs(spots) do
+			index += 1
+			local emitterPart = PartUtils.CreatePart({
+				name = ("AshfallEmitter%d"):format(index),
+				size = Vector3.new(span * 1.8, 1, span * 1.8),
+				position = spot + Vector3.new(0, height, 0),
+				transparency = 1,
+				canCollide = false,
+				castShadow = false,
+				parent = folder,
+			})
+
+		local ash = Instance.new("ParticleEmitter")
+		ash.Name = "Ash"
+		-- EmissionDirection Bottom + positive Y drag makes them fall from the
+		-- emitter plane rather than spraying outward from its centre.
+		ash.EmissionDirection = Enum.NormalId.Bottom
+		ash.Shape = Enum.ParticleEmitterShape.Box
+		ash.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, EMBER_HOT),
+			ColorSequenceKeypoint.new(1, EMBER_COOL),
+		})
+		ash.LightEmission = 0.85
+		ash.LightInfluence = 0
+		ash.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.35),
+			NumberSequenceKeypoint.new(0.5, 0.5),
+			NumberSequenceKeypoint.new(1, 0.2),
+		})
+		-- Fade in and out so flecks appear and vanish rather than popping.
+		ash.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.12, 0.25),
+			NumberSequenceKeypoint.new(0.8, 0.35),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+			ash.Lifetime = NumberRange.new(8, 14)
+			ash.Rate = 14 -- see the RATE AND COVERAGE note above
+			ash.Speed = NumberRange.new(1, 3)
+			ash.SpreadAngle = Vector2.new(18, 18)
+			ash.Acceleration = Vector3.new(1.5, -2.2, 0.8)
+			ash.Rotation = NumberRange.new(0, 360)
+			ash.RotSpeed = NumberRange.new(-45, 45)
+			ash.Parent = emitterPart
+		end
+	end
+end
+
 function LavaEnvironment.BuildAll(parent: Instance): Folder
 	local folder = Instance.new("Folder")
 	folder.Name = "LavaEnvironment"
@@ -1441,6 +1536,7 @@ function LavaEnvironment.BuildAll(parent: Instance): Folder
 	buildGroundFissures(folder)
 	buildGroundPattern(folder)
 	buildMagmaField(folder)
+	buildAshfall(folder)
 
 	return folder
 end

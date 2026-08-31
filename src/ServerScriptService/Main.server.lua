@@ -64,6 +64,7 @@ local DataSystem = require(script.Parent.DataSystem)
 local LeaderboardSystem = require(script.Parent.LeaderboardSystem)
 local LeaderboardDisplay = require(script.Parent.LeaderboardDisplay)
 local RivalBoardSystem = require(script.Parent.RivalBoardSystem)
+local PlayerEmberEffect = require(script.Parent.PlayerEmberEffect)
 local ProgressionSystem = require(script.Parent.ProgressionSystem)
 local ShopSystem = require(script.Parent.ShopSystem)
 local RewardTrackSystem = require(script.Parent.RewardTrackSystem)
@@ -141,6 +142,10 @@ LeaderboardDisplay.Init()
 -- GameManager.Init() so its RemoteFunction exists before any player can
 -- join and walk up to the board.
 RivalBoardSystem.Init()
+-- Cosmetic ember aura on characters. Purely visual and map-gated (Lava only),
+-- so it can sit anywhere in this sequence; placed here to keep it beside the
+-- other presentation systems rather than among the data ones.
+PlayerEmberEffect.Init()
 ProgressionSystem.Init()
 ShopSystem.Init()
 RewardTrackSystem.Init()

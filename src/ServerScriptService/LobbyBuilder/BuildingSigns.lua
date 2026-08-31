@@ -162,6 +162,26 @@ local BILLBOARD_SIZE = Vector2.new(300, 100) -- PIXELS (see above)
 local SIGN_MAX_DISTANCE = 420
 
 --[[
+	How far a player can be and still CLICK a sign to teleport.
+
+	Deliberately decoupled from SIGN_MAX_DISTANCE. Clicking used to be wired
+	as `SIGN_MAX_DISTANCE + 100`, which tied the interaction range to the
+	range at which the billboard is legible - so when the visual distance was
+	tuned down to 55 to stop headers crowding the screen, the click range
+	silently collapsed to 155 studs with it, and teleporting stopped working
+	from anywhere but right next to the building.
+
+	Those two ranges answer different questions. "How far away is this text
+	still worth drawing?" is a readability judgement. "How far away may I be
+	and still click this?" should just be: anywhere on the map.
+
+	2000 comfortably exceeds the longest sightline on any map - the usable
+	radius is ~224 studs, so the far corner-to-corner distance is under 650
+	even allowing for height - with plenty of headroom for larger maps later.
+]]
+local SIGN_CLICK_DISTANCE = 2000
+
+--[[
 	Builds one building's overhead sign + connector beam, parented into
 	`parent` (the Buildings folder). `mapId` is tagged onto the clickable
 	sign button ("MapId" attribute, alongside the existing "BuildingName")
@@ -212,29 +232,35 @@ function BuildingSigns.BuildOne(def, parent: Instance, mapId: string, exteriorTo
 		parent = parent,
 	})
 
-	BuildingSigns.MakeTeleportTarget(anchor, def.name, mapId, SIGN_MAX_DISTANCE + 100)
+	BuildingSigns.MakeTeleportTarget(anchor, def.name, mapId, SIGN_CLICK_DISTANCE)
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "BuildingSignBillboard"
 	billboard.Adornee = anchor
 	billboard.Size = UDim2.fromOffset(BILLBOARD_SIZE.X, BILLBOARD_SIZE.Y)
 	--[[
-		AlwaysOnTop is TRUE so the header stays readable even when a wall, a
-		screen, a decorative prop or an effect passes between the camera and
-		the sign - explicitly requested, and the reason it is safe now is that
-		the one case where an always-visible header WAS a problem (covering the
-		central MATHARENA board during a question) is handled directly:
-		GameplayCameraController disables these billboards for the whole
-		Practice/Competitive question view and re-enables them on release.
+		AlwaysOnTop is FALSE.
 
-		So the two requirements are no longer in tension. Depth testing is not
-		doing the hiding; the gameplay camera is.
+		It was briefly set true, to satisfy "stay readable even when a wall or a
+		screen passes in front". That turned out to be actively broken: with
+		AlwaysOnTop = true these billboards render as NOTHING AT ALL - not
+		occluded, not dimmed, simply absent.
 
-		Clickability is unaffected either way - the teleport is owned by the
-		ClickDetector on the anchor Part (see MakeTeleportTarget), which
-		raycasts against real geometry and does not depend on GUI depth.
+		Verified by A/B test on the Lava map, camera parked 90 studs directly in
+		front of the Shop sign anchor, changing one property at a time:
+			Size 200x66, AoT false, dist 100  -> renders
+			Size 300x100, AoT false, dist 100 -> renders, visibly larger
+			Size 300x100, AoT TRUE,  dist 100 -> INVISIBLE
+		So the size increase is fine and AlwaysOnTop alone is the cause.
+
+		Nothing is lost by turning it off. The reason AlwaysOnTop was wanted -
+		stopping headers covering the central board during a question - is
+		already handled properly by GameplayCameraController, which disables
+		these billboards outright for the whole Practice/Competitive question
+		view and re-enables them on release. Depth testing is not doing that
+		job, so it costs nothing to leave it on.
 	]]
-	billboard.AlwaysOnTop = true
+	billboard.AlwaysOnTop = false
 	billboard.MaxDistance = SIGN_MAX_DISTANCE
 	billboard.LightInfluence = 0
 	billboard.Parent = anchor

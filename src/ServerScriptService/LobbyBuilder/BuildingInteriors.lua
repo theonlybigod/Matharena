@@ -850,12 +850,29 @@ local function buildGroundSkirt(opts)
 				-- shadow ring rather than as ground the mound grows out of.
 				material = if opts.materialPicker then opts.materialPicker(rng, 0.04) else opts.material,
 				color = if opts.colorPicker then opts.colorPicker(rng, 0.04) else opts.color,
-				canCollide = false,
-				-- The skirt is a very shallow band lying flat ON the ground at
-				-- the foot of the shell (see this function's own doc comment).
-				-- A ~2-stud-thick piece flush with the floor casts essentially
-				-- no visible shadow, while the shell above it already casts the
-				-- ground shadow that grounds the whole structure.
+				--[[
+					SOLID. The apron used to be non-collidable on the reasoning that
+					a shallow band at the foot of the mound would be a trip hazard.
+					In practice it read as a phase-through: the apron is visibly a
+					raised rocky lip around each volcano, and walking straight
+					through it looked broken.
+
+					Safe to make solid, measured rather than assumed: on the Lava map
+					the apron's top surfaces sit at Y 5.2-6.8 against a walkable floor
+					at Y 4, i.e. a step of 1.2-2.8 studs. A Roblox character's default
+					MaxSlopeAngle/hip height clears a step of that size, so players
+					walk up onto it rather than being stopped dead at the foot of
+					every building.
+
+					The entrance stays clear regardless: buildGroundSkirt applies the
+					same width-corrected entrance notch as the shell (see the
+					`doorWidth + pieceWidth` check above), so no apron piece is
+					created across the doorway approach.
+				]]
+				canCollide = true,
+				-- Shadow casting stays OFF, unchanged: a ~2-stud band flush with
+				-- the floor casts essentially no visible shadow, and the shell
+				-- above already grounds the structure. Only collision changed.
 				castShadow = false,
 				parent = model,
 			})
@@ -1283,8 +1300,11 @@ local function addIceAgeDome(def, model: Model)
 		name = "DomeKeystone",
 		size = Vector3.new(5.5, 3.4, 5.5),
 		position = basePos + Vector3.new(0, peakY - 1, 0),
-		material = Enum.Material.Snow,
-		color = Color3.fromRGB(240, 246, 251),
+		-- Ice, not Snow: the keystone caps the dome and is the most visible
+		-- single piece of it, so leaving it as near-white Snow kept the whole
+		-- structure reading as an igloo no matter what the shell below did.
+		material = Enum.Material.Ice,
+		color = Color3.fromRGB(158, 205, 230),
 		shape = Enum.PartType.Ball,
 		canCollide = false,
 		parent = model,
@@ -1314,6 +1334,13 @@ local function addIceAgeDome(def, model: Model)
 				name = "SnowLayer",
 				size = Vector3.new(arcSpacing * SHELL_OVERLAP, 1.5, 1.1),
 				cframe = CFrame.new(pos) * CFrame.Angles(0, angle, 0) * CFrame.Angles(tiltX, 0, 0),
+				--[[
+					This one stays SNOW deliberately. It is the thin layer lying ON
+					TOP of the dome, and it is what makes the ice beneath read as
+					ice: a surface only looks icy in contrast to something matte and
+					whiter next to it. Convert this too and the whole dome flattens
+					into one uniform blue mass.
+				]]
 				material = Enum.Material.Snow,
 				color = Color3.fromRGB(242, 247, 252),
 				canCollide = false,
@@ -1335,8 +1362,11 @@ local function addIceAgeDome(def, model: Model)
 		pieceTarget = 7,
 		thickness = 2,
 		namePrefix = "SnowApron",
-		material = Enum.Material.Snow,
-		color = Color3.fromRGB(238, 244, 250),
+		-- Ice at the foot too, matching the shell. Slightly paler than the
+		-- dome above so the base still reads as a distinct ledge rather than
+		-- melting into the wall.
+		material = Enum.Material.Ice,
+		color = Color3.fromRGB(172, 212, 234),
 		doorWidth = doorWidth,
 	})
 

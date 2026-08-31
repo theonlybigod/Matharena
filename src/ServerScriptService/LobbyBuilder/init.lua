@@ -251,6 +251,26 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?, enableS
 
 	applyMapTransform(root, def)
 
+	--[[
+		Ice Age mountain range, built AFTER applyMapTransform and only for that
+		map. It is Terrain, not BaseParts, so the transform above cannot move
+		it - it has to be written at the final world position directly. That is
+		why this sits here rather than in the themed-environment dispatch with
+		every other backdrop.
+	]]
+	if def.themeId == "IceAge" then
+		local worldOrigin = def.origin + Vector3.new(0, MapConfig.GROUND_ELEVATION, 0)
+		local ok, tiles = pcall(IceAgeEnvironment.BuildTerrainMountains, worldOrigin)
+		if ok then
+			print(("[LobbyBuilder] IceAge terrain range written (%s tiles)."):format(tostring(tiles)))
+		else
+			-- Terrain writes can fail on region/limit errors; the map is still
+			-- perfectly playable without the backdrop, so warn rather than
+			-- aborting the whole build.
+			warn("[LobbyBuilder] IceAge terrain range failed: " .. tostring(tiles))
+		end
+	end
+
 	root:SetAttribute("MathArenaBuilt", true)
 	root:SetAttribute("MathArenaBuiltAt", DateTime.now().UnixTimestamp)
 	root:SetAttribute("MathArenaMapId", def.id)

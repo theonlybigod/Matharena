@@ -485,21 +485,43 @@ local ICE_AGE: Theme = {
 	groundDesignMidColor = Color3.fromRGB(160, 225, 255),
 	groundDesignSpokeColor = Color3.fromRGB(160, 225, 255),
 
-	buildingWallMaterial = Enum.Material.Glacier,
-	buildingExteriorWallColor = Color3.fromRGB(225, 235, 242), -- packed-snow/igloo walls
-	buildingInteriorWallColor = Color3.fromRGB(205, 218, 228),
-	buildingInteriorFloorColor = Color3.fromRGB(195, 210, 222),
-	buildingCeilingColor = Color3.fromRGB(215, 228, 238),
-	buildingRoofCapColor = Color3.fromRGB(210, 224, 235),
+	--[[
+		ICE, NOT SNOW.
+
+		The building surfaces were Glacier in near-white packed-snow tones
+		(225,235,242 walls, 210-215 roof/ceiling), which read as igloos - snow
+		piled up rather than ice. Everything below is retuned toward glacial
+		ice: the Ice material instead of Glacier for the walls, and colours
+		pulled well down in brightness and hard toward cyan-blue.
+
+		The brightness drop matters as much as the hue. Near-white surfaces read
+		as snow whatever their material, because snow is what white-and-matte
+		looks like; ice reads as ice because it is DARKER and more saturated
+		than the snow lying on it, with the light coming through rather than
+		off it.
+
+		Glacier is kept for the floor - underfoot is genuinely a packed sheet
+		with snow over it, and a fully transparent-looking floor would read as
+		standing on nothing.
+	]]
+	buildingWallMaterial = Enum.Material.Ice,
+	buildingExteriorWallColor = Color3.fromRGB(150, 198, 224), -- glacial ice, not packed snow
+	buildingInteriorWallColor = Color3.fromRGB(132, 178, 205),
+	buildingInteriorFloorColor = Color3.fromRGB(146, 186, 208),
+	buildingCeilingColor = Color3.fromRGB(138, 186, 214),
+	buildingRoofCapColor = Color3.fromRGB(126, 176, 208),
 	buildingAccentMaterial = Enum.Material.Neon,
 	buildingAccentColor = Color3.fromRGB(140, 210, 255),
 	-- Frosted ice panes instead of glass - a genuine different material
 	-- (Ice, not Glass) from every other theme's windows.
+	-- Deeper, more saturated ice for the panes now that the walls themselves
+	-- are ice - at the old near-white the windows were lighter than the wall
+	-- around them, which is backwards for a translucent pane.
 	buildingGlassMaterial = Enum.Material.Ice,
-	buildingGlassColor = Color3.fromRGB(200, 228, 245),
-	buildingGlassTransparency = 0.25,
-	buildingHeaderColor = Color3.fromRGB(200, 214, 226),
-	buildingCanopyColor = Color3.fromRGB(200, 214, 226),
+	buildingGlassColor = Color3.fromRGB(168, 216, 240),
+	buildingGlassTransparency = 0.35,
+	buildingHeaderColor = Color3.fromRGB(120, 168, 200),
+	buildingCanopyColor = Color3.fromRGB(120, 168, 200),
 	-- Frost-covered metal fixtures - a genuine material difference from
 	-- every other theme's interior furniture.
 	buildingFurnitureMaterial = Enum.Material.Metal,
