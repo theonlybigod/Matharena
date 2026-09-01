@@ -269,6 +269,16 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?, enableS
 			-- aborting the whole build.
 			warn("[LobbyBuilder] IceAge terrain range failed: " .. tostring(tiles))
 		end
+	elseif def.themeId == "UnderTheSea" then
+		-- Same reasoning as the IceAge branch: the reef is Terrain, so it has
+		-- to be written at the final world position after applyMapTransform.
+		local worldOrigin = def.origin + Vector3.new(0, MapConfig.GROUND_ELEVATION, 0)
+		local ok, tiles = pcall(UnderTheSeaEnvironment.BuildTerrainReef, worldOrigin)
+		if ok then
+			print(("[LobbyBuilder] UnderTheSea terrain reef written (%s tiles)."):format(tostring(tiles)))
+		else
+			warn("[LobbyBuilder] UnderTheSea terrain reef failed: " .. tostring(tiles))
+		end
 	end
 
 	root:SetAttribute("MathArenaBuilt", true)

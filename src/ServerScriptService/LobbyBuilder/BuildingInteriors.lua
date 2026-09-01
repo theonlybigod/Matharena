@@ -3608,10 +3608,125 @@ local function buildChair(model: Model, position: Vector3, yaw: number, name: st
 	end
 end
 
+--[[
+	FEATURE SCREEN.
+
+	The single large display that IS each building's interior.
+
+	Every lobby building was previously furnished with props - shelves,
+	counters, monitor banks, desks, pedestals - none of which did anything.
+	The rooms are now deliberately EMPTY except for one big screen on the back
+	wall carrying that building's one feature, plus seating only where a
+	player actually needs to sit and read.
+
+	Sized from the room rather than fixed, so it fills the back wall on every
+	building regardless of footprint, and mounted low enough to be readable
+	standing in the doorway.
+
+	The returned part is tagged, which is how the client controllers find it
+	(see RivalBoardController, TutorialScreenController, ShopFeaturedController).
+	The SurfaceGui itself is built client-side; this is just the surface.
+]]
+local function buildFeatureScreen(def, model: Model, partName: string, tagName: string): BasePart
+	local basePos = def.position
+	local halfZ = def.size.Y / 2
+
+	-- Fill the wall, leaving a margin so the frame never clips the corners.
+	local width = math.min(def.size.X - 6, 30)
+	local height = math.min(def.height - 7, 16)
+	-- Centre it a little above eye level: readable from the doorway, and clear
+	-- of any seating in front of it.
+	local centreY = height / 2 + 4
+	local wallZ = -halfZ + WALL_THICKNESS + 0.4
+
+	local screen = PartUtils.CreatePart({
+		name = partName,
+		size = Vector3.new(width, height, 0.5),
+		position = basePos + Vector3.new(0, centreY, wallZ),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(14, 16, 22),
+		canCollide = false,
+		parent = model,
+	})
+	CollectionService:AddTag(screen, tagName)
+
+	-- Thin lit surround, so the panel reads as a powered display rather than
+	-- a dark rectangle painted on the wall.
+	PartUtils.CreatePart({
+		name = partName .. "Frame",
+		size = Vector3.new(width + 1, height + 1, 0.3),
+		position = basePos + Vector3.new(0, centreY, wallZ - 0.25),
+		material = ACCENT_MATERIAL,
+		color = ACCENT_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+
+	return screen
+end
+
+--[[
+	SHOP: Featured Item of the Day.
+
+	Stripped to the screen, a full-height preview column showing the featured
+	item's colour at scale, and the purchase terminal. The shelves, aisle
+	islands, counter, register and display cases are gone - they were scenery
+	around a terminal, and the catalogue itself lives in the Shop UI.
+]]
 function BuildingInteriors.FurnishShop(def, model: Model)
 	local basePos = def.position
 	local halfX = def.size.X / 2
 	local halfZ = def.size.Y / 2
+
+	if not CUSTOM_EXTERIOR_THEMES[CURRENT_THEME_ID] then
+		addShopIdentity(def, model)
+	end
+
+	buildFeatureScreen(def, model, "FeaturedItemBoard", "FeaturedItemBoard")
+
+	--[[
+		Preview column: a plinth with a tall tinted shaft, recoloured by the
+		client to the featured item's previewColor. This is the one prop that
+		earns its place - the bottom-bar Shop shows colours as small swatches,
+		and seeing one at full height is the reason to walk in.
+	]]
+	PartUtils.CreateDisc({
+		name = "FeaturedPreviewBase",
+		diameter = 5,
+		thickness = 0.8,
+		position = basePos + Vector3.new(halfX * 0.45, 0.4, -halfZ * 0.15),
+		material = FURNITURE_MATERIAL,
+		color = FURNITURE_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+	local shaft = PartUtils.CreatePart({
+		name = "FeaturedPreviewShaft",
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(9, 3, 3),
+		cframe = CFrame.new(basePos + Vector3.new(halfX * 0.45, 5.3, -halfZ * 0.15))
+			* CFrame.Angles(0, 0, math.rad(90)),
+		material = ACCENT_MATERIAL,
+		color = ACCENT_COLOR,
+		transparency = 0.2,
+		canCollide = false,
+		parent = model,
+	})
+	CollectionService:AddTag(shaft, "FeaturedPreviewShaft")
+
+	-- Purchase terminal. Bare (no dais/arch/header) - the screen is the
+	-- room's focus and an archway would compete with it.
+	terminal(model, basePos + Vector3.new(-halfX * 0.45, 0, -halfZ * 0.15), "ShopTerminalPrompt", "Open Shop", "Shop", true)
+end
+
+--[==[ SUPERSEDED - the old Shop fit-out (shelves, aisle islands, counter,
+	register, display cases and goods). Removed as part of the blank-room
+	pass: none of it was interactive, and the room's purpose is now the
+	featured-item screen above.
+
+	A leveled long-bracket is used because the block below contains its own
+	long comments, and Lua long comments do not nest.
+
 	-- Deterministic per-building, so the shop's stock is identical on every
 	-- rebuild and on every map that has one - same seeding convention the
 	-- exterior builders use.
@@ -3841,6 +3956,8 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 7.5), "ShopTerminalPrompt", "Open Shop", "Shop")
 end
 
+]==]
+
 --[[
 	DailyRewards identity: a stepped, trophy-like tower rising off the
 	roof - three shrinking tiers with neon seams, reading as "progression/
@@ -3891,10 +4008,82 @@ end
 	the progression wall + Rewards Terminal against the back wall. Side-
 	wall milestone screens flank the whole walk.
 ]]
+--[[
+	DAILY REWARDS: Streak Vault.
+
+	The screen carries the full seven-day claim ring, and the seven plinths
+	below are that ring made PHYSICAL - a reward path you walk along, each
+	lit by state (collected / claim now / upcoming) by the client.
+
+	The path is the one thing kept from the old fit-out's intent: it is the
+	building's actual content, not decoration. The milestone wall panels,
+	pedestals and trophies are gone - they were blank glowing squares and
+	props that displayed nothing.
+]]
 function BuildingInteriors.FurnishRewards(def, model: Model)
 	local basePos = def.position
 	local halfX = def.size.X / 2
 	local halfZ = def.size.Y / 2
+
+	if not CUSTOM_EXTERIOR_THEMES[CURRENT_THEME_ID] then
+		addRewardsIdentity(def, model)
+	end
+
+	buildFeatureScreen(def, model, "StreakVaultBoard", "StreakVaultBoard")
+
+	--[[
+		THE STREAK PATH. Seven plinths in a single line running from the door
+		toward the screen, so you walk your own streak on the way in.
+
+		Offset to one side of the centre aisle so the walk to the terminal is
+		never blocked, and kept low (3.4 tall) so they never obstruct the
+		screen from anywhere in the room.
+	]]
+	local DAYS = 7
+	for day = 1, DAYS do
+		local t = (day - 1) / (DAYS - 1)
+		-- Front (door side) to back (screen side).
+		local z = halfZ * 0.62 - t * (halfZ * 1.3)
+		local x = -halfX * 0.5
+
+		local plinth = PartUtils.CreatePart({
+			name = ("StreakDayPlinth%d"):format(day),
+			size = Vector3.new(3, 3.4, 3),
+			position = basePos + Vector3.new(x, 1.7, z),
+			material = FURNITURE_MATERIAL,
+			color = FURNITURE_COLOR,
+			parent = model,
+		})
+		plinth:SetAttribute("StreakDay", day)
+		CollectionService:AddTag(plinth, "StreakDayPlinth")
+
+		-- Lit cap, recoloured per state by the client.
+		local cap = PartUtils.CreateDisc({
+			name = ("StreakDayCap%d"):format(day),
+			diameter = 2.6,
+			thickness = 0.45,
+			position = basePos + Vector3.new(x, 3.6, z),
+			material = ACCENT_MATERIAL,
+			color = ACCENT_COLOR,
+			canCollide = false,
+			parent = model,
+		})
+		cap:SetAttribute("StreakDay", day)
+		CollectionService:AddTag(cap, "StreakDayCap")
+	end
+
+	-- Claim terminal, opposite the path.
+	terminal(model, basePos + Vector3.new(halfX * 0.5, 0, -halfZ * 0.2), "DailyRewardsTerminalPrompt", "Claim Daily Reward", "Daily Rewards", true)
+end
+
+--[===[ SUPERSEDED - the old Daily Rewards fit-out (milestone wall panels,
+	centre pedestals, trophies and the blank ProgressionWall). Replaced by the
+	streak screen and the physical streak path above.
+
+	Level-3 bracket (--[===[ ... ) because the block below ALREADY contains a
+	level-2 comment from an earlier cleanup pass; a level-2 opener here would
+	be closed by it and leave real code exposed.
+
 
 	--[[
 		STREAK VAULT - the reason to walk into this building.
@@ -4093,6 +4282,8 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 	terminal(model, basePos + Vector3.new(0, 0, -halfZ + 5), "DailyRewardsTerminalPrompt", "Claim Daily Reward", "Daily Rewards", true)
 end
 
+]===]
+
 --[[
 	Statistics identity: a tall vertical "data spire" rising well above
 	the roofline with stacked neon rings - reads as "data/analytics" from
@@ -4151,10 +4342,37 @@ end
 	stat-screen wall + Statistics Terminal against the back wall. Side
 	monitor screens flank the room.
 ]]
+--[[
+	STATISTICS: Rival Board.
+
+	The screen and two seats to read it from. Nothing else.
+
+	The old fit-out - six wall monitors, two DataStation desks with their own
+	screens, and a full-wall blank StatScreen - displayed nothing at all. The
+	Rival Board is the room's entire purpose, so it gets the whole back wall.
+]]
 function BuildingInteriors.FurnishStatistics(def, model: Model)
 	local basePos = def.position
 	local halfX = def.size.X / 2
 	local halfZ = def.size.Y / 2
+
+	if not CUSTOM_EXTERIOR_THEMES[CURRENT_THEME_ID] then
+		addStatisticsIdentity(def, model)
+	end
+
+	buildFeatureScreen(def, model, "RivalBoard", "RivalBoard")
+
+	-- Two seats facing the screen (yaw 180 = facing -Z, the back wall).
+	-- Set well back so a seated player has the whole panel in view.
+	for _, seatX in ipairs({ -3.5, 3.5 }) do
+		buildChair(model, basePos + Vector3.new(seatX, 0, halfZ * 0.3), 180, "ViewingSeat")
+	end
+end
+
+--[==[ SUPERSEDED - the old Statistics fit-out (wall monitors, DataStation
+	desks and the blank full-wall StatScreen). None of it displayed anything;
+	the Rival Board above is the room's content.
+
 
 	--[[
 		RIVAL BOARD - the reason to actually walk into this building.
@@ -4235,6 +4453,8 @@ function BuildingInteriors.FurnishStatistics(def, model: Model)
 	]]
 end
 
+]==]
+
 --[[
 	Tutorial identity: a friendly rounded-corner turret rising above the
 	roof with a welcoming beacon on top - softer/rounder than the other
@@ -4291,10 +4511,68 @@ end
 	seating -> the Tutorial Terminal against the back wall, framed by wall
 	info-panels.
 ]]
+--[[
+	TUTORIAL: lecture room.
+
+	The screen, two rows of seats facing it, and the paging pads. This is the
+	one building where sitting down matters - the content is seven topics you
+	read through at your own pace, so it is laid out as a small lecture room.
+
+	The welcome desk, demo-question station and blank info panels are gone.
+]]
 function BuildingInteriors.FurnishTutorial(def, model: Model)
 	local basePos = def.position
 	local halfX = def.size.X / 2
 	local halfZ = def.size.Y / 2
+
+	if not CUSTOM_EXTERIOR_THEMES[CURRENT_THEME_ID] then
+		addTutorialIdentity(def, model)
+	end
+
+	local screen = buildFeatureScreen(def, model, "TutorialScreen", "TutorialScreen")
+	local screenWidth = screen.Size.X
+	local screenY = screen.Position.Y - basePos.Y
+
+	--[[
+		Paging pads, one either side of the screen at standing height.
+
+		Physical click targets rather than GUI buttons, for the same reason the
+		building signs use them: a transparent GuiButton over world space
+		swallows clicks meant for anything behind it.
+	]]
+	for _, pad in
+		ipairs({
+			{ name = "TutorialPrevButton", x = -(screenWidth / 2 + 2), tag = "TutorialPrev" },
+			{ name = "TutorialNextButton", x = screenWidth / 2 + 2, tag = "TutorialNext" },
+		})
+	do
+		local part = PartUtils.CreatePart({
+			name = pad.name,
+			size = Vector3.new(2.8, 2.8, 0.6),
+			position = basePos + Vector3.new(pad.x, screenY - 2, -halfZ + WALL_THICKNESS + 0.5),
+			material = ACCENT_MATERIAL,
+			color = ACCENT_COLOR,
+			canCollide = false,
+			parent = model,
+		})
+		CollectionService:AddTag(part, pad.tag)
+		local click = Instance.new("ClickDetector")
+		click.MaxActivationDistance = 60
+		click.Parent = part
+	end
+
+	-- Two rows of three, facing the screen on the -Z wall.
+	for rowIndex, rowZ in ipairs({ -halfZ * 0.05, halfZ * 0.42 }) do
+		for _, seatX in ipairs({ -4.5, 0, 4.5 }) do
+			buildChair(model, basePos + Vector3.new(seatX, 0, rowZ), 180, ("LectureSeatR%d"):format(rowIndex))
+		end
+	end
+end
+
+--[==[ SUPERSEDED - the old Tutorial fit-out (welcome desk, demo question
+	station, cube chairs and blank info panels). Replaced by the lecture room
+	above.
+
 
 	if not CUSTOM_EXTERIOR_THEMES[CURRENT_THEME_ID] then
 		addTutorialIdentity(def, model)
@@ -4384,6 +4662,8 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 		a third route to content already available two other ways.
 	]]
 end
+
+]==]
 
 return BuildingInteriors
 
