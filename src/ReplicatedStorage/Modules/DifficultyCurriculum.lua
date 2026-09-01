@@ -554,10 +554,29 @@ end
 	scale - a long elimination on Easy Mode must never drift into Hard Mode
 	numbers, which is the same guarantee the old AdvanceRoundForTier
 	ceiling provided.
+
+	MEMOISED. The result is a pure function of (difficulty, round) - every
+	input is an anchor table interpolated at a fixed point, with no
+	randomness - so there are only 50 possible answers in the whole game.
+	Resolving all twelve of Master's forms took ~0.007ms and allocated a
+	dozen tables on EVERY question; caching makes repeat lookups a single
+	table index and removes that allocation churn from the match loop
+	entirely.
+
+	The cached tables are treated as READ-ONLY by callers. PickForm returns
+	one of them directly, and Forms.lua only ever reads from it.
 ]]
+local roundFormsCache: { [string]: { ResolvedForm } } = {}
+
 function DifficultyCurriculum.GetRoundForms(difficultyId: string?, round: number): { ResolvedForm }
 	local def = DifficultyCurriculum.Get(difficultyId)
 	local r = math.clamp(round, 1, DifficultyCurriculum.ROUNDS_PER_DIFFICULTY)
+
+	local cacheKey = def.id .. ":" .. r
+	local cached = roundFormsCache[cacheKey]
+	if cached then
+		return cached
+	end
 
 	local resolved: { ResolvedForm } = {}
 	for _, spec in ipairs(def.forms) do
@@ -607,8 +626,15 @@ function DifficultyCurriculum.GetRoundForms(difficultyId: string?, round: number
 		end
 	end
 
+	roundFormsCache[cacheKey] = resolved
 	return resolved
 end
+
+--[[
+	Total weight per resolved round, cached alongside the forms so PickForm
+	does not re-sum the list on every question.
+]]
+local roundWeightCache: { [string]: number } = {}
 
 --[[
 	Picks one form for this round, weighted. Returns nil only if a round
@@ -622,9 +648,16 @@ function DifficultyCurriculum.PickForm(difficultyId: string?, round: number): Re
 		return nil
 	end
 
-	local total = 0
-	for _, form in ipairs(forms) do
-		total += form.weight
+	local def = DifficultyCurriculum.Get(difficultyId)
+	local cacheKey = def.id .. ":" .. math.clamp(round, 1, DifficultyCurriculum.ROUNDS_PER_DIFFICULTY)
+
+	local total = roundWeightCache[cacheKey]
+	if not total then
+		total = 0
+		for _, form in ipairs(forms) do
+			total += form.weight
+		end
+		roundWeightCache[cacheKey] = total
 	end
 
 	local roll = math.random() * total

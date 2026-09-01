@@ -242,12 +242,10 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?, enableS
 			material = theme.floorMaterial,
 		})
 	end
-	-- CentralBoard was manually deleted directly in Studio - no longer
-	-- built here so a future Rebuild() reproduces that deletion instead of
-	-- silently re-creating it. CentralBoard.lua/CentralBoardConfig.lua
-	-- still physically exist on disk (unused dead code) - I don't have a
-	-- file-delete capability, so removing them from disk entirely needs a
-	-- manual step outside this pipeline if you want them gone for good.
+	-- CentralBoard was manually deleted directly in Studio and is no longer
+	-- built here, so a future Rebuild() reproduces that deletion instead of
+	-- silently re-creating it. CentralBoard.lua and CentralBoardConfig.lua
+	-- have since been removed from the source tree entirely.
 
 	applyMapTransform(root, def)
 
@@ -270,14 +268,14 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?, enableS
 			warn("[LobbyBuilder] IceAge terrain range failed: " .. tostring(tiles))
 		end
 	elseif def.themeId == "UnderTheSea" then
-		-- Same reasoning as the IceAge branch: the reef is Terrain, so it has
+		-- Same reasoning as the IceAge branch: the dune field is Terrain, so it has
 		-- to be written at the final world position after applyMapTransform.
 		local worldOrigin = def.origin + Vector3.new(0, MapConfig.GROUND_ELEVATION, 0)
-		local ok, tiles = pcall(UnderTheSeaEnvironment.BuildTerrainReef, worldOrigin)
+		local ok, tiles = pcall(UnderTheSeaEnvironment.BuildTerrainDunes, worldOrigin)
 		if ok then
-			print(("[LobbyBuilder] UnderTheSea terrain reef written (%s tiles)."):format(tostring(tiles)))
+			print(("[LobbyBuilder] UnderTheSea terrain dunes written (%s tiles)."):format(tostring(tiles)))
 		else
-			warn("[LobbyBuilder] UnderTheSea terrain reef failed: " .. tostring(tiles))
+			warn("[LobbyBuilder] UnderTheSea terrain dunes failed: " .. tostring(tiles))
 		end
 	end
 

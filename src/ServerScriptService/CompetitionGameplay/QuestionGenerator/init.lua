@@ -22,21 +22,9 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local GameplayConfig = require(ReplicatedStorage.Modules.GameplayConfig)
 local DifficultyCurriculum = require(ReplicatedStorage.Modules.DifficultyCurriculum)
 
 local Forms = require(script.Forms)
-
-local BasicArithmetic = require(script.BasicArithmetic)
-local MixedOperations = require(script.MixedOperations)
-local OrderOfOperations = require(script.OrderOfOperations)
-local Percentages = require(script.Percentages)
-local Fractions = require(script.Fractions)
-local Roots = require(script.Roots)
-local Algebra = require(script.Algebra)
-local Decimals = require(script.Decimals)
-local Exponents = require(script.Exponents)
-local Geometry = require(script.Geometry)
 
 export type Question = {
 	category: string,
@@ -52,39 +40,6 @@ local QuestionGenerator = {}
 
 local MAX_RETRIES = 25
 local usedQuestionTexts: { [string]: boolean } = {}
-
-local generatorsByCategory: { [string]: (tier: string?) -> any } = {
-	BasicArithmetic = function(tier: string?)
-		return BasicArithmetic.Generate(tier or "single")
-	end,
-	MixedOperations = function()
-		return MixedOperations.Generate()
-	end,
-	OrderOfOperations = function()
-		return OrderOfOperations.Generate()
-	end,
-	Percentages = function()
-		return Percentages.Generate()
-	end,
-	Fractions = function()
-		return Fractions.Generate()
-	end,
-	SquareRoots = function()
-		return Roots.Generate()
-	end,
-	Algebra = function()
-		return Algebra.Generate()
-	end,
-	Decimals = function()
-		return Decimals.Generate()
-	end,
-	Exponents = function()
-		return Exponents.Generate()
-	end,
-	Geometry = function()
-		return Geometry.Generate()
-	end,
-}
 
 --[[
 	Clears the per-match "no repeats" tracking. Call once at the start of
@@ -112,17 +67,38 @@ end
 	client displays and what the self-test groups by.
 ]]
 function QuestionGenerator.Generate(difficultyId: string?, round: number): Question
+	--[[
+		Repeat avoidance, bounded.
+
+		Some rounds have a genuinely small possibility space - Easy round 1 is
+		two operands from 0-10, which is exactly 121 distinct questions. Once
+		every one has been seen, an unbounded used-set made every subsequent
+		call burn all 25 retries before repeating anyway: ~20x the cost for no
+		benefit, and it degraded further the longer a match ran.
+
+		Exhausting the retries is therefore treated as the signal that the
+		pool is spent. The set is cleared and a fresh cycle begins, which
+		restores flat cost AND gives better variety than repeating at random -
+		the player sees the whole pool again before anything comes back.
+	]]
 	local raw, form
+	local exhausted = true
 
 	for _ = 1, MAX_RETRIES do
 		form = DifficultyCurriculum.PickForm(difficultyId, round)
 		if not form then
+			exhausted = false
 			break
 		end
 		raw = Forms.Build(form)
 		if raw and not usedQuestionTexts[raw.text] then
+			exhausted = false
 			break
 		end
+	end
+
+	if exhausted then
+		table.clear(usedQuestionTexts)
 	end
 
 	-- Curriculum bug or an unknown form id: fall back to the simplest
@@ -155,75 +131,6 @@ end
 ]]
 function QuestionGenerator.CheckAnswer(question: Question, submitted: number): boolean
 	return math.abs(submitted - question.answer) <= question.tolerance
-end
-
--- Independently recomputes the expected answer from a question's
--- debugOperands, without reusing the generator's own formula verbatim -
--- used only by RunSelfTest as a cross-check.
-local function recomputeExpected(question: Question): number?
-	local d = question.debugOperands
-	if not d then
-		return nil
-	end
-
-	local category = question.category
-	if category == "BasicArithmetic" then
-		if d.op == "+" then
-			return d.a + d.b
-		elseif d.op == "-" then
-			return d.a - d.b
-		elseif d.op == "*" then
-			return d.a * d.b
-		else
-			return d.a / d.b
-		end
-	elseif category == "MixedOperations" then
-		local function apply(op, x, y)
-			if op == "+" then
-				return x + y
-			elseif op == "-" then
-				return x - y
-			else
-				return x * y
-			end
-		end
-		return apply(d.op2, apply(d.op1, d.a, d.b), d.c)
-	elseif category == "OrderOfOperations" then
-		local product = d.b * d.c
-		return (d.op == "+") and (d.a + product) or (d.a - product)
-	elseif category == "Percentages" then
-		return (d.percent * d.y) / 100
-	elseif category == "Fractions" then
-		return (d.n * d.y) / d.d
-	elseif category == "SquareRoots" then
-		return d.root
-	elseif category == "Algebra" then
-		if d.form == "add" then
-			return d.b - d.a
-		elseif d.form == "sub" then
-			return d.b + d.a
-		elseif d.form == "mul" then
-			return d.b / d.m
-		else
-			return d.m * d.q
-		end
-	elseif category == "Decimals" then
-		return (d.op == "+") and (d.a + d.b) or (d.a - d.b)
-	elseif category == "Exponents" then
-		return d.base ^ d.exponent
-	elseif category == "Geometry" then
-		if d.shape == "rectangleArea" then
-			return d.length * d.width
-		elseif d.shape == "rectanglePerimeter" then
-			return 2 * (d.length + d.width)
-		elseif d.shape == "compoundRectangleArea" then
-			return (d.lengthA * d.widthA) + (d.lengthB * d.widthB)
-		else
-			return (d.base * d.height) / 2
-		end
-	end
-
-	return nil
 end
 
 --[[

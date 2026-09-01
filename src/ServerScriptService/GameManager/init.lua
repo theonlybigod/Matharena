@@ -18,6 +18,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Modules.Config)
 local ProgressionSystem = require(script.Parent.ProgressionSystem)
 local MatchSystem = require(script.Parent.MatchSystem)
+local CompetitionGameplay = require(script.Parent.CompetitionGameplay)
 
 local GameManager = {}
 
@@ -26,6 +27,11 @@ local initialized = false
 local function onPlayerAdded(player: Player)
 	print(("[GameManager] %s joined %s"):format(player.Name, Config.GAME_NAME))
 	ProgressionSystem.SetupPlayer(player)
+
+	-- Someone arriving mid-match cannot join the round in progress, so offer
+	-- them the Spectate button straight away. No-ops when no match is
+	-- running, so GameManager stays out of match-state bookkeeping.
+	CompetitionGameplay.OfferSpectateIfMatchRunning(player)
 end
 
 local function onPlayerRemoving(player: Player)

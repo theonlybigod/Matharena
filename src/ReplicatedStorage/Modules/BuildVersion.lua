@@ -57,6 +57,18 @@ local BuildVersion = {}
 --       (difficulty Places no longer depend on MapsConfig.isDefault),
 --       and the per-map themed Arena embedded at its map's own origin
 --       (ArenaBuilder.BuildForMap) instead of one shared arena at 0,0,0.
-BuildVersion.CURRENT = 2
+--   3 = building interiors pass: the Option B fit-out (feature screen per
+--       building, streak path, preview column, terminals) plus the
+--       Tutorial room's three-wall lecture layout - left wall for the
+--       topic description, centre for the map image and clip, right for
+--       tips - and the Under the Sea Tutorial building regrouped into a
+--       proper model instead of loose parts in the Buildings folder.
+--   4 = Under the Sea exterior redesign: the barrier-reef massif and its
+--       2,600-colony coral forest are gone, replaced by a low sandy dune
+--       field capped at building height, a 340-stud wooden shipwreck,
+--       three submarines, coral gardens with shadows, algae, seabed
+--       habitats, and layered marine life (great white / tiger /
+--       hammerhead sharks, giant fish, belugas, humpbacks).
+BuildVersion.CURRENT = 4
 
 return BuildVersion

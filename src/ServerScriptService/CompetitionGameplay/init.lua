@@ -24,6 +24,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local GameplayConfig = require(ReplicatedStorage.Modules.GameplayConfig)
 local DifficultyCurriculum = require(ReplicatedStorage.Modules.DifficultyCurriculum)
+local DifficultyPlacesConfig = require(ReplicatedStorage.Modules.DifficultyPlacesConfig)
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
 local RewardsConfig = require(ReplicatedStorage.Modules.RewardsConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
@@ -43,6 +44,19 @@ local turnResolvedEvent = RemoteEvents.Get("TurnResolved")
 local submitAnswerEvent = RemoteEvents.Get("SubmitAnswer")
 local rosterUpdatedEvent = RemoteEvents.Get("RosterUpdated")
 local answerTypingUpdateEvent = RemoteEvents.Get("AnswerTypingUpdate")
+
+--[[
+	Tells a single client whether to show the Spectate button.
+
+	Fired in exactly two situations, both per-player rather than broadcast:
+		- the player is eliminated by a wrong answer or a timeout
+		- the player joins while a match is already in progress
+
+	Payload: { visible: boolean, glow: boolean?, reason: string? }. `glow` is
+	true only on the first appearance, which is what drives the two-second
+	highlight before the button settles into its normal look.
+]]
+local spectateAvailableEvent = RemoteEvents.Get("SpectateAvailable")
 
 local roundActive = false
 local alivePlayers: { Player } = {}
@@ -129,6 +143,12 @@ end
 local function cleanupRound()
 	turnGeneration += 1 -- invalidate any pending timeout watcher
 	roundActive = false
+
+	-- Retire the Spectate button for everyone who was offered it; the match
+	-- it belonged to is over.
+	for _, player in ipairs(Players:GetPlayers()) do
+		spectateAvailableEvent:FireClient(player, { visible = false })
+	end
 	activePlayer = nil
 	currentQuestion = nil
 	turnStartClock = nil
@@ -322,6 +342,11 @@ resolveTurn = function(isCorrect: boolean, timedOut: boolean, myGeneration: numb
 		markEliminatedInRoster(player)
 		broadcastRoster()
 		removedNow = true
+
+		-- Offer the spectate button to the player who just went out. `glow`
+		-- asks the client for the one-off two-second highlight; it is only
+		-- ever true on this first appearance, never on a later refresh.
+		spectateAvailableEvent:FireClient(player, { visible = true, glow = true, reason = "Eliminated" })
 	end
 
 	task.wait(GameplayConfig.RESOLVE_DISPLAY_SECONDS)
@@ -351,10 +376,46 @@ local function startRound()
 		Master), so the tier chooses WHICH curriculum runs, not where in a
 		common curve the match begins.
 	]]
-	local tierId = MatchSystem.GetCurrentTier()
+	--[[
+		WHICH DIFFICULTY IS THIS MATCH?
+
+		The PLACE is authoritative wherever it can answer. Each of the five
+		difficulty Places is permanently bound to one tier in
+		DifficultyPlacesConfig - the Volcano place is tier 4 and cannot be
+		anything else - whereas MatchSystem's `currentTier` is transient queue
+		state that is deliberately cleared to nil on several reset paths.
+
+		Reading the queue tier alone was therefore unsafe: any round that began
+		while no tier happened to be claimed would fall back to tier 1 and run
+		EASY questions on every place, silently. A player on the Master place
+		would get single-digit addition with no error anywhere to explain it.
+
+		The queue tier remains the fallback, which is what keeps the Hub's own
+		Arena working - GetPlaceForPlaceId returns nil there, since the Hub is
+		not one of the five destinations, so the tier the player queued for is
+		the only signal available and is the correct one to use.
+	]]
+	local myPlace = DifficultyPlacesConfig.GetPlaceForPlaceId(game.PlaceId)
+	local queueTierId = MatchSystem.GetCurrentTier()
+	local tierId = (myPlace and myPlace.tierId) or queueTierId
+
 	currentTierId = tierId
 	local difficultyDef = DifficultyCurriculum.DIFFICULTIES[tierId or 1] or DifficultyCurriculum.DIFFICULTIES[1]
 	currentDifficultyId = difficultyDef.id
+
+	if myPlace and queueTierId and queueTierId ~= myPlace.tierId then
+		-- Worth knowing about: the queue believes it is running a different
+		-- difficulty than this place is built for. The place wins, but the
+		-- mismatch means something upstream routed a player oddly.
+		warn(
+			("[CompetitionGameplay] Queue tier %d does not match this place's tier %d (%s) - using the place's."):format(
+				queueTierId,
+				myPlace.tierId,
+				myPlace.displayName
+			)
+		)
+	end
+
 	roundNumber = 1
 	turnsThisRound = 0
 	pendingRoundAdvance = false
@@ -469,6 +530,28 @@ local function onAnswerTypingUpdate(player: Player, rawText: unknown)
 		return
 	end
 	answerTypingUpdateEvent:FireAllClients(player.UserId, rawText)
+end
+
+--[[
+	A player who arrives mid-match is a spectator by definition - there is no
+	way into a round already under way - so they get the same button the
+	eliminated get, glowing once on arrival.
+
+	Called from GameManager's PlayerAdded path. Safe to call when no match is
+	running: it simply does nothing, so the caller does not need to know the
+	match state.
+]]
+function CompetitionGameplay.OfferSpectateIfMatchRunning(player: Player)
+	if not roundActive then
+		return
+	end
+	-- Someone already in the alive list is a contestant, not a spectator.
+	for _, alive in ipairs(alivePlayers) do
+		if alive == player then
+			return
+		end
+	end
+	spectateAvailableEvent:FireClient(player, { visible = true, glow = true, reason = "JoinedMidMatch" })
 end
 
 function CompetitionGameplay.Init()
