@@ -23,6 +23,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local GameplayConfig = require(ReplicatedStorage.Modules.GameplayConfig)
+local DifficultyCurriculum = require(ReplicatedStorage.Modules.DifficultyCurriculum)
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
 local RewardsConfig = require(ReplicatedStorage.Modules.RewardsConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
@@ -54,6 +55,29 @@ local activePlayer: Player? = nil
 local currentQuestion: QuestionGenerator.Question? = nil
 local turnStartClock: number? = nil
 local turnTimerSeconds: number? = nil
+
+--[[
+	ROUND = ONE FULL ROTATION, OR A WRONG ANSWER.
+
+	`turnsThisRound` counts turns taken since the round began; once it
+	reaches the number of contestants still alive, everyone has answered
+	once and the round is over.
+
+	A wrong answer ALSO ends the round, via `pendingRoundAdvance`. Crucially
+	it does not restart the rotation - `currentTurnIndex` keeps moving from
+	wherever it was, so the next player after the eliminated one takes the
+	first turn of the new round rather than play snapping back to contestant
+	one.
+
+	`correctStreak` drives the per-turn timer decay from round 5 onward (see
+	GameplayConfig.GetTurnSeconds). It counts consecutive correct answers
+	across the whole match and is reset to zero by any wrong answer, which
+	is what puts the next player back on the full base time.
+]]
+local turnsThisRound = 0
+local pendingRoundAdvance = false
+local correctStreak = 0
+local currentDifficultyId: string? = nil
 
 type RosterEntry = {
 	userId: number,
@@ -110,6 +134,9 @@ local function cleanupRound()
 	turnStartClock = nil
 	alivePlayers = {}
 	currentTurnIndex = 0
+	turnsThisRound = 0
+	pendingRoundAdvance = false
+	correctStreak = 0
 	table.clear(rosterStatus)
 	broadcastRoster()
 	clearTurnUI()
@@ -122,17 +149,36 @@ local function beginTurnAt(index: number)
 	activePlayer = alivePlayers[index]
 	local player = activePlayer :: Player
 
-	local question = QuestionGenerator.Generate(roundNumber)
+	local question = QuestionGenerator.Generate(currentDifficultyId, roundNumber)
 	currentQuestion = question
 	turnStartClock = os.clock()
 
-	local difficulty = GameplayConfig.GetDifficultyForRound(roundNumber)
-	-- Timer now comes from round+category (GameplayConfig.GetTimerSeconds) -
-	-- a smooth per-round decay plus a per-category complexity bonus, rather
-	-- than one flat value per difficulty tier (see that function's doc
-	-- comment). `difficulty` is still sent below as a display label.
-	local timerSeconds = GameplayConfig.GetTimerSeconds(roundNumber, question.category)
+	--[[
+		Display label. This must come from the MATCH's difficulty, not from the
+		round number - each difficulty now owns rounds 1-10, so the old
+		GetDifficultyForRound(roundNumber) would have labelled round 1 of a
+		Master match "Easy", since it read a round number against a ladder that
+		no longer exists.
+	]]
+	local difficulty = (DifficultyCurriculum.Get(currentDifficultyId)).name
+
+	--[[
+		Timer. One flat base for every difficulty (DifficultyCurriculum.BASE_SECONDS),
+		overridden per question only where reading is genuinely part of the
+		cost - ratios, exponent operations, Master word problems all carry
+		their own `seconds`.
+
+		From round 5 the base is then scaled down by the running correct
+		streak, compounding 10% per correct answer. This replaced the old
+		GetTimerSeconds(round, category), which interpolated a per-tier anchor
+		table - that made sense when all five tiers shared one round ladder,
+		but each difficulty now owns its own rounds 1-10, so a per-round anchor
+		curve would be measuring the wrong thing.
+	]]
+	local baseSeconds = question.seconds or DifficultyCurriculum.BASE_SECONDS
+	local timerSeconds = GameplayConfig.GetTurnSeconds(baseSeconds, correctStreak, roundNumber)
 	turnTimerSeconds = timerSeconds
+	turnsThisRound += 1
 	local platform = MatchSystem.GetPlatformForPlayer(player)
 
 	turnStartedEvent:FireAllClients({
@@ -186,11 +232,25 @@ local function advanceAndBeginNextTurn(currentAlreadyRemoved: boolean)
 	end
 	if currentTurnIndex > #alivePlayers then
 		currentTurnIndex = 1
-		-- Capped by the match's own queue tier (Easy Mode stays Easy Mode for
-		-- its whole duration, however long the elimination runs - it can get
-		-- harder WITHIN its own band, but never spill into a harder tier's
-		-- categories, e.g. Exponents, just because the match ran long).
-		roundNumber = GameplayConfig.AdvanceRoundForTier(roundNumber, currentTierId)
+	end
+
+	--[[
+		Advance the round on either ending condition: a completed rotation, or
+		a wrong answer (flagged in resolveTurn). Note this deliberately does
+		NOT reset currentTurnIndex - the rotation carries on from where it
+		was, so an elimination mid-rotation does not send play back to the
+		first contestant.
+
+		Clamped to the difficulty's own last round: a long elimination on Easy
+		Mode keeps replaying Easy round 10 rather than drifting into number
+		ranges that belong to a harder tier. This is the same guarantee the
+		old per-tier maxRound ceiling gave, expressed against the new
+		per-difficulty ladder.
+	]]
+	if pendingRoundAdvance or turnsThisRound >= #alivePlayers then
+		roundNumber = math.min(roundNumber + 1, DifficultyCurriculum.ROUNDS_PER_DIFFICULTY)
+		turnsThisRound = 0
+		pendingRoundAdvance = false
 	end
 
 	beginTurnAt(currentTurnIndex)
@@ -218,6 +278,17 @@ resolveTurn = function(isCorrect: boolean, timedOut: boolean, myGeneration: numb
 		timedOut = timedOut,
 		correctAnswer = correctAnswer,
 	})
+
+	-- Timer decay bookkeeping. A correct answer lengthens the streak, so the
+	-- next player gets 10% less time (from round 5); a wrong answer clears
+	-- it outright, putting the next player back on the full base time, and
+	-- ends the round.
+	if isCorrect then
+		correctStreak += 1
+	else
+		correctStreak = 0
+		pendingRoundAdvance = true
+	end
 
 	ProgressionSystem.RecordQuestionAnswer(player, isCorrect, if isCorrect then elapsed else nil)
 
@@ -273,9 +344,21 @@ local function startRound()
 	-- back to round 1 if, for any reason, no tier was recorded (shouldn't
 	-- normally happen - MatchSystem always claims a tier before a match can
 	-- ever reach Playing).
+	--[[
+		Every difficulty now starts at ITS OWN round 1, rather than at an
+		offset into one shared ladder. Queue tier ids 1-5 line up with
+		DifficultyCurriculum.DIFFICULTIES in order (Easy, Medium, Hard, Expert,
+		Master), so the tier chooses WHICH curriculum runs, not where in a
+		common curve the match begins.
+	]]
 	local tierId = MatchSystem.GetCurrentTier()
 	currentTierId = tierId
-	roundNumber = if tierId then GameplayConfig.GetQueueTier(tierId).startingRound else 1
+	local difficultyDef = DifficultyCurriculum.DIFFICULTIES[tierId or 1] or DifficultyCurriculum.DIFFICULTIES[1]
+	currentDifficultyId = difficultyDef.id
+	roundNumber = 1
+	turnsThisRound = 0
+	pendingRoundAdvance = false
+	correctStreak = 0
 	Elimination.RestoreAllPlatformColors()
 	QuestionGenerator.ResetUsedQuestions()
 	table.clear(rosterStatus)

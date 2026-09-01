@@ -3666,6 +3666,75 @@ local function buildFeatureScreen(def, model: Model, partName: string, tagName: 
 end
 
 --[[
+	SIDE-WALL FEATURE SCREEN.
+
+	The same panel as buildFeatureScreen, mounted on a LEFT (-X) or RIGHT (+X)
+	wall instead of the back one. Used by the Tutorial room, which presents a
+	single topic across three surfaces at once - description on the left,
+	map image and clip in the centre, tips on the right - so a seated player
+	takes in the whole topic by turning their head rather than paging three
+	times.
+
+	`side` is -1 for the left wall or +1 for the right, taken from the point
+	of view of a player who has walked in and is facing the back wall (they
+	enter from +Z looking toward -Z, so their left hand is -X).
+
+	ROTATION. A Part's SurfaceGui here renders on its Back face, which is
+	local +Z. Yawing the part by side * -90 degrees turns that face to point
+	inward across the room: -90 sends +Z to +X for the left wall, +90 sends it
+	to -X for the right. The part's local X then runs along the room's DEPTH,
+	which is why `width` below is measured from def.size.Y rather than
+	def.size.X - a side wall is as long as the room is deep.
+
+	Height and centre height are computed exactly as buildFeatureScreen does,
+	so all three panels line up as one continuous band around the room rather
+	than three panels at three different heights.
+]]
+local function buildSideScreen(def, model: Model, partName: string, tagName: string, side: number): BasePart
+	local basePos = def.position
+	local halfX = def.size.X / 2
+	local halfZ = def.size.Y / 2
+
+	-- Along the wall = room depth. Matches the back panel's height exactly.
+	local width = math.min(def.size.Y - 6, 26)
+	local height = math.min(def.height - 7, 16)
+	local centreY = height / 2 + 4
+
+	-- Sit the panel slightly forward of centre so it stays beside the seating
+	-- rather than behind it, and remains readable from the front row.
+	local alongZ = -halfZ * 0.15
+	local wallX = side * (halfX - WALL_THICKNESS - 0.4)
+	local yaw = side * -90
+
+	local screen = PartUtils.CreatePart({
+		name = partName,
+		size = Vector3.new(width, height, 0.5),
+		position = basePos + Vector3.new(wallX, centreY, alongZ),
+		orientation = Vector3.new(0, yaw, 0),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(14, 16, 22),
+		canCollide = false,
+		parent = model,
+	})
+	CollectionService:AddTag(screen, tagName)
+
+	-- Frame sits fractionally closer to the wall than the panel, so the lit
+	-- surround reads as a bezel behind the screen rather than in front of it.
+	PartUtils.CreatePart({
+		name = partName .. "Frame",
+		size = Vector3.new(width + 1, height + 1, 0.3),
+		position = basePos + Vector3.new(side * (halfX - WALL_THICKNESS - 0.15), centreY, alongZ),
+		orientation = Vector3.new(0, yaw, 0),
+		material = ACCENT_MATERIAL,
+		color = ACCENT_COLOR,
+		canCollide = false,
+		parent = model,
+	})
+
+	return screen
+end
+
+--[[
 	SHOP: Featured Item of the Day.
 
 	Stripped to the screen, a full-height preview column showing the featured
@@ -4532,6 +4601,21 @@ function BuildingInteriors.FurnishTutorial(def, model: Model)
 	local screen = buildFeatureScreen(def, model, "TutorialScreen", "TutorialScreen")
 	local screenWidth = screen.Size.X
 	local screenY = screen.Position.Y - basePos.Y
+
+	--[[
+		The two side walls. One topic is shown across all three panels at once:
+		the centre carries the map image and its short looping clip, the left
+		carries the topic's title and description, and the right carries its
+		tips. Paging with either pad advances all three together, so they can
+		never disagree about which topic is on show.
+
+		Built here rather than inside buildFeatureScreen because the Tutorial is
+		the only room that earns three surfaces - it is the one place a player
+		sits and reads for several minutes. The Shop, Daily Rewards and
+		Statistics rooms deliberately keep a single focal panel.
+	]]
+	buildSideScreen(def, model, "TutorialScreenLeft", "TutorialScreenLeft", -1)
+	buildSideScreen(def, model, "TutorialScreenRight", "TutorialScreenRight", 1)
 
 	--[[
 		Paging pads, one either side of the screen at standing height.

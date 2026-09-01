@@ -57,6 +57,7 @@ local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
+local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
 local OverlayManager = require(script.Parent.OverlayManager)
@@ -67,6 +68,24 @@ local mainUI = playerGui:WaitForChild("MainUI")
 
 local getTutorialStateFunction = RemoteFunctions.Get("GetTutorialState")
 local markTutorialCompletedFunction = RemoteFunctions.Get("MarkTutorialCompleted")
+local requestTeleportToBuildingEvent = RemoteEvents.Get("RequestTeleportToBuilding")
+
+--[[
+	Whether this player's persisted profile already says the tutorial is
+	done. Fetched once at startup by the invite-banner task below.
+
+	This drives the ONE behavioural difference between the two runs of the
+	walkthrough: a player who has never completed it runs with
+	isReplay = false (so finishing genuinely reports completion and
+	unlocks quests), while a player who already finished runs with
+	isReplay = true (so a replay can never disturb progression). Before
+	the invite banner existed this distinction was made by having the
+	first-time run auto-start; now that nothing auto-starts, the flag has
+	to carry it instead - otherwise removing the auto-start would silently
+	mean MarkTutorialCompleted is never called by anything and the quest
+	system could never unlock.
+]]
+local tutorialCompleted = false
 
 --[[
 	Topic content moved to ReplicatedStorage.Modules.TutorialTopicsConfig so
@@ -826,11 +845,139 @@ end
 
 replayButton.MouseButton1Click:Connect(function()
 	tutorialOverlay.Visible = false
-	runGuidedTutorial(true)
+	-- Replay ONLY if they've already completed it; a first-timer starting
+	-- from this button is a real run that must be allowed to report
+	-- completion. See tutorialCompleted's comment near the top.
+	runGuidedTutorial(tutorialCompleted)
 end)
 
--- First-time auto-start, once ever, only for a player whose persisted
--- profile says they have never completed it.
+-- ===== First-time invite banner =====
+
+--[[
+	Replaces the old first-time AUTO-START.
+
+	Previously, a player who had never completed the tutorial had the
+	guided walkthrough begin on top of them three seconds after spawning,
+	with no skip. That is the popup this banner removes: it seized control
+	of a player who had not asked for it, at the exact moment they were
+	first looking around.
+
+	Instead they now get an invitation. It points at the Tutorial
+	Building, it can teleport them there, and it dismisses itself the
+	moment they arrive under their own steam - so a player who was already
+	walking over is never nagged, and a player who isn't interested closes
+	it once and is left alone for the session.
+
+	Dismissal is deliberately session-scoped rather than persisted. The
+	banner is the only remaining signpost toward the quest unlock, so
+	burning it permanently on one stray click of an X would leave a player
+	with no visible route back. Closing it costs them nothing; the terminal
+	inside the building is always there too.
+]]
+
+local inviteDismissed = false
+
+local inviteBanner = Instance.new("Frame")
+inviteBanner.Name = "TutorialInviteBanner"
+inviteBanner.Size = UDim2.fromOffset(460, 92)
+inviteBanner.Position = UDim2.new(0.5, -230, 0, 16)
+inviteBanner.Visible = false
+inviteBanner.ZIndex = 30
+UITheme.StylePremiumPanel(inviteBanner, 0.05)
+inviteBanner.Parent = mainUI
+
+local inviteTitle = Instance.new("TextLabel")
+inviteTitle.Name = "Title"
+inviteTitle.BackgroundTransparency = 1
+inviteTitle.Size = UDim2.new(1, -60, 0, 22)
+inviteTitle.Position = UDim2.fromOffset(16, 10)
+inviteTitle.Font = Enum.Font.GothamBold
+inviteTitle.TextSize = 14
+inviteTitle.TextXAlignment = Enum.TextXAlignment.Left
+inviteTitle.TextColor3 = UITheme.COLORS.Gold
+inviteTitle.Text = "NEW TO MATHARENA?"
+inviteTitle.ZIndex = 31
+inviteTitle.Parent = inviteBanner
+
+local inviteBody = Instance.new("TextLabel")
+inviteBody.Name = "Body"
+inviteBody.BackgroundTransparency = 1
+inviteBody.Size = UDim2.new(1, -180, 0, 34)
+inviteBody.Position = UDim2.fromOffset(16, 34)
+inviteBody.Font = Enum.Font.Gotham
+inviteBody.TextSize = 14
+inviteBody.TextWrapped = true
+inviteBody.TextXAlignment = Enum.TextXAlignment.Left
+inviteBody.TextYAlignment = Enum.TextYAlignment.Top
+inviteBody.TextColor3 = UITheme.COLORS.Text
+inviteBody.Text = "Click the Tutorial Building to start the walkthrough and unlock quests."
+inviteBody.ZIndex = 31
+inviteBody.Parent = inviteBanner
+
+local inviteGoButton = Instance.new("TextButton")
+inviteGoButton.Name = "GoButton"
+inviteGoButton.Size = UDim2.fromOffset(140, 32)
+inviteGoButton.Position = UDim2.new(1, -156, 1, -42)
+inviteGoButton.Font = Enum.Font.GothamBold
+inviteGoButton.TextSize = 14
+inviteGoButton.Text = "Take me there"
+inviteGoButton.TextColor3 = UITheme.COLORS.Text
+inviteGoButton.BackgroundColor3 = UITheme.COLORS.Accent
+inviteGoButton.AutoButtonColor = false
+inviteGoButton.ZIndex = 31
+UITheme.ApplyCorner(inviteGoButton)
+UITheme.ApplyButtonHoverEffect(inviteGoButton)
+inviteGoButton.Parent = inviteBanner
+
+local inviteCloseButton = Instance.new("TextButton")
+inviteCloseButton.Name = "CloseButton"
+inviteCloseButton.Size = UDim2.fromOffset(26, 26)
+inviteCloseButton.Position = UDim2.new(1, -34, 0, 8)
+inviteCloseButton.Font = Enum.Font.GothamBold
+inviteCloseButton.TextSize = 14
+inviteCloseButton.Text = "X"
+inviteCloseButton.TextColor3 = UITheme.COLORS.Text
+inviteCloseButton.BackgroundColor3 = UITheme.COLORS.Error
+inviteCloseButton.AutoButtonColor = false
+inviteCloseButton.ZIndex = 31
+UITheme.ApplyCorner(inviteCloseButton)
+UITheme.ApplyButtonHoverEffect(inviteCloseButton)
+inviteCloseButton.Parent = inviteBanner
+
+local function hideInvite()
+	inviteDismissed = true
+	inviteBanner.Visible = false
+end
+
+inviteCloseButton.MouseButton1Click:Connect(hideInvite)
+
+--[[
+	Same nearest-origin logic resolveCurrentMap uses, but returns the
+	MapDef rather than the folder - the teleport remote is addressed by
+	map id, so a player standing in the Lava lobby is sent to LAVA's
+	Tutorial Building rather than the default map's copy 1050 studs away.
+]]
+local function resolveCurrentMapDef(): MapsConfig.MapDef
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local chosen = MapsConfig.GetDefaultMap()
+	if root then
+		local best = math.huge
+		for _, def in ipairs(MapsConfig.MAPS) do
+			local distance = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(def.origin.X, 0, def.origin.Z)).Magnitude
+			if distance < best then
+				best, chosen = distance, def
+			end
+		end
+	end
+	return chosen
+end
+
+inviteGoButton.MouseButton1Click:Connect(function()
+	local def = resolveCurrentMapDef()
+	requestTeleportToBuildingEvent:FireServer("TutorialBuilding", def.id)
+	hideInvite()
+end)
+
 task.spawn(function()
 	if not player.Character then
 		player.CharacterAdded:Wait()
@@ -840,8 +987,46 @@ task.spawn(function()
 	local ok, state = pcall(function()
 		return getTutorialStateFunction:InvokeServer()
 	end)
-	if ok and state and not state.completed then
-		runGuidedTutorial(false)
+	if not ok or not state then
+		return
+	end
+
+	tutorialCompleted = state.completed == true
+	if tutorialCompleted then
+		return
+	end
+
+	inviteBanner.Visible = true
+	UITheme.PlayOpenTween(inviteBanner)
+
+	--[[
+		Arrival dismissal. Polls rather than using a Touched event because
+		the building has no single trigger part, and a proximity check
+		against the model's pivot works identically in all five maps
+		without needing new geometry built into any of them.
+
+		Also stops if the walkthrough starts by any other route (the
+		terminal, say), so the invite can't sit on screen competing with
+		the guide banner for the same top-centre slot.
+	]]
+	while not inviteDismissed do
+		if tutorialRunning then
+			hideInvite()
+			break
+		end
+
+		local root = currentRoot()
+		local mapFolder = resolveCurrentMap()
+		local buildings = mapFolder and mapFolder:FindFirstChild("Buildings")
+		local tutorialBuilding = buildings and buildings:FindFirstChild("TutorialBuilding")
+		if root and tutorialBuilding and tutorialBuilding:IsA("Model") then
+			if (root.Position - tutorialBuilding:GetPivot().Position).Magnitude <= 45 then
+				hideInvite()
+				break
+			end
+		end
+
+		task.wait(0.5)
 	end
 end)
 

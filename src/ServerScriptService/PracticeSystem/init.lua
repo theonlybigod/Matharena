@@ -61,6 +61,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local MatchConfig = require(ReplicatedStorage.Modules.MatchConfig)
 local GameplayConfig = require(ReplicatedStorage.Modules.GameplayConfig)
+local DifficultyCurriculum = require(ReplicatedStorage.Modules.DifficultyCurriculum)
 local RewardsConfig = require(ReplicatedStorage.Modules.RewardsConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 
@@ -171,24 +172,32 @@ local function beginNextPracticeQuestion()
 	-- can get harder WITHIN its own band, but a long session must never
 	-- drift into a harder tier's categories, e.g. Exponents, just because
 	-- the player answered enough questions in a row).
-	practiceQuestionNumber = GameplayConfig.AdvanceRoundForTier(practiceQuestionNumber, practiceTierId)
+	--[[
+		Practice climbs its own difficulty's rounds 1-10 and then stays there,
+		the same clamp competitive matches use. Each difficulty owns its own
+		ladder now, so an Easy practice session replays Easy round 10 forever
+		rather than drifting into a harder tier's number ranges - the guarantee
+		the old per-tier maxRound ceiling used to provide.
+	]]
+	practiceQuestionNumber = math.min(practiceQuestionNumber + 1, DifficultyCurriculum.ROUNDS_PER_DIFFICULTY)
 	turnGeneration += 1
 	local myTurnGeneration = turnGeneration
 
-	-- Reuses the EXACT same round-based difficulty/category progression
-	-- competitive matches use (GameplayConfig), feeding the practice
-	-- question counter in as the "round" - StartPractice seeds it from the
-	-- chosen difficulty tier's startingRound, so a Master Mode practice
-	-- session correctly begins on round 8's category pool immediately.
-	local question = QuestionGenerator.Generate(practiceQuestionNumber)
-	local difficulty = GameplayConfig.GetDifficultyForRound(practiceQuestionNumber)
+	--[[
+		Same curriculum a competitive match uses, with the practice question
+		counter acting as the round within the CHOSEN difficulty's own ladder.
 
-	-- Same round+category timer formula a competitive match uses
-	-- (GameplayConfig.GetTimerSeconds - gradual per-round decay plus a
-	-- per-category complexity bonus), then Extra Time Mode's multiplier
-	-- (2x-5x) on top, or Infinite Time which drops the per-question
-	-- countdown/timeout entirely.
-	local baseTimerSeconds = GameplayConfig.GetTimerSeconds(practiceQuestionNumber, question.category)
+		Practice deliberately does NOT apply the correct-streak timer decay -
+		that is a competitive pressure mechanic, and Practice exists to be the
+		no-stakes surface. The base time is the flat curriculum baseline (or a
+		form's own override), then Extra Time Mode's 2x-5x multiplier on top,
+		or Infinite Time which drops the countdown entirely.
+	]]
+	local difficultyDef = DifficultyCurriculum.DIFFICULTIES[practiceTierId or 1] or DifficultyCurriculum.DIFFICULTIES[1]
+	local question = QuestionGenerator.Generate(difficultyDef.id, practiceQuestionNumber)
+	local difficulty = difficultyDef.name
+
+	local baseTimerSeconds = question.seconds or DifficultyCurriculum.BASE_SECONDS
 	local timerSeconds = if practiceInfiniteTime then nil else baseTimerSeconds * practiceTimeMultiplier
 
 	currentQuestion = question
@@ -321,7 +330,11 @@ function PracticeSystem.StartPractice(player: Player, requestedMode: string?, re
 	-- beginNextPracticeQuestion advances BEFORE generating, so seeding one
 	-- below the tier's starting round makes the very first question land
 	-- exactly on tier.startingRound.
-	practiceQuestionNumber = tier.startingRound - 1
+	-- Every difficulty now owns its own rounds 1-10, so practice always
+	-- begins at round 1 of the CHOSEN difficulty rather than at an offset
+	-- into a shared ladder. Seeded at 0 because beginNextPracticeQuestion
+	-- increments before generating.
+	practiceQuestionNumber = 0
 	endPracticeAfterCurrentQuestion = false
 	practiceMode = if requestedMode and VALID_PRACTICE_MODES[requestedMode] then requestedMode else "Regular"
 

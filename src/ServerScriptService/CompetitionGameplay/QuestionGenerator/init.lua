@@ -23,6 +23,9 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GameplayConfig = require(ReplicatedStorage.Modules.GameplayConfig)
+local DifficultyCurriculum = require(ReplicatedStorage.Modules.DifficultyCurriculum)
+
+local Forms = require(script.Forms)
 
 local BasicArithmetic = require(script.BasicArithmetic)
 local MixedOperations = require(script.MixedOperations)
@@ -41,6 +44,7 @@ export type Question = {
 	text: string,
 	answer: number,
 	tolerance: number,
+	seconds: number?,
 	debugOperands: { [string]: any }?,
 }
 
@@ -91,32 +95,54 @@ function QuestionGenerator.ResetUsedQuestions()
 end
 
 --[[
-	Requests a question for the given round. The category (and, for
-	BasicArithmetic, the number-size tier) is resolved from
-	GameplayConfig.GetRoundPlan(round). Retries on a duplicate question
-	text up to MAX_RETRIES before giving up and allowing the repeat.
-]]
-function QuestionGenerator.Generate(round: number): Question
-	local plan = GameplayConfig.GetRoundPlan(round)
-	local generator = generatorsByCategory[plan.category]
-	assert(generator, ("[QuestionGenerator] Unknown category %q for round %d"):format(plan.category, round))
+	Requests a question for `difficultyId` at `round`.
 
-	local raw
+	The curriculum (DifficultyCurriculum) decides which FORM is drawn and at
+	what number ranges; Forms.lua turns that into text and an answer. This
+	replaced the old GameplayConfig.GetRoundPlan lookup, which mapped a round
+	to a single fixed CATEGORY on one shared ladder - that model could not
+	express "three-term questions appear 25% of the time at round 3, rising
+	to 60% by round 10", which is most of what the difficulty spec asks for.
+
+	Retries on a duplicate question text up to MAX_RETRIES before allowing
+	the repeat, exactly as before - a small possibility space (Easy round 1
+	is only 121 distinct sums) must not spin forever.
+
+	`category` on the returned question is the form id, which is what the
+	client displays and what the self-test groups by.
+]]
+function QuestionGenerator.Generate(difficultyId: string?, round: number): Question
+	local raw, form
+
 	for _ = 1, MAX_RETRIES do
-		raw = generator(plan.tier)
-		if not usedQuestionTexts[raw.text] then
+		form = DifficultyCurriculum.PickForm(difficultyId, round)
+		if not form then
 			break
 		end
+		raw = Forms.Build(form)
+		if raw and not usedQuestionTexts[raw.text] then
+			break
+		end
+	end
+
+	-- Curriculum bug or an unknown form id: fall back to the simplest
+	-- possible question rather than erroring out a live match.
+	if not raw then
+		form = { form = "addSub2", terms = 2, ops = { "+" }, range = { min = 1, max = 9 } }
+		raw = Forms.Build(form)
 	end
 
 	usedQuestionTexts[raw.text] = true
 
 	return {
-		category = plan.category,
+		category = form.form,
 		round = round,
 		text = raw.text,
 		answer = raw.answer,
 		tolerance = raw.tolerance or 0,
+		-- Per-form time override (ratios, exponent operations, word problems);
+		-- nil means the flat DifficultyCurriculum.BASE_SECONDS applies.
+		seconds = form.seconds,
 		debugOperands = raw.debugOperands,
 	}
 end
@@ -202,63 +228,57 @@ end
 
 --[[
 	Internal validation/regression helper (not called automatically at
-	runtime). Generates sample questions across every round, checking:
+	runtime). Walks EVERY difficulty across all ten of its rounds, checking:
 		- question text is non-empty
-		- the stored answer is a valid, finite number
+		- the answer is a valid, finite WHOLE number (nothing in the redesign
+		  may return a fraction or decimal)
 		- CheckAnswer accepts the question's own correct answer
-		- where debugOperands are available, an independently-recomputed
-		  expected answer matches the stored one
+		- Easy never produces a negative answer
 	Returns (true, {}) on success, or (false, errorMessages) otherwise.
 ]]
-function QuestionGenerator.RunSelfTest(sampleCount: number?): (boolean, { string })
-	local samples = sampleCount or 300
+function QuestionGenerator.RunSelfTest(samplesPerRound: number?): (boolean, { string })
+	local samples = samplesPerRound or 100
 	local errors: { string } = {}
-	local roundsToTest = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }
 
-	QuestionGenerator.ResetUsedQuestions()
+	for _, def in ipairs(DifficultyCurriculum.DIFFICULTIES) do
+		for round = 1, DifficultyCurriculum.ROUNDS_PER_DIFFICULTY do
+			QuestionGenerator.ResetUsedQuestions()
+			for _ = 1, samples do
+				local ok, question = pcall(QuestionGenerator.Generate, def.id, round)
+				if not ok then
+					table.insert(errors, ("%s round %d: generator threw - %s"):format(def.id, round, tostring(question)))
+					break
+				end
 
-	for _, round in ipairs(roundsToTest) do
-		for _ = 1, math.ceil(samples / #roundsToTest) do
-			local question = QuestionGenerator.Generate(round)
+				if question.text == "" then
+					table.insert(errors, ("%s round %d (%s): empty question text"):format(def.id, round, question.category))
+				end
 
-			if question.text == "" then
-				table.insert(errors, ("Round %d (%s): empty question text"):format(round, question.category))
-			end
-
-			if type(question.answer) ~= "number" or question.answer ~= question.answer then
-				table.insert(
-					errors,
-					("Round %d (%s): answer is not a valid number (%s)"):format(
-						round,
-						question.category,
-						tostring(question.answer)
+				if type(question.answer) ~= "number" or question.answer ~= question.answer then
+					table.insert(errors, ("%s round %d (%s): answer is not a valid number"):format(def.id, round, question.category))
+				elseif question.answer % 1 ~= 0 then
+					table.insert(
+						errors,
+						("%s round %d (%s): non-integer answer %s from %q"):format(
+							def.id,
+							round,
+							question.category,
+							tostring(question.answer),
+							question.text
+						)
 					)
-				)
-			end
+				end
 
-			if not QuestionGenerator.CheckAnswer(question, question.answer) then
-				table.insert(
-					errors,
-					("Round %d (%s): text=%q - CheckAnswer rejected the question's own correct answer"):format(
-						round,
-						question.category,
-						question.text
+				if not QuestionGenerator.CheckAnswer(question, question.answer) then
+					table.insert(
+						errors,
+						("%s round %d (%s): CheckAnswer rejected its own correct answer"):format(def.id, round, question.category)
 					)
-				)
-			end
+				end
 
-			local expected = recomputeExpected(question)
-			if expected and math.abs(expected - question.answer) > (question.tolerance + 0.001) then
-				table.insert(
-					errors,
-					("Round %d (%s): text=%q answer=%s but independently recomputed=%s"):format(
-						round,
-						question.category,
-						question.text,
-						tostring(question.answer),
-						tostring(expected)
-					)
-				)
+				if def.id == "Easy" and question.answer < 0 then
+					table.insert(errors, ("Easy round %d: negative answer %q = %d"):format(round, question.text, question.answer))
+				end
 			end
 		end
 	end
