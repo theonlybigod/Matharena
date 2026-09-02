@@ -101,6 +101,23 @@ LeaderboardConfig.PODIUM_COLORS = {
 	[3] = Color3.fromRGB(205, 127, 50), -- bronze
 }
 
+--[[
+	Minimum answered questions before a player qualifies for the Accuracy
+	board.
+
+	WITHOUT THIS THE BOARD IS MEANINGLESS, and it was the main reason the
+	standings did not match expectations: a player who answered one
+	question correctly has 100.0% accuracy and outranks someone at 92% over
+	two thousand questions. The top of the board filled with one-question
+	perfect scores, which is technically the correct sort of the wrong
+	population.
+
+	Players below the threshold are simply not written to the Accuracy
+	store (toRawValue returns nil, which UpdateEntries already treats as
+	"skip"). They still appear on every other board.
+]]
+LeaderboardConfig.ACCURACY_MIN_ANSWERS = 25
+
 export type CategoryConfig = {
 	id: string,
 	displayName: string,
@@ -181,8 +198,16 @@ LeaderboardConfig.CATEGORIES = {
 		-- OrderedDataStore values must be non-negative integers - accuracy
 		-- (0-100, one decimal place) is stored as round(accuracy * 10)
 		-- (e.g. 87.3% -> 873) and divided back by 10 for display.
+		--
+		-- Gated on ACCURACY_MIN_ANSWERS: see that constant for why an
+		-- ungated accuracy board ranks one-question players at the top.
 		toRawValue = function(profile)
-			return math.floor(profile.statistics.accuracy * 10 + 0.5)
+			local stats = profile.statistics
+			local answered = (stats.correctAnswers or 0) + (stats.incorrectAnswers or 0)
+			if answered < LeaderboardConfig.ACCURACY_MIN_ANSWERS then
+				return nil
+			end
+			return math.floor(stats.accuracy * 10 + 0.5)
 		end,
 		toDisplayValue = function(raw)
 			return raw / 10

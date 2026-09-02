@@ -69,6 +69,46 @@ local BuildVersion = {}
 --       three submarines, coral gardens with shadows, algae, seabed
 --       habitats, and layered marine life (great white / tiger /
 --       hammerhead sharks, giant fish, belugas, humpbacks).
-BuildVersion.CURRENT = 4
+--   5 = Under the Sea detail pass: forced-perspective terrain (near-flat
+--       by the plate, rising to 78 studs at the rim), 620-stud shipwreck,
+--       four larger submarines, ~2x larger and more numerous marine life,
+--       150 coral gardens with distance-scaled size and density, plus two
+--       new habitat types - rock-arch caves with dark interiors, and tall
+--       long-grass meadows biased to the far field.
+--   6 = Under the Sea realism pass: coral rebuilt as polyp aggregates
+--       (mound / branching / plate / fan / soft / encrusting / tube
+--       sponge) from many small units rather than a few large primitives,
+--       on a warm red-gold-pink palette; marine life rescaled to real
+--       proportions (fish ~1 building, sharks 1.5x, humpbacks 5x) with
+--       three whales instead of five; a new InteriorLife pass restoring
+--       schooling fish, jellyfish, stingrays, reef sharks and starfish to
+--       the plaza, all sized below a podium; and the shipwreck stripped of
+--       hull coral in favour of boulders on the surrounding sand.
+--   7 = Under the Sea animal pass: all fish rebuilt by a single buildFish
+--       from a dozen large flat slabs (body, wedge head, forked tail,
+--       dorsal/anal/pectoral fins, eyes, optional banding) so each reads as
+--       one solid figure; exterior fish grouped into single-species shoals
+--       plus sardine baitballs instead of scattered individuals; sharks and
+--       whales enlarged (sharks 85-130, belugas 120-155, humpbacks
+--       300-390); plaza fish cut from 242 to 40; starfish arms now joined
+--       to the central disc; fan coral given finer units so it reads as a
+--       lattice rather than a sheet.
+--   8 = Under the Sea fixes: submarines rebuilt from a continuous
+--       14-section hull profile with sail, planes, cruciform tail and
+--       shrouded screw; and the exterior terrain no longer intrudes on the
+--       plate - the dune field is gated per-COLUMN at DUNE_INNER (was a
+--       per-tile test that let straddling tiles lay sand across the plaza,
+--       leaving a square hole in the middle), and the seabed datum dropped
+--       from 0 to -8 so near-plate sand sits ~12 studs below the walking
+--       surface. The datum is folded into duneHeight so every scatter pass
+--       still places props on the sand.
+--   9 = Under the Sea seabed continuity: the sand now runs CONTINUOUSLY
+--       beneath the lobby plate rather than being cut off at a circle
+--       outside it, so there is no visible edge where the exterior
+--       begins. Seabed datum sits 3 studs under the plate's underside
+--       (clearance sized for terrain's smoothed render, which bulges ~half
+--       a voxel above nominal), and a 140-stud flat skirt past the rim
+--       stops the dunes cresting above the plate.
+BuildVersion.CURRENT = 9
 
 return BuildVersion

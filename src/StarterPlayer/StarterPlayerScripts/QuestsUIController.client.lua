@@ -88,17 +88,6 @@ local KIND_LABELS = {
 	challenge = "CHALLENGE QUEST",
 }
 
--- The Daily slot's cooldown is normally the ~24h wait until the next UTC
--- day boundary (ClaimQuest), but a DISMISSED Daily quest instead gets the
--- same short 2-5 minute cooldown every other slot uses (QuestsSystem.
--- DismissQuest). "Come back tomorrow for new quests" is only ever shown
--- when the remaining wait is actually above this threshold - comfortably
--- above the 5-minute dismiss/claim ceiling (QuestsConfig.
--- STANDARD_REFRESH_MAX_SECONDS) but far below a genuine ~24h day-boundary
--- wait, so a live countdown shows instead whenever the Daily slot's real
--- cooldown is actually short.
-local DAILY_COOLDOWN_DISPLAY_THRESHOLD_SECONDS = 3600
-
 -- ===== Compact box shell =====
 
 -- Sized generously (wider AND noticeably taller than the original box) so
@@ -478,6 +467,29 @@ for index, slotId in ipairs(SLOT_ORDER) do
 	cooldownLabel.Visible = false
 	cooldownLabel.Parent = card
 
+	--[[
+		DAILY RESET COUNTDOWN.
+
+		A separate always-on line for the daily slot, distinct from
+		cooldownLabel. The two answer different questions: cooldownLabel says
+		"when does a new quest appear in this slot", this says "how long is
+		left in today's daily". Only the daily slot ever shows it, and it
+		stays visible whether the quest is offered, accepted, complete or
+		already claimed.
+	]]
+	local dailyResetLabel = Instance.new("TextLabel")
+	dailyResetLabel.Name = "DailyResetLabel"
+	dailyResetLabel.Size = UDim2.new(1, -24, 0, 16)
+	dailyResetLabel.Position = UDim2.fromOffset(12, 4)
+	dailyResetLabel.BackgroundTransparency = 1
+	dailyResetLabel.Font = Enum.Font.GothamMedium
+	dailyResetLabel.TextSize = 12
+	dailyResetLabel.TextColor3 = Color3.fromRGB(150, 158, 178)
+	dailyResetLabel.TextXAlignment = Enum.TextXAlignment.Right
+	dailyResetLabel.Text = ""
+	dailyResetLabel.Visible = false
+	dailyResetLabel.Parent = card
+
 	local barBackground = Instance.new("Frame")
 	barBackground.Name = "BarBackground"
 	barBackground.Size = UDim2.new(1, -100, 0, 9)
@@ -537,6 +549,12 @@ for index, slotId in ipairs(SLOT_ORDER) do
 		slotId = slotId,
 		slotKind = nil :: string?,
 		availableAtClock = nil :: number?, -- os.clock() timestamp this slot becomes available, nil if already available
+		-- os.clock() timestamp of the next noon-UTC daily reset. Set for the
+		-- daily slot only, and set REGARDLESS of whether the slot is on
+		-- cooldown, because the daily countdown runs continuously - while the
+		-- quest is offered, accepted, complete, or claimed.
+		dailyResetAtClock = nil :: number?,
+		dailyResetLabel = dailyResetLabel,
 	}
 end
 
@@ -549,6 +567,26 @@ local function formatDuration(seconds: number): string
 	return ("%dm %ds"):format(minutes, secs)
 end
 
+--[[
+	Hours-and-minutes form, for the daily reset countdown.
+
+	The cooldown formatter above is minutes-and-seconds, which is right for
+	a 2-5 minute wait and useless for a 23-hour one ("1410m 0s"). Seconds
+	are shown only in the last minute, where they are the only thing
+	changing.
+]]
+local function formatCountdown(seconds: number): string
+	seconds = math.max(0, math.floor(seconds))
+	local hours = math.floor(seconds / 3600)
+	local minutes = math.floor((seconds % 3600) / 60)
+	if hours > 0 then
+		return ("%dh %02dm"):format(hours, minutes)
+	elseif minutes > 0 then
+		return ("%dm"):format(minutes)
+	end
+	return ("%ds"):format(seconds % 60)
+end
+
 local function refreshFromSnapshot(snapshot)
 	for _, entry in ipairs(snapshot) do
 		local widgets = questCards[entry.slotId]
@@ -558,6 +596,17 @@ local function refreshFromSnapshot(snapshot)
 
 		widgets.card.Visible = true
 		widgets.slotKind = entry.slotKind
+
+		-- Daily reset countdown: driven by the server's secondsUntilDailyReset,
+		-- which is nil for every non-daily slot.
+		if entry.secondsUntilDailyReset ~= nil then
+			widgets.dailyResetAtClock = os.clock() + entry.secondsUntilDailyReset
+			widgets.dailyResetLabel.Visible = true
+			widgets.dailyResetLabel.Text = ("Resets in %s"):format(formatCountdown(entry.secondsUntilDailyReset))
+		else
+			widgets.dailyResetAtClock = nil
+			widgets.dailyResetLabel.Visible = false
+		end
 		local kindColor = KIND_COLORS[entry.kind] or UITheme.COLORS.Accent
 		widgets.kindStripe.BackgroundColor3 = kindColor
 		widgets.kindLabel.TextColor3 = kindColor
@@ -604,18 +653,18 @@ local function refreshFromSnapshot(snapshot)
 			widgets.refreshButton.Visible = false
 			widgets.refreshCountLabel.Visible = false
 			widgets.cooldownLabel.Visible = true
-			-- "Come back tomorrow" is only accurate for the Daily slot's own
-			-- day-long claim cooldown - NOT for a short dismiss cooldown,
-			-- which the Daily slot can now also be on (QuestsSystem.
-			-- DismissQuest applies the SAME 2-5 minute cooldown to every
-			-- slot, including Daily). Deciding purely on entry.slotKind ==
-			-- "daily" would wrongly tell the player to wait a full day when
-			-- they'll actually see a new Daily quest in a couple of minutes -
-			-- so the actual remaining duration decides which message shows,
-			-- with a threshold far above the 5-minute dismiss/claim ceiling
-			-- for every other slot but comfortably below a real ~24h wait.
-			if entry.slotKind == "daily" and entry.secondsUntilAvailable > DAILY_COOLDOWN_DISPLAY_THRESHOLD_SECONDS then
-				widgets.cooldownLabel.Text = "Come back tomorrow for new quests"
+			--[[
+				The daily slot's cooldown now ALWAYS runs to the next noon reset
+				- claiming and dismissing both close it until then, so there is no
+				longer a short dismiss cooldown to distinguish from a long claim
+				one. The old duration-threshold test that existed for that reason
+				is gone; the slot kind alone is now a correct signal.
+
+				The exact time is on the always-visible DailyResetLabel above, so
+				this line does not repeat it.
+			]]
+			if entry.slotKind == "daily" then
+				widgets.cooldownLabel.Text = "Daily complete - next one at reset"
 			else
 				widgets.cooldownLabel.Text = ("Next quest coming in %s"):format(formatDuration(entry.secondsUntilAvailable))
 			end
@@ -821,20 +870,33 @@ task.spawn(function()
 	while true do
 		task.wait(1)
 		for _, widgets in pairs(questCards) do
+			--[[
+				Daily reset countdown. Ticks independently of the cooldown text
+				and independently of whether the slot is on cooldown at all,
+				because the daily deadline runs whatever state the quest is in.
+
+				At zero it does NOT roll over locally - the server owns the
+				boundary. It shows "Resetting..." and the next poll brings the
+				fresh quest and a new countdown.
+			]]
+			if widgets.dailyResetAtClock and widgets.dailyResetLabel.Visible then
+				local untilReset = widgets.dailyResetAtClock - os.clock()
+				widgets.dailyResetLabel.Text = if untilReset <= 0
+					then "Resetting..."
+					else ("Resets in %s"):format(formatCountdown(untilReset))
+			end
+
 			if widgets.availableAtClock and widgets.cooldownLabel.Visible then
 				local remaining = widgets.availableAtClock - os.clock()
-				-- Same actual-duration-based check as refreshFromSnapshot above -
-				-- a dismissed Daily quest's short cooldown must keep showing a
-				-- live countdown here too, not flip to "come back tomorrow" just
-				-- because this is the Daily slot.
-				local showsTomorrowMessage = widgets.slotKind == "daily" and remaining > DAILY_COOLDOWN_DISPLAY_THRESHOLD_SECONDS
-				if remaining <= 0 then
+				-- The daily's cooldown always runs to the noon reset now, so the
+				-- slot kind alone decides the message (see refreshFromSnapshot).
+				if widgets.slotKind == "daily" then
+					widgets.cooldownLabel.Text = "Daily complete - next one at reset"
+				elseif remaining <= 0 then
 					-- Let the next snapshot poll (or QuestReady event) flip this
 					-- card over to available; just stop showing negative time.
-					widgets.cooldownLabel.Text = if showsTomorrowMessage
-						then "Come back tomorrow for new quests"
-						else "Next quest coming in..."
-				elseif not showsTomorrowMessage then
+					widgets.cooldownLabel.Text = "Next quest coming in..."
+				else
 					widgets.cooldownLabel.Text = ("Next quest coming in %s"):format(formatDuration(remaining))
 				end
 			end

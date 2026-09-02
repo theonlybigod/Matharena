@@ -65,6 +65,59 @@ local SECONDS_PER_DAY = 86400
 local READY_NOTIFY_TICK_SECONDS = 2
 local REFRESHES_PER_DAY = 3 -- standard slots only; see RefreshQuest
 
+--[[
+	DAILY RESET BOUNDARY.
+
+	The daily quest rolls over at 12:00 (noon) UTC every day, NOT at
+	midnight and NOT on a rolling 24-hour timer from when the player last
+	touched it. That distinction is the whole point: the reset is a fixed
+	wall-clock moment, so it happens whether the player accepted the quest,
+	ignored it, dismissed it, claimed it, or was not online at all.
+
+	TIMEZONE. os.time() is UTC on Roblox servers, so this is noon UTC for
+	everyone. A per-player local noon would mean the same quest resetting
+	at different moments for different players, which makes the countdown
+	impossible to state consistently and is not what a "daily" is.
+]]
+local DAILY_RESET_HOUR_UTC = 12
+
+--[[
+	The next noon-UTC boundary strictly after `now`.
+
+	Works off the calendar date rather than arithmetic on the epoch, so it
+	stays correct regardless of how os.time() lines up with day boundaries.
+	If we are before today's noon, the boundary is today's noon; if we are
+	at or past it, it is tomorrow's.
+]]
+local function nextDailyResetAt(now: number): number
+	local parts = os.date("!*t", now)
+	local todayNoon = os.time({
+		year = parts.year,
+		month = parts.month,
+		day = parts.day,
+		hour = DAILY_RESET_HOUR_UTC,
+		min = 0,
+		sec = 0,
+	})
+	if now < todayNoon then
+		return todayNoon
+	end
+	return todayNoon + SECONDS_PER_DAY
+end
+
+--[[
+	Which daily PERIOD a moment falls in. Two moments share a period id
+	only if no noon boundary has passed between them, so comparing a
+	stored id against the current one is how the system detects "the daily
+	has rolled over since we last looked" without needing a timer.
+]]
+local function dailyPeriodNumber(unixTime: number): number
+	return math.floor((unixTime - DAILY_RESET_HOUR_UTC * 3600) / SECONDS_PER_DAY)
+end
+
+QuestsSystem.NextDailyResetAt = nextDailyResetAt
+QuestsSystem.DailyPeriodNumber = dailyPeriodNumber
+
 local getQuestsSnapshotFunction = RemoteFunctions.Get("GetQuestsSnapshot")
 local acceptQuestFunction = RemoteFunctions.Get("AcceptQuest")
 local claimQuestFunction = RemoteFunctions.Get("ClaimQuest")
@@ -124,8 +177,40 @@ local function getSlotState(profile: any, slotDef)
 			lastDayNumber = nil,
 			refreshesUsed = 0,
 			refreshDayNumber = dayNumber(os.time()),
+			-- Which noon-to-noon period this daily quest belongs to. Compared
+			-- against the current period on every read to detect rollover.
+			dailyPeriod = dailyPeriodNumber(os.time()),
 		}
 		profile.quests[slotDef.slotId] = state
+	end
+
+	--[[
+		DAILY ROLLOVER, ENFORCED ON READ.
+
+		Checked here rather than on a timer so it is impossible to miss: any
+		path that touches the slot - opening the quest log, progress being
+		recorded, the ready-notify loop - re-evaluates it. That is what makes
+		the reset happen regardless of what the player did with the quest, and
+		it also covers a player who was offline across the boundary, since
+		their first read after rejoining sees a stale period.
+
+		Rolling over discards whatever was in the slot - accepted or not,
+		partially progressed or not - and rolls a fresh quest that is
+		immediately available. An unclaimed completed daily is forfeited,
+		which is the intended meaning of a daily deadline.
+	]]
+	if slotDef.kind == "daily" then
+		local period = dailyPeriodNumber(os.time())
+		if state.dailyPeriod ~= period then
+			local quest, effectiveKind = QuestsConfig.RollQuestForSlot(slotDef)
+			state.questId = quest.id
+			state.effectiveKind = effectiveKind
+			state.accepted = false
+			state.snapshotValue = 0
+			state.nextAvailableAt = 0 -- offerable straight away at the boundary
+			state.notifiedReady = false -- banner the new daily once
+			state.dailyPeriod = period
+		end
 	end
 	-- Old-format saved slot states (from before the refresh feature) won't have these fields - default them in-place rather than requiring a migration pass.
 	if state.refreshesUsed == nil then
@@ -189,6 +274,21 @@ function QuestsSystem.BuildSnapshot(player: Player)
 				canClaim = state.accepted and progress >= quest.target,
 				available = available,
 				secondsUntilAvailable = math.max(0, state.nextAvailableAt - os.time()),
+				--[[
+					DAILY COUNTDOWN. Seconds until the next noon-UTC reset, sent
+					for the daily slot only (nil elsewhere, so the UI can tell the
+					two cases apart).
+
+					This is deliberately NOT the same number as
+					secondsUntilAvailable. That one counts down a per-slot
+					cooldown; this counts down to a fixed wall-clock moment and
+					keeps ticking regardless of whether the quest is offered,
+					accepted, completed or claimed - which is exactly what the
+					player needs to see on a daily.
+				]]
+				secondsUntilDailyReset = if slotDef.kind == "daily"
+					then math.max(0, nextDailyResetAt(os.time()) - os.time())
+					else nil,
 				refreshesRemaining = if slotDef.kind == "standard" then math.max(0, REFRESHES_PER_DAY - state.refreshesUsed) else nil,
 				refreshesPerDay = if slotDef.kind == "standard" then REFRESHES_PER_DAY else nil,
 			})
@@ -309,7 +409,12 @@ function QuestsSystem.ClaimQuest(player: Player, slotId: string): (boolean, stri
 	state.notifiedReady = false
 	if slotDef.kind == "daily" then
 		state.lastDayNumber = dayNumber(now)
-		state.nextAvailableAt = (dayNumber(now) + 1) * SECONDS_PER_DAY
+		-- Claiming the daily does NOT open a 2-5 minute cooldown like the
+		-- standard slots. The next daily arrives at the next noon-UTC reset
+		-- and not a moment sooner, however early in the period it was
+		-- claimed. getSlotState's rollover check is what actually swaps the
+		-- quest in; this just keeps the slot closed until then.
+		state.nextAvailableAt = nextDailyResetAt(now)
 	else
 		state.nextAvailableAt = now
 			+ math.random(QuestsConfig.STANDARD_REFRESH_MIN_SECONDS, QuestsConfig.STANDARD_REFRESH_MAX_SECONDS)
@@ -424,8 +529,21 @@ function QuestsSystem.DismissQuest(player: Player, slotId: string): (boolean, st
 	state.accepted = false
 	state.snapshotValue = 0
 	state.notifiedReady = false
-	state.nextAvailableAt = os.time()
-		+ math.random(QuestsConfig.STANDARD_REFRESH_MIN_SECONDS, QuestsConfig.STANDARD_REFRESH_MAX_SECONDS)
+	if slotDef.kind == "daily" then
+		--[[
+			Dismissing the daily does not hand out a replacement early. The
+			slot closes until the next noon reset, the same as claiming it.
+
+			Without this the daily inherited the standard slots' 2-5 minute
+			reroll, so a player could dismiss it repeatedly and pull a fresh
+			daily every few minutes - which defeats the point of a daily and
+			is exactly the behaviour the brief asked to remove.
+		]]
+		state.nextAvailableAt = nextDailyResetAt(os.time())
+	else
+		state.nextAvailableAt = os.time()
+			+ math.random(QuestsConfig.STANDARD_REFRESH_MIN_SECONDS, QuestsConfig.STANDARD_REFRESH_MAX_SECONDS)
+	end
 
 	return true
 end
