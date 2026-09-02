@@ -2638,57 +2638,29 @@ local function addSpaceRocketBody(def, model: Model)
 		end
 	end
 
-	-- Engine skirt + nozzles tucked under the base, visible between the fins.
-	PartUtils.CreateDisc({
-		name = "RocketEngineSkirt",
-		diameter = bodyRadius * 2.1,
-		thickness = 2.4,
-		position = basePos + Vector3.new(0, 1.2, 0),
-		material = Enum.Material.Metal,
-		color = TRIM_DARK,
-		canCollide = false,
-		parent = model,
-	})
-
 	--[[
-		DETAIL PASS - the difference between "a cylinder painted like a rocket"
-		and something that reads as engineered:
-		  - three engine nozzles under the skirt, each with an exhaust glow
-		  - a vertical hull spine / cable run down one side
-		  - riveted girth rings at the band seams
-		  - a capsule collar under the nose
-		All non-collidable so none of it changes how the building plays.
+		NO ENGINE CLUSTER. The skirt, nozzles and exhaust glows are gone.
+
+		They were described as "tucked under the base, visible between the
+		fins", but there is no "under" on these buildings: the rocket stands on
+		the ground and the room floor is AT ground level, so everything meant to
+		sit beneath the hull ended up inside the room instead.
+
+		Measured on StatisticsBuilding, whose floor surface is at Y=4.5:
+
+		  RocketEngineSkirt  Y=5.2, a 45-stud-DIAMETER disc - i.e. a solid
+		                     plate 0.7 studs above the floor spanning the whole
+		                     36x19 room. This is what was hiding the streak
+		                     plinths and swallowing the seats.
+		  RocketNozzle1-3    Y=5.6, 5-stud cylinders at seat height, directly
+		                     in front of the feature screen.
+		  RocketExhaustGlow  Y=0.5, plus the orange PointLights already removed
+		                     for washing the interiors warm.
+
+		Nothing is lost outside: the base of each rocket is ringed by fins and
+		sits flush on the plaza, so none of this was ever visible from the
+		exterior anyway - it was only ever furniture in the middle of a room.
 	]]
-	for n = 1, 3 do
-		local a = (2 * math.pi / 3) * n
-		local nr = bodyRadius * 0.42
-		local nozzle = PartUtils.CreatePart({
-			name = "RocketNozzle" .. n,
-			shape = Enum.PartType.Cylinder,
-			size = Vector3.new(4.5, 5.2, 5.2),
-			cframe = CFrame.new(basePos + Vector3.new(math.sin(a) * nr, 1.6, math.cos(a) * nr))
-				* CFrame.Angles(0, 0, math.rad(90)),
-			material = Enum.Material.Metal,
-			color = Color3.fromRGB(96, 100, 112),
-			canCollide = false,
-			parent = model,
-		})
-		local exhaust = PartUtils.CreateDisc({
-			name = "RocketExhaustGlow" .. n,
-			diameter = 4.4,
-			thickness = 0.5,
-			position = basePos + Vector3.new(math.sin(a) * nr, 0.5, math.cos(a) * nr),
-			material = Enum.Material.Neon,
-			color = Color3.fromRGB(255, 150, 60),
-			canCollide = false,
-			parent = model,
-		})
-		local el = Instance.new("PointLight")
-		el.Color = Color3.fromRGB(255, 150, 60)
-		el.Range = 18
-		el.Brightness = 1.5
-		el.Parent = exhaust
-	end
 
 	-- Cable run / spine down the back of the hull (opposite the door).
 	for s = 1, 10 do
@@ -3186,11 +3158,29 @@ function BuildingInteriors.BuildShell(def, model: Model): BasePart
 		addThemedFlourish above, so every Space building gets it without
 		touching the four Furnish* functions - each of those keeps owning what
 		its room is FOR (shop stock, reward plinths, tutorial stations, stat
-		terminals), and this only supplies the surrounding ship structure.
+		terminals), and this only supplied the surrounding ship structure.
+
+		HISTORICAL - the call below is gone. See the note that follows.
 	]]
-	if CURRENT_THEME_ID == "Space" then
-		addSpaceInteriorFitOut(def, model)
-	end
+	--[[
+		NO SPACE-ONLY INTERIOR FIT-OUT.
+
+		This used to call addSpaceInteriorFitOut, which was gated on
+		CURRENT_THEME_ID == "Space" and therefore ran on this map and no other.
+		It dressed every Space room with ceiling conduit runs and wall
+		viewports - 10 extra parts per building that the Lava, Ice Age, Under
+		the Sea and Futuristic rooms do not have.
+
+		Removed because the interiors are meant to be identical across all five
+		maps: a blank room whose only content is its one feature screen, plus
+		seating where a player actually sits. Wall and floor COLOUR still varies
+		per map through LobbyTheme, which is the intended per-map difference -
+		adding geometry to one map is not.
+
+		The fit-out function itself is left in place, unreferenced, in case the
+		ship-interior look is wanted again later; it is dead code and safe to
+		delete.
+	]]
 
 	-- Per-map themed EXTERIOR silhouette (igloo dome/volcano cone with
 	-- lava falls/ship hull with portholes - see ROOF_SILHOUETTE_BUILDERS

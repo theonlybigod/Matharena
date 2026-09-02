@@ -394,6 +394,176 @@ local function addFacadeDetail(
 end
 
 --[[
+	BUILDING ENTRANCE.
+
+	Every tower gets a door. It sounds trivial, but a facade that meets the
+	pavement with unbroken glazing reads as a wall, not a building - there is
+	no point where a person could plausibly go in, and the eye notices.
+
+	Revolving-door drum, flanking side doors, an address number band and a
+	projecting entrance canopy over the pavement.
+]]
+local function addEntrance(model: Model, base: Vector3, width: number, depth: number, rng: Random, name: string)
+	-- Face the entrance toward the map centre, which is where players look
+	-- from - a door on the far side would never be seen.
+	local facing = math.atan2(-base.X, -base.Z)
+	local front = CFrame.new(base) * CFrame.Angles(0, facing, 0) * CFrame.new(0, 0, math.max(width, depth) * 0.5)
+
+	-- Recessed dark entrance bay.
+	PartUtils.CreatePart({
+		name = name .. "EntranceBay",
+		size = Vector3.new(16, 13, 1.6),
+		cframe = front * CFrame.new(0, 6.5, -0.4),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(26, 28, 34),
+		canCollide = false,
+		castShadow = false,
+		parent = model,
+	})
+
+	-- Revolving door drum.
+	PartUtils.CreatePart({
+		name = name .. "RevolvingDoor",
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(11, 8, 8),
+		cframe = front * CFrame.new(0, 5.5, 0.6) * CFrame.Angles(0, 0, math.rad(90)),
+		material = Enum.Material.Glass,
+		color = Color3.fromRGB(178, 198, 208),
+		transparency = 0.4,
+		canCollide = false,
+		castShadow = false,
+		parent = model,
+	})
+	-- Door vanes, so the drum reads as a revolving door and not a tube.
+	for v = 1, 4 do
+		PartUtils.CreatePart({
+			name = name .. "DoorVane",
+			size = Vector3.new(0.3, 8, 7.6),
+			cframe = front * CFrame.new(0, 5.5, 0.6) * CFrame.Angles(0, math.rad(45 * v), 0),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(96, 100, 108),
+			canCollide = false,
+			castShadow = false,
+			parent = model,
+		})
+	end
+
+	-- Flanking side doors.
+	for _, side in ipairs({ -1, 1 }) do
+		PartUtils.CreatePart({
+			name = name .. "SideDoor",
+			size = Vector3.new(4, 9, 0.4),
+			cframe = front * CFrame.new(side * 8.5, 4.5, 0.5),
+			material = Enum.Material.Glass,
+			color = Color3.fromRGB(150, 176, 190),
+			transparency = 0.35,
+			canCollide = false,
+			castShadow = false,
+			parent = model,
+		})
+	end
+
+	-- Entrance canopy projecting over the pavement.
+	PartUtils.CreatePart({
+		name = name .. "EntranceCanopy",
+		size = Vector3.new(22, 0.8, 8),
+		cframe = front * CFrame.new(0, 13.5, 3.6),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(44, 48, 54),
+		canCollide = false,
+		castShadow = false,
+		parent = model,
+	})
+	-- Underside lighting on the canopy - a warm pool of light at the door is
+	-- what makes an entrance look open for business.
+	PartUtils.CreatePart({
+		name = name .. "CanopyLight",
+		size = Vector3.new(20, 0.3, 6),
+		cframe = front * CFrame.new(0, 13, 3.6),
+		material = Enum.Material.Neon,
+		color = Color3.fromRGB(255, 238, 196),
+		transparency = 0.3,
+		canCollide = false,
+		castShadow = false,
+		parent = model,
+	})
+
+	-- Address number band above the canopy.
+	PartUtils.CreatePart({
+		name = name .. "AddressBand",
+		size = Vector3.new(9, 2.2, 0.4),
+		cframe = front * CFrame.new(0, 15.4, 0.4),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(178, 156, 96),
+		canCollide = false,
+		castShadow = false,
+		parent = model,
+	})
+end
+
+--[[
+	ROOFTOP SIGNAGE.
+
+	A large lit billboard or sign frame on the roof. Nothing says "American
+	downtown" faster, and it breaks up an otherwise flat roofline.
+]]
+local function addRooftopSign(model: Model, base: Vector3, width: number, topY: number, rng: Random, name: string)
+	local signColour = ({
+		Color3.fromRGB(226, 74, 62),
+		Color3.fromRGB(64, 130, 208),
+		Color3.fromRGB(240, 196, 74),
+		Color3.fromRGB(232, 232, 226),
+		Color3.fromRGB(96, 196, 148),
+	})[rng:NextInteger(1, 5)]
+
+	local signWidth = width * rng:NextNumber(0.7, 1.05)
+	local signHeight = rng:NextNumber(12, 24)
+	local facing = math.atan2(-base.X, -base.Z) + rng:NextNumber(-0.3, 0.3)
+
+	-- Support frame, which is what stops the sign looking like it is glued on.
+	for _, side in ipairs({ -1, 1 }) do
+		PartUtils.CreatePart({
+			name = name .. "SignLeg",
+			size = Vector3.new(0.9, signHeight * 0.5, 0.9),
+			cframe = CFrame.new(base + Vector3.new(0, topY + signHeight * 0.25, 0))
+				* CFrame.Angles(0, facing, 0)
+				* CFrame.new(side * signWidth * 0.4, 0, 0),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(52, 54, 60),
+			canCollide = false,
+			castShadow = false,
+			parent = model,
+		})
+	end
+
+	PartUtils.CreatePart({
+		name = name .. "RooftopSign",
+		size = Vector3.new(signWidth, signHeight, 1.2),
+		cframe = CFrame.new(base + Vector3.new(0, topY + signHeight * 0.5 + signHeight * 0.25, 0))
+			* CFrame.Angles(0, facing, 0),
+		material = Enum.Material.Neon,
+		color = signColour,
+		transparency = 0.18,
+		canCollide = false,
+		castShadow = false,
+		parent = model,
+	})
+	-- Dark surround so the lit face has an edge.
+	PartUtils.CreatePart({
+		name = name .. "SignFrame",
+		size = Vector3.new(signWidth + 2, signHeight + 2, 0.8),
+		cframe = CFrame.new(base + Vector3.new(0, topY + signHeight * 0.75, 0))
+			* CFrame.Angles(0, facing, 0)
+			* CFrame.new(0, 0, -0.6),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(38, 40, 46),
+		canCollide = false,
+		castShadow = false,
+		parent = model,
+	})
+end
+
+--[[
 	GROUND-FLOOR STOREFRONT.
 
 	The single most important detail for making a tower meet the street
@@ -531,6 +701,12 @@ local function buildTower(
 	local DETAIL_RADIUS = 620
 	local isNear = math.sqrt(position.X * position.X + position.Z * position.Z) < DETAIL_RADIUS
 
+	-- Doors only on the near city: at distance an entrance is a few pixels,
+	-- and it is ~12 parts each across 250 towers.
+	if isNear then
+		addEntrance(model, position, width, depth, rng, name)
+	end
+
 	local function facadeOf(w: number, d: number, fromY: number, toY: number, colour: Color3, suffix: string)
 		if isNear then
 			addFacadeDetail(model, position, w, d, fromY, toY, colour, rng, name .. suffix)
@@ -650,6 +826,11 @@ local function buildTower(
 		facadeOf(width, depth, groundY, height, brick, "B")
 		addCornice(model, position, width, depth, height, name)
 		addRoofDetail(model, position, width, depth, height, rng, name)
+		-- Low roofs are where billboards actually go - they are the ones a
+		-- street-level viewer can see the top of.
+		if rng:NextNumber() < 0.45 then
+			addRooftopSign(model, position, width, height + 2.4, rng, name)
+		end
 
 		--[[
 			FIRE ESCAPE. The definitive New York low-rise detail - a zigzag of
@@ -701,6 +882,9 @@ local function buildTower(
 		-- Vertical mullions, the defining detail of a Seagram-type facade.
 		facadeOf(width, depth, podium, height, GLASS_COLOUR, "G")
 		addRoofDetail(model, position, width, depth, height, rng, name)
+		if rng:NextNumber() < 0.25 then
+			addRooftopSign(model, position, width, height + 2.4, rng, name)
+		end
 	end
 end
 
@@ -1016,6 +1200,93 @@ local function buildCityGround(parent: Instance)
 			end
 		end
 
+		--[[
+			4e. ROAD SURFACE DETAIL.
+
+			An unbroken sheet of asphalt is the flattest, most obviously
+			synthetic surface in the scene. Real roadway is patched, drained and
+			vented, and those marks are most of what gives tarmac its texture.
+		]]
+		for s = 1, math.floor(length / 70) do
+			local along = roadStart + rng:NextNumber(30, length - 30)
+			local lateral = rng:NextNumber(-AVENUE_WIDTH * 0.35, AVENUE_WIDTH * 0.35)
+			local spot = CFrame.new(Vector3.new(math.sin(angle) * along, 0, math.cos(angle) * along))
+				* CFrame.Angles(0, angle, 0)
+				* CFrame.new(lateral, 0, 0)
+
+			local kind = rng:NextInteger(1, 3)
+			if kind == 1 then
+				-- Manhole cover.
+				PartUtils.CreateDisc({
+					name = "Manhole",
+					diameter = 4.2,
+					thickness = 0.2,
+					position = spot.Position + Vector3.new(0, 0.22, 0),
+					material = Enum.Material.CorrodedMetal,
+					color = Color3.fromRGB(72, 70, 66),
+					canCollide = false,
+					castShadow = false,
+					parent = folder,
+				})
+			elseif kind == 2 then
+				-- Asphalt patch: a slightly different tone where the road has
+				-- been cut and refilled. Cheap, and it breaks the flatness more
+				-- than anything else here.
+				PartUtils.CreatePart({
+					name = "RoadPatch",
+					size = Vector3.new(rng:NextNumber(6, 14), 0.15, rng:NextNumber(8, 20)),
+					cframe = spot * CFrame.new(0, 0.2, 0) * CFrame.Angles(0, rng:NextNumber(-0.2, 0.2), 0),
+					material = Enum.Material.Asphalt,
+					color = Color3.fromRGB(46, 47, 50),
+					canCollide = false,
+					castShadow = false,
+					parent = folder,
+				})
+			else
+				-- Steam vent stack over a manhole - the single most recognisable
+				-- New York street detail there is.
+				PartUtils.CreatePart({
+					name = "SteamStack",
+					shape = Enum.PartType.Cylinder,
+					size = Vector3.new(9, 4.5, 4.5),
+					cframe = spot * CFrame.new(0, 4.5, 0) * CFrame.Angles(0, 0, math.rad(90)),
+					material = Enum.Material.CorrodedMetal,
+					color = Color3.fromRGB(214, 96, 62),
+					canCollide = false,
+					castShadow = false,
+					parent = folder,
+				})
+				-- The steam itself.
+				local steamAnchor = PartUtils.CreatePart({
+					name = "SteamAnchor",
+					size = Vector3.new(3, 1, 3),
+					position = spot.Position + Vector3.new(0, 9, 0),
+					transparency = 1,
+					canCollide = false,
+					castShadow = false,
+					parent = folder,
+				})
+				local steam = Instance.new("ParticleEmitter")
+				steam.Name = "Steam"
+				steam.Color = ColorSequence.new(Color3.fromRGB(226, 228, 232))
+				steam.LightInfluence = 0
+				steam.Size = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 2),
+					NumberSequenceKeypoint.new(1, 14),
+				})
+				steam.Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0.55),
+					NumberSequenceKeypoint.new(1, 1),
+				})
+				steam.Lifetime = NumberRange.new(3, 6)
+				steam.Rate = 4
+				steam.Speed = NumberRange.new(3, 7)
+				steam.SpreadAngle = Vector2.new(14, 14)
+				steam.Acceleration = Vector3.new(1.5, 4, 0)
+				steam.Parent = steamAnchor
+			end
+		end
+
 		-- 4d. TRAFFIC. Cars parked and stopped along the avenue.
 		for v = 1, rng:NextInteger(5, 10) do
 			local along = rng:NextNumber(roadStart + 40, roadEnd - 40)
@@ -1096,6 +1367,407 @@ local function buildCityGround(parent: Instance)
 					})
 				end
 			end
+		end
+	end
+end
+
+--[[
+	STREET LIFE.
+
+	The layer that turns an accurate street into an INHABITED one. Everything
+	else so far is infrastructure - road, kerb, lamps, signals. This is the
+	stuff that only exists because people are using the place.
+
+	Run as a separate pass over the same avenue geometry rather than inside
+	the road loop, so the road builder stays about roadway and this stays
+	about occupancy. Both derive their positions from the same AVENUES /
+	AVENUE_WIDTH constants, so they cannot drift apart.
+
+	PEDESTRIANS are the single biggest gain here. A city with no people in it
+	reads as evacuated, and figures also give the towers something
+	person-sized to be tall against - scale you cannot get from geometry
+	alone. They are static blockouts, not rigs: at street distance a coloured
+	silhouette with a head reads as a person, and 300 animated NPCs would cost
+	more than the whole rest of the map.
+]]
+local SKIN_TONES = {
+	Color3.fromRGB(232, 196, 166),
+	Color3.fromRGB(198, 154, 118),
+	Color3.fromRGB(148, 104, 74),
+	Color3.fromRGB(96, 66, 48),
+	Color3.fromRGB(246, 220, 194),
+}
+local CLOTHING = {
+	Color3.fromRGB(42, 48, 62), -- business navy
+	Color3.fromRGB(34, 34, 38), -- black coat
+	Color3.fromRGB(120, 44, 44), -- red jacket
+	Color3.fromRGB(78, 82, 92), -- grey suit
+	Color3.fromRGB(56, 84, 108), -- denim
+	Color3.fromRGB(158, 142, 112), -- tan trench
+	Color3.fromRGB(96, 116, 84), -- olive
+}
+
+local function buildPedestrian(atCFrame: CFrame, rng: Random, parent: Instance, name: string)
+	local skin = SKIN_TONES[rng:NextInteger(1, #SKIN_TONES)]
+	local cloth = CLOTHING[rng:NextInteger(1, #CLOTHING)]
+	local legs = CLOTHING[rng:NextInteger(1, #CLOTHING)]
+	-- Facing is random: a crowd all pointing the same way reads as a queue.
+	local pose = atCFrame * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0)
+
+	PartUtils.CreatePart({
+		name = name .. "Legs",
+		size = Vector3.new(1.5, 2.6, 1),
+		cframe = pose * CFrame.new(0, 1.3, 0),
+		material = Enum.Material.Fabric,
+		color = legs,
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+	PartUtils.CreatePart({
+		name = name .. "Torso",
+		size = Vector3.new(1.8, 2.4, 1.1),
+		cframe = pose * CFrame.new(0, 3.8, 0),
+		material = Enum.Material.Fabric,
+		color = cloth,
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+	PartUtils.CreatePart({
+		name = name .. "Head",
+		shape = Enum.PartType.Ball,
+		size = Vector3.new(1.1, 1.2, 1.1),
+		cframe = pose * CFrame.new(0, 5.6, 0),
+		material = Enum.Material.SmoothPlastic,
+		color = skin,
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+end
+
+--[[
+	SIDEWALK SHED (scaffolding).
+
+	The green-painted plywood-and-pipe tunnel over the pavement outside any
+	building under repair. There is essentially always one in view in
+	Manhattan, and nothing else so specifically says "this city is a working
+	city" rather than a film set.
+]]
+local function buildSidewalkShed(atCFrame: CFrame, lengthAlong: number, rng: Random, parent: Instance, name: string)
+	local SHED_GREEN = Color3.fromRGB(62, 104, 72)
+	local DECK = Color3.fromRGB(148, 128, 96)
+
+	-- Deck over the pavement.
+	PartUtils.CreatePart({
+		name = name .. "Deck",
+		size = Vector3.new(14, 0.8, lengthAlong),
+		cframe = atCFrame * CFrame.new(0, 14, 0),
+		material = Enum.Material.WoodPlanks,
+		color = DECK,
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+	-- Painted fascia board along the outer edge.
+	PartUtils.CreatePart({
+		name = name .. "Fascia",
+		size = Vector3.new(0.6, 3.2, lengthAlong),
+		cframe = atCFrame * CFrame.new(6.8, 13, 0),
+		material = Enum.Material.WoodPlanks,
+		color = SHED_GREEN,
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+	-- Pipe legs.
+	local bays = math.max(2, math.floor(lengthAlong / 14))
+	for b = 0, bays do
+		local z = -lengthAlong / 2 + (lengthAlong / bays) * b
+		for _, side in ipairs({ -1, 1 }) do
+			PartUtils.CreatePart({
+				name = name .. "Leg",
+				size = Vector3.new(0.6, 14, 0.6),
+				cframe = atCFrame * CFrame.new(side * 6.4, 7, z),
+				material = Enum.Material.Metal,
+				color = SHED_GREEN,
+				canCollide = false,
+				castShadow = false,
+				parent = parent,
+			})
+		end
+		-- Cross brace, which is what makes it read as scaffold rather than a
+		-- row of posts.
+		PartUtils.CreatePart({
+			name = name .. "Brace",
+			size = Vector3.new(13, 0.4, 0.4),
+			cframe = atCFrame * CFrame.new(0, 7.5, z),
+			material = Enum.Material.Metal,
+			color = SHED_GREEN,
+			canCollide = false,
+			castShadow = false,
+			parent = parent,
+		})
+	end
+	-- Under-deck work lighting.
+	PartUtils.CreatePart({
+		name = name .. "WorkLight",
+		size = Vector3.new(1.4, 0.4, lengthAlong * 0.8),
+		cframe = atCFrame * CFrame.new(0, 13.4, 0),
+		material = Enum.Material.Neon,
+		color = Color3.fromRGB(255, 240, 200),
+		transparency = 0.35,
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+end
+
+-- Food cart with a striped awning: the hot-dog/halal cart on every corner.
+local function buildFoodCart(atCFrame: CFrame, rng: Random, parent: Instance, name: string)
+	local awning = ({
+		Color3.fromRGB(200, 62, 54),
+		Color3.fromRGB(216, 176, 52),
+		Color3.fromRGB(64, 122, 92),
+	})[rng:NextInteger(1, 3)]
+
+	PartUtils.CreatePart({
+		name = name .. "Body",
+		size = Vector3.new(6, 4, 3.4),
+		cframe = atCFrame * CFrame.new(0, 2.6, 0),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(206, 208, 210),
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+	PartUtils.CreatePart({
+		name = name .. "Awning",
+		size = Vector3.new(7.5, 0.4, 5),
+		cframe = atCFrame * CFrame.new(0, 7.6, 0),
+		material = Enum.Material.Fabric,
+		color = awning,
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+	for _, side in ipairs({ -1, 1 }) do
+		PartUtils.CreatePart({
+			name = name .. "Post",
+			size = Vector3.new(0.3, 3.4, 0.3),
+			cframe = atCFrame * CFrame.new(side * 3.4, 5.9, 0),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(150, 152, 156),
+			canCollide = false,
+			castShadow = false,
+			parent = parent,
+		})
+	end
+	-- Wheels, so it reads as a cart and not a kiosk.
+	for _, side in ipairs({ -1, 1 }) do
+		PartUtils.CreatePart({
+			name = name .. "Wheel",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.5, 1.6, 1.6),
+			cframe = atCFrame * CFrame.new(side * 2.4, 0.8, 0) * CFrame.Angles(0, 0, math.rad(90)),
+			material = Enum.Material.Rubber,
+			color = Color3.fromRGB(32, 32, 34),
+			canCollide = false,
+			castShadow = false,
+			parent = parent,
+		})
+	end
+end
+
+-- Subway entrance: stair void, railings and the green globe lamp.
+local function buildSubwayEntrance(atCFrame: CFrame, parent: Instance, name: string)
+	PartUtils.CreatePart({
+		name = name .. "StairVoid",
+		size = Vector3.new(11, 1, 16),
+		cframe = atCFrame * CFrame.new(0, 0.3, 0),
+		material = Enum.Material.Concrete,
+		color = Color3.fromRGB(28, 28, 30),
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+	-- Railings around three sides.
+	for _, side in ipairs({ -1, 1 }) do
+		PartUtils.CreatePart({
+			name = name .. "Rail",
+			size = Vector3.new(0.4, 4, 16),
+			cframe = atCFrame * CFrame.new(side * 5.5, 2, 0),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(46, 48, 52),
+			canCollide = false,
+			castShadow = false,
+			parent = parent,
+		})
+	end
+	PartUtils.CreatePart({
+		name = name .. "RailEnd",
+		size = Vector3.new(11, 4, 0.4),
+		cframe = atCFrame * CFrame.new(0, 2, -8),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(46, 48, 52),
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+	-- The green globe: unmistakable, and marks the entrance from across the
+	-- street.
+	PartUtils.CreatePart({
+		name = name .. "GlobePost",
+		size = Vector3.new(0.5, 9, 0.5),
+		cframe = atCFrame * CFrame.new(5.5, 4.5, 8),
+		material = Enum.Material.Metal,
+		color = Color3.fromRGB(46, 48, 52),
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+	PartUtils.CreatePart({
+		name = name .. "Globe",
+		shape = Enum.PartType.Ball,
+		size = Vector3.new(2.4, 2.4, 2.4),
+		cframe = atCFrame * CFrame.new(5.5, 10, 8),
+		material = Enum.Material.Neon,
+		color = Color3.fromRGB(86, 196, 104),
+		transparency = 0.2,
+		canCollide = false,
+		castShadow = false,
+		parent = parent,
+	})
+end
+
+-- Larger vehicles. A street of nothing but cars looks like a car park;
+-- buses and trucks give the traffic a size range.
+local function buildLargeVehicle(atCFrame: CFrame, kind: string, rng: Random, parent: Instance, name: string)
+	if kind == "BUS" then
+		PartUtils.CreatePart({
+			name = name .. "BusBody",
+			size = Vector3.new(6.5, 8, 34),
+			cframe = atCFrame * CFrame.new(0, 5, 0),
+			material = Enum.Material.SmoothPlastic,
+			color = Color3.fromRGB(52, 76, 116),
+			canCollide = false,
+			castShadow = false,
+			parent = parent,
+		})
+		-- Continuous window strip - the detail that reads as "bus".
+		PartUtils.CreatePart({
+			name = name .. "BusWindows",
+			size = Vector3.new(6.7, 3, 30),
+			cframe = atCFrame * CFrame.new(0, 7, 0),
+			material = Enum.Material.Glass,
+			color = Color3.fromRGB(70, 88, 100),
+			transparency = 0.3,
+			canCollide = false,
+			castShadow = false,
+			parent = parent,
+		})
+	else -- TRUCK / delivery van
+		PartUtils.CreatePart({
+			name = name .. "TruckBox",
+			size = Vector3.new(7, 9, 20),
+			cframe = atCFrame * CFrame.new(0, 5.5, 3),
+			material = Enum.Material.Metal,
+			color = Color3.fromRGB(214, 214, 208),
+			canCollide = false,
+			castShadow = false,
+			parent = parent,
+		})
+		PartUtils.CreatePart({
+			name = name .. "TruckCab",
+			size = Vector3.new(6.6, 6, 8),
+			cframe = atCFrame * CFrame.new(0, 4, -10),
+			material = Enum.Material.SmoothPlastic,
+			color = Color3.fromRGB(158, 62, 54),
+			canCollide = false,
+			castShadow = false,
+			parent = parent,
+		})
+	end
+	-- Wheels for both.
+	for _, side in ipairs({ -1, 1 }) do
+		for _, along in ipairs({ -11, 2, 11 }) do
+			PartUtils.CreatePart({
+				name = name .. "Wheel",
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(1.2, 3.2, 3.2),
+				cframe = atCFrame * CFrame.new(side * 3.2, 1.6, along) * CFrame.Angles(0, 0, math.rad(90)),
+				material = Enum.Material.Rubber,
+				color = Color3.fromRGB(30, 30, 32),
+				canCollide = false,
+				castShadow = false,
+				parent = parent,
+			})
+		end
+	end
+end
+
+local function buildStreetLife(parent: Instance)
+	local folder = Instance.new("Folder")
+	folder.Name = "StreetLife"
+	folder.Parent = parent
+
+	local rng = Random.new(884301)
+	local roadStart = 150
+	local roadEnd = ENCLOSURE_RADIUS - 10
+	local length = roadEnd - roadStart
+
+	for a = 1, AVENUES do
+		local angle = (a - 1) / AVENUES * math.pi * 2
+
+		-- PEDESTRIANS along both pavements.
+		for _ = 1, rng:NextInteger(14, 24) do
+			local along = rng:NextNumber(roadStart + 20, roadEnd - 20)
+			local side = if rng:NextNumber() < 0.5 then -1 else 1
+			local kerb = CFrame.new(Vector3.new(math.sin(angle) * along, 0, math.cos(angle) * along))
+				* CFrame.Angles(0, angle, 0)
+				* CFrame.new(side * rng:NextNumber(AVENUE_WIDTH / 2 + 3, AVENUE_WIDTH / 2 + 14), 0, 0)
+			buildPedestrian(kerb, rng, folder, "Ped")
+		end
+
+		-- One or two SIDEWALK SHEDS per avenue.
+		for _ = 1, rng:NextInteger(1, 2) do
+			local along = rng:NextNumber(roadStart + 60, roadEnd - 80)
+			local side = if rng:NextNumber() < 0.5 then -1 else 1
+			local at = CFrame.new(Vector3.new(math.sin(angle) * along, 0, math.cos(angle) * along))
+				* CFrame.Angles(0, angle, 0)
+				* CFrame.new(side * (AVENUE_WIDTH / 2 + 8), 0, 0)
+			buildSidewalkShed(at, rng:NextNumber(40, 80), rng, folder, "Shed")
+		end
+
+		-- FOOD CARTS, nearer the plaza where footfall would be highest.
+		for _ = 1, rng:NextInteger(1, 3) do
+			local along = rng:NextNumber(roadStart + 30, roadStart + 320)
+			local side = if rng:NextNumber() < 0.5 then -1 else 1
+			local at = CFrame.new(Vector3.new(math.sin(angle) * along, 0, math.cos(angle) * along))
+				* CFrame.Angles(0, angle, 0)
+				* CFrame.new(side * (AVENUE_WIDTH / 2 + 7), 0, 0)
+			buildFoodCart(at, rng, folder, "Cart")
+		end
+
+		-- SUBWAY ENTRANCE on roughly half the avenues.
+		if rng:NextNumber() < 0.5 then
+			local along = rng:NextNumber(roadStart + 80, roadStart + 400)
+			local side = if rng:NextNumber() < 0.5 then -1 else 1
+			local at = CFrame.new(Vector3.new(math.sin(angle) * along, 0, math.cos(angle) * along))
+				* CFrame.Angles(0, angle, 0)
+				* CFrame.new(side * (AVENUE_WIDTH / 2 + 10), 0, 0)
+			buildSubwayEntrance(at, folder, "Subway")
+		end
+
+		-- BUSES AND TRUCKS in the traffic lanes.
+		for _ = 1, rng:NextInteger(1, 3) do
+			local along = rng:NextNumber(roadStart + 60, roadEnd - 60)
+			local lane = if rng:NextNumber() < 0.5 then -1 else 1
+			local at = CFrame.new(Vector3.new(math.sin(angle) * along, 0, math.cos(angle) * along))
+				* CFrame.Angles(0, angle, 0)
+				* CFrame.new(lane * 8, 0, 0)
+			buildLargeVehicle(at, if rng:NextNumber() < 0.5 then "BUS" else "TRUCK", rng, folder, "Vehicle")
 		end
 	end
 end
@@ -1326,6 +1998,7 @@ function FuturisticEnvironment.BuildAll(parent: Instance): Folder
 
 	buildEnclosure(folder)
 	buildCityGround(folder)
+	buildStreetLife(folder)
 	buildCity(folder)
 	buildSun(folder)
 

@@ -939,6 +939,47 @@ local TERRAIN_RES = 4
 	    line low enough that ridges read white with rock showing through on
 	    the steepest faces, which is the Himalaya/Rockies look.
 ]]
+--[[
+	SNOW APRON.
+
+	Fixes a visible hole in the map: LobbyGround is a cylinder of radius 193
+	with its top at Y=4, and the mountain range does not begin until
+	RANGE_INNER (330). Between the two there was NO surface at all, so from
+	the plaza edge you looked 26 studs down onto raw MapBaseplate - a grey
+	slab, obviously not part of the world.
+
+	Filled with terrain rather than a part disc for two reasons: it joins the
+	existing mountain terrain as one continuous smoothed surface with no seam,
+	and it takes the same Snow material, so apron and lower slopes are visibly
+	the same ground.
+
+	APRON_INNER STARTS OUTSIDE THE PLAZA. This was first set to 178 - inside
+	LobbyGround's 193 radius - on the theory that tucking the terrain under
+	the plaza rim would avoid a hairline crack. It did, but it also pushed
+	snow up onto the MathArena circle itself, which is far worse than a crack:
+	the arena floor is meant to be clean. 196 keeps every voxel outside the
+	plaza, and PLAZA_CLEAR_RADIUS below guarantees it.
+]]
+local APRON_INNER = 196
+local PLAZA_CLEAR_RADIUS = 190 -- inside LobbyGround's 193 so the clear cannot eat the apron's inner edge
+--[[
+	APRON_HEIGHT = 3, not 0.
+
+	Terrain heights here are measured RELATIVE TO worldOrigin.Y, and
+	worldOrigin is MapCenter, already at world Y=4 - the same height as
+	LobbyGround's top. So 0 means "exactly level with the plaza floor".
+
+	That sounds right and is wrong in practice: at height 0 the surface voxel
+	gets occupancy 0, and wherever the drift noise bottomed out the column
+	produced no solid voxel at all - measured as a patchy snowfield with only
+	3 to 8 of 12 bearings covered, baseplate showing through the gaps.
+
+	3 lifts the whole apron clear of that boundary so every column is solidly
+	filled. It also reads correctly: snow banks UP outside a cleared arena,
+	so a few studs of lip at the rim is what you would actually see.
+]]
+local APRON_HEIGHT = 3
+
 local RANGE_INNER = 330 -- clear of the plaza (USABLE_RADIUS 172) with breathing room
 local RANGE_CREST = 700 -- where peaks are tallest
 local RANGE_OUTER = 985 -- just inside the 1000-stud enclosure wall
@@ -985,8 +1026,29 @@ end
 ]]
 local function mountainHeight(localX: number, localZ: number): number
 	local dist = math.sqrt(localX * localX + localZ * localZ)
-	if dist < RANGE_INNER or dist > RANGE_OUTER then
+	if dist < APRON_INNER or dist > RANGE_OUTER then
 		return 0
+	end
+
+	--[[
+		APRON ZONE: the flat snowfield between the plaza and the foothills.
+
+		Held at APRON_HEIGHT so it sits level with the plaza floor, with a
+		couple of studs of drift so it is not a machined plane, easing upward
+		over the last 30 studs so it rises INTO the foothills rather than
+		meeting them at a step.
+	]]
+	if dist < RANGE_INNER then
+		--[[
+			Drift is faded in over the first 40 studs of the apron, so the snow
+			leaves the plaza edge FLUSH and only banks up further out. Without
+			this the noise put up to 3 studs of snow hard against the arena rim,
+			which read as a lip around the circle.
+		]]
+		local edgeFade = smoothRamp(APRON_INNER, APRON_INNER + 40, dist)
+		local drift = (math.noise(localX * 0.012, localZ * 0.012, 29) * 0.5 + 0.5) * 3 * edgeFade
+		local blend = smoothRamp(RANGE_INNER - 30, RANGE_INNER, dist)
+		return APRON_HEIGHT + drift + blend * 6
 	end
 
 	-- Envelope: rises from nothing at the inner edge, peaks at the crest,
@@ -1042,7 +1104,9 @@ function IceAgeEnvironment.BuildTerrainMountains(worldOrigin: Vector3)
 			local cx, cz = tileX + TILE / 2, tileZ + TILE / 2
 			local centreDist = math.sqrt(cx * cx + cz * cz)
 			local halfDiag = TILE * 0.7072
-			if centreDist + halfDiag >= RANGE_INNER and centreDist - halfDiag <= RANGE_OUTER then
+			-- APRON_INNER, not RANGE_INNER: the tile scan has to reach inward to
+			-- the plaza edge now that the apron fills that ring too.
+			if centreDist + halfDiag >= APRON_INNER and centreDist - halfDiag <= RANGE_OUTER then
 				--[[
 					Build the region FIRST and derive the array dimensions from it,
 					rather than assuming TILE/RES.
@@ -1156,6 +1220,39 @@ function IceAgeEnvironment.BuildTerrainMountains(worldOrigin: Vector3)
 			end
 		end
 	end
+
+	--[[
+		KEEP THE ARENA CIRCLE CLEAR.
+
+		Run AFTER the write loop, deliberately. Placed before it, the tiles
+		would simply fill the plaza back in and this would guarantee nothing.
+
+		APRON_INNER (196) already puts every apron voxel outside LobbyGround's
+		193-stud radius, but voxel writes snap outward to the 4-stud grid, so a
+		boundary voxel can still bleed a stud or two inside. This carves the
+		plaza cylinder back out as a guarantee rather than a hope.
+
+		It also removes snow left over from an earlier build that used a smaller
+		APRON_INNER, so re-running this function is enough to clean up a map
+		that already has snow on the arena floor.
+
+		FillCylinder (not FillRegion) because the plaza is round - a box clear
+		would bite square corners out of the surrounding snowfield.
+
+		NO ROTATION ON THE CFRAME. FillCylinder extends the cylinder along its
+		CFrame's UP axis, so an unrotated CFrame already gives a vertical
+		column. An earlier version passed CFrame.Angles(0, 0, rad(90)) - copied
+		from the pattern used for cylinder PARTS, which do lie along X - and
+		that laid the clear on its side, carving a horizontal tube straight
+		through the snowfield. The symptom was gaps in the snow on some
+		bearings and leftover snow inside the arena on others.
+	]]
+	Terrain:FillCylinder(
+		CFrame.new(worldOrigin),
+		(TOP_Y - FLOOR_Y) + 200, -- height: well clear above and below
+		PLAZA_CLEAR_RADIUS,
+		Enum.Material.Air
+	)
 
 	return tilesWritten, voxelsWritten
 end
