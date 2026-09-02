@@ -123,7 +123,17 @@ local function buildOne(def, parent: Instance, mapId: string): Model
 	]]
 	for _, descendant in ipairs(model:GetDescendants()) do
 		if descendant:IsA("BasePart") and descendant.Name == "EntranceNamePlate" then
-			BuildingSigns.MakeTeleportTarget(descendant, def.name, mapId, 200)
+			--[[
+				Range comes from BuildingSigns.GetClickDistance(), the same value
+				the overhead sign anchors use, rather than a hardcoded 200.
+
+				The facade nameplate and the floating sign are two ways to click
+				the SAME teleport, so having one work map-wide at 2000 studs and
+				the other cut out at 200 was just an inconsistency - the plate
+				stopped responding well before you were close enough to read it
+				on the larger maps.
+			]]
+			BuildingSigns.MakeTeleportTarget(descendant, def.name, mapId, BuildingSigns.GetClickDistance())
 		end
 	end
 

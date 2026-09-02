@@ -182,6 +182,22 @@ local SIGN_MAX_DISTANCE = 420
 local SIGN_CLICK_DISTANCE = 2000
 
 --[[
+	Exposed so other builders can use the same click range rather than
+	hardcoding their own. Buildings.lua uses it for the facade nameplates,
+	which are a second click target for the same teleport as the overhead
+	sign - they should never disagree about range.
+
+	DECLARED HERE, BELOW THE CONSTANT, and that placement is load-bearing.
+	Lua resolves locals at parse time, so a function body can only see locals
+	declared ABOVE it. Defined earlier in the file this returned nil, which
+	silently fell through to MakeTeleportTarget's `maxDistance or 1000`
+	default - the nameplates came out at 1000 instead of 2000 with no error.
+]]
+function BuildingSigns.GetClickDistance(): number
+	return SIGN_CLICK_DISTANCE
+end
+
+--[[
 	Builds one building's overhead sign + connector beam, parented into
 	`parent` (the Buildings folder). `mapId` is tagged onto the clickable
 	sign button ("MapId" attribute, alongside the existing "BuildingName")

@@ -65,6 +65,7 @@ local SpaceEnvironment = require(script.SpaceEnvironment)
 local UnderTheSeaEnvironment = require(script.UnderTheSeaEnvironment)
 local IceAgeEnvironment = require(script.IceAgeEnvironment)
 local LavaEnvironment = require(script.LavaEnvironment)
+local FuturisticEnvironment = require(script.FuturisticEnvironment)
 local MapBaseplate = require(script.MapBaseplate)
 
 local LobbyBuilder = {}
@@ -199,6 +200,11 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?, enableS
 	-- below is completely untouched by this dispatch.
 	if def.themeId == "Space" then
 		SpaceEnvironment.BuildAll(root)
+	elseif def.themeId == "Futuristic" then
+		-- Metropolis skyline, sun and god-rays. Futuristic was the only map
+		-- with no themed environment at all, so its plaza ended at the
+		-- boundary wall with nothing beyond it.
+		FuturisticEnvironment.BuildAll(root)
 	elseif def.themeId == "UnderTheSea" then
 		UnderTheSeaEnvironment.BuildAll(root)
 	elseif def.themeId == "IceAge" then
