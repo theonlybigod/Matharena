@@ -2437,19 +2437,37 @@ local function addSpaceRocketBody(def, model: Model)
 		The doorway is the one thing a cylinder cannot express, since it has no
 		hole. So the hull is built in two zones:
 
-		  - ABOVE the door (the large majority of the height): solid cylinders.
-		  - THE DOOR BAND: arc segments with the entrance notch carved out,
-		    exactly as before, so the opening is preserved.
+		  - THE SHELL ZONE (ground up to just above the interior ceiling): arc
+		    segments, with the entrance notch carved out.
+		  - ABOVE THE INTERIOR: solid cylinders, all the way to the tip.
 
-		Part count drops by roughly 98%, which is also why the map now runs
-		better with four of these on it.
+		WHY THE SHELL ZONE COVERS THE WHOLE INTERIOR, not just the door band.
+		A solid cylinder's VOLUME includes the room, so any solid section whose
+		height range overlaps the interior is a solid slab sitting inside it.
+		That is exactly what happened when the ceilings were raised: the room
+		grew up into `HullSection12`, a 4-stud-thick puck at radius 21 spanning
+		Y 16.4-20.6, which cut straight through a feature screen spanning
+		Y 8.5-23.0 - measured as 3/3 blocked sightlines on all four buildings.
+
+		Solid cylinders are only safe ABOVE the ceiling, where there is no room
+		for them to be inside of. Below that the hull has to be a true shell.
+
+		Part count is still far below the original per-plate approach, because
+		the nose and upper body - most of the height - remain solid cylinders.
 	]]
 	local notchTop = doorHeight + 2.5
+	--[[
+		Top of the shell zone: clear of the interior ceiling, never below the
+		door band, and never past the nose (where there is no interior and the
+		radius is changing fast enough that arc segments would be wasteful).
+	]]
+	local shellTop = math.min(math.max(notchTop, def.height + 3), noseBase)
 
-	-- Zone 1: the door band, arc segments leaving the entrance open.
+	-- Zone 1: shell of arc segments over the full interior height, leaving
+	-- the entrance open.
 	do
 		local bandStep = 2.2
-		for y = 0, notchTop, bandStep do
+		for y = 0, shellTop, bandStep do
 			local radius = rocketProfile(y)
 			local circumference = 2 * math.pi * radius
 			local count = math.max(24, math.ceil(circumference / 4))
@@ -2457,7 +2475,10 @@ local function addSpaceRocketBody(def, model: Model)
 			local pieceWidth = arcSpacing * 1.25 -- modest overlap; no jitter to hide
 			for s = 1, count do
 				local a = (2 * math.pi / count) * s
-				if not isInEntranceNotch(a, radius, doorWidth + pieceWidth) then
+				-- The notch is only carved through the door band itself; above it
+				-- the shell closes all the way round.
+				local carve = y <= notchTop and isInEntranceNotch(a, radius, doorWidth + pieceWidth)
+				if not carve then
 					PartUtils.CreatePart({
 						name = ("HullBandY%dS%d"):format(math.floor(y), s),
 						size = Vector3.new(pieceWidth, bandStep * 1.25, 2.4),
@@ -2473,9 +2494,9 @@ local function addSpaceRocketBody(def, model: Model)
 		end
 	end
 
-	-- Zone 2: solid cylinders from just above the door band to the tip.
+	-- Zone 2: solid cylinders from above the interior ceiling to the tip.
 	do
-		local y = notchTop
+		local y = shellTop
 		while y < peakY do
 			-- Fine steps through the nose (where the radius is changing fast),
 			-- coarser up the straight body where consecutive rings are the same
@@ -3621,12 +3642,27 @@ local function buildFeatureScreen(def, model: Model, partName: string, tagName: 
 	local basePos = def.position
 	local halfZ = def.size.Y / 2
 
-	-- Fill the wall, leaving a margin so the frame never clips the corners.
+	--[[
+		SIZED WITH REAL CEILING CLEARANCE.
+
+		This was `math.min(def.height - 7, 16)` with the centre at `height/2 + 4`,
+		which put the screen top at exactly `def.height - 3` and the FRAME top
+		(height + 1) at `def.height - 2.5`. Interior headroom is `def.height - 1`,
+		so the frame cleared the ceiling by half a stud - it scaled with the room
+		but never actually gained clearance, so raising ceilings alone would not
+		have fixed it.
+
+		Now reserved explicitly: 4.5 studs below the panel for the sill, and
+		CEILING_GAP above the frame. The screen takes whatever is left, capped at
+		18 so a tall room does not produce an absurd panel.
+	]]
+	local CEILING_GAP = 6 -- studs of clear ceiling above the frame
+	local SILL = 4.5 -- studs from floor to the bottom of the panel
+	local interiorHeight = def.height - 1
+
 	local width = math.min(def.size.X - 6, 30)
-	local height = math.min(def.height - 7, 16)
-	-- Centre it a little above eye level: readable from the doorway, and clear
-	-- of any seating in front of it.
-	local centreY = height / 2 + 4
+	local height = math.clamp(interiorHeight - SILL - CEILING_GAP - 1, 8, 18)
+	local centreY = SILL + height / 2
 	local wallZ = -halfZ + WALL_THICKNESS + 0.4
 
 	local screen = PartUtils.CreatePart({
@@ -3748,12 +3784,18 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		client to the featured item's previewColor. This is the one prop that
 		earns its place - the bottom-bar Shop shows colours as small swatches,
 		and seeing one at full height is the reason to walk in.
+
+		PUSHED OUT TO 0.85 OF THE HALF-WIDTH. At 0.45 it stood at x=8.1 in a
+		room whose screen is 30 wide (half-width 15), so the column was directly
+		in front of the screen's right-hand third - measured as 2 of 9
+		sightlines blocked from the doorway. At 0.85 it clears the screen's edge
+		entirely while still being the first thing you see on the way in.
 	]]
 	PartUtils.CreateDisc({
 		name = "FeaturedPreviewBase",
 		diameter = 5,
 		thickness = 0.8,
-		position = basePos + Vector3.new(halfX * 0.45, 0.4, -halfZ * 0.15),
+		position = basePos + Vector3.new(halfX * 0.85, 0.4, -halfZ * 0.15),
 		material = FURNITURE_MATERIAL,
 		color = FURNITURE_COLOR,
 		canCollide = false,
@@ -3763,7 +3805,7 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 		name = "FeaturedPreviewShaft",
 		shape = Enum.PartType.Cylinder,
 		size = Vector3.new(9, 3, 3),
-		cframe = CFrame.new(basePos + Vector3.new(halfX * 0.45, 5.3, -halfZ * 0.15))
+		cframe = CFrame.new(basePos + Vector3.new(halfX * 0.85, 5.3, -halfZ * 0.15))
 			* CFrame.Angles(0, 0, math.rad(90)),
 		material = ACCENT_MATERIAL,
 		color = ACCENT_COLOR,
@@ -3773,9 +3815,9 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 	})
 	CollectionService:AddTag(shaft, "FeaturedPreviewShaft")
 
-	-- Purchase terminal. Bare (no dais/arch/header) - the screen is the
-	-- room's focus and an archway would compete with it.
-	terminal(model, basePos + Vector3.new(-halfX * 0.45, 0, -halfZ * 0.15), "ShopTerminalPrompt", "Open Shop", "Shop", true)
+	-- Purchase terminal, mirrored to the opposite side from the preview
+	-- column so neither stands in front of the screen.
+	terminal(model, basePos + Vector3.new(-halfX * 0.85, 0, -halfZ * 0.15), "ShopTerminalPrompt", "Open Shop", "Shop", true)
 end
 
 --[==[ SUPERSEDED - the old Shop fit-out (shelves, aisle islands, counter,

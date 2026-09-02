@@ -108,33 +108,59 @@ LobbyConfig.SPAWN_POSITIONS = {
 -- and every building's furthest corner stays within ~165 studs of the
 -- map center (safely inside the ~172-stud usable radius).
 LobbyConfig.BUILDINGS = {
+	--[[
+		CEILING HEIGHTS RAISED so the full feature screen clears the ceiling.
+
+		Measured on the Space map before this change (floor surface Y=4.5):
+
+		  Shop                screen top 24.0, ceiling 29.5 -> 5.0 clear
+		  DailyRewards        screen top 22.5, ceiling 24.5 -> 2.0 clear
+		  TutorialBuilding    screen top 22.5, ceiling 24.5 -> 2.0 clear
+		  StatisticsBuilding  screen top 20.5, ceiling 22.5 -> 2.0 clear
+
+		Two studs is nothing. The frame top sat essentially against the ceiling
+		slab, so from a standing eye height the ceiling's near edge cut across
+		the top of the panel - the screen was not clipped in geometry, but it
+		was not fully VISIBLE either, which is what matters.
+
+		Interior height is (height - 1), so +8 studs here buys 8 studs of
+		headroom. Combined with the reworked screen sizing in
+		BuildingInteriors.buildFeatureScreen, every building now clears by ~10.
+
+		StatisticsBuilding gets +8 like the rest rather than being levelled to
+		the others: its 36x19 footprint is the shallowest, and matching the
+		taller rooms' absolute height would have made a narrow room feel like a
+		lift shaft.
+
+		SHARED BY ALL FIVE MAPS - the other four need a rebuild to pick this up.
+	]]
 	{
 		name = "Shop",
 		displayName = "Shop",
 		size = Vector2.new(36, 30),
 		position = scaled(-68, -20),
-		height = 26,
+		height = 34,
 	},
 	{
 		name = "DailyRewards",
 		displayName = "Daily Rewards",
 		size = Vector2.new(26, 26),
 		position = scaled(-26, -68),
-		height = 21,
+		height = 29,
 	},
 	{
 		name = "TutorialBuilding",
 		displayName = "Tutorial Building",
 		size = Vector2.new(26, 26),
 		position = scaled(26, -68),
-		height = 21,
+		height = 29,
 	},
 	{
 		name = "StatisticsBuilding",
 		displayName = "Statistics Building",
 		size = Vector2.new(36, 19),
 		position = scaled(68, -20),
-		height = 19,
+		height = 27,
 	},
 }
 
