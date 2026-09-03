@@ -211,6 +211,21 @@ local function slopeCFrame(position: Vector3, angle: number, pitch: number): CFr
 end
 
 --[[
+	Forward-declared. buildFrozenPeak/buildFrozenPeaks (immediately below) need
+	to sample the actual apron/range height so the foothills sit flush on the
+	terrain instead of at a hardcoded Y - but that logic (mountainHeight and
+	the RANGE_*/APRON_* constants it depends on) is defined much further down,
+	next to BuildTerrainMountains, which is where it conceptually belongs.
+	Declaring the local here and assigning the real function later (that
+	definition drops its own `local` keyword accordingly) lets both call sites
+	share one implementation without moving ~90 lines of terrain code above
+	the part-based builders it has nothing else to do with. Safe because nothing
+	calls buildFrozenPeaks until IceAgeEnvironment.BuildAll runs, by which point
+	the whole module has finished loading and the assignment below has happened.
+]]
+local mountainHeight: (number, number) -> number
+
+--[[
 	One "pillar" landmark near the boundary: a continuous frozen-mountain
 	cone, NOT scattered floating chunks. Uses the exact same tiered-shingle
 	technique as LavaEnvironment's buildDistantVolcano - many tiers of
@@ -221,7 +236,7 @@ end
 	snow-accumulation cap at the peak, a shallow ground-blending skirt at
 	the base, and a handful of hanging icicles along the slope's edges.
 ]]
-local function buildFrozenPeak(position: Vector3, rng: Random, parent: Instance, name: string)
+local function buildFrozenPeak(position: Vector3, rng: Random, parent: Instance, name: string): Model
 	local model = Instance.new("Model")
 	model.Name = name
 	model.Parent = parent
@@ -335,6 +350,8 @@ local function buildFrozenPeak(position: Vector3, rng: Random, parent: Instance,
 			parent = model,
 		})
 	end
+
+	return model
 end
 
 local function buildFrozenPeaks(parent: Instance)
@@ -342,12 +359,50 @@ local function buildFrozenPeaks(parent: Instance)
 	folder.Name = "FrozenPeaks"
 	folder.Parent = parent
 
+	--[[
+		HARDCODED, HAND-PLACED POSITIONS.
+
+		These 8 peaks were originally placed procedurally (mountainHeight-based
+		apron placement, ground-truth-snapped by SnapFrozenPeaksToTerrain), then
+		manually repositioned by hand in Studio to their approved final spots.
+		Read directly off the live, hand-placed Tundra place via Model:GetPivot()
+		- which reports LOCAL, pre-applyMapTransform coordinates, confirmed by
+		cross-checking against each peak's world-space bounding box, which
+		differs by exactly the known origin+GROUND_ELEVATION offset - and
+		hardcoded here so no future procedural rebuild moves them again.
+
+		The angle/radius RNG draws below are DELIBERATELY KEPT (their results
+		are discarded) rather than removed outright, so buildFrozenPeak's own
+		internal shape rolls (baseRadius, peakHeight, shingle jitter, tier
+		counts, etc., all drawn from this same `rng` right afterward) consume
+		the exact same sequence of random numbers as before - every peak's
+		actual shape/size stays byte-identical to what was already built and
+		approved; only its position is now fixed.
+	]]
 	local rng = Random.new(619204)
 	local count = 8
+	local APRON_BAND_INNER = 210 -- unused for placement now, kept only so the discarded RNG draw below matches the original sequence
+	local APRON_BAND_OUTER = 300 -- unused for placement now, kept only so the discarded RNG draw below matches the original sequence
+
+	local HAND_PLACED_POSITIONS = {
+		Vector3.new(-10.785, 53.935, 271.781), -- FrozenPeak1
+		Vector3.new(155.608, 38.311, 224.775), -- FrozenPeak2
+		Vector3.new(284.544, 32.810, 11.854), -- FrozenPeak3
+		Vector3.new(182.733, 40.803, -198.399), -- FrozenPeak4
+		Vector3.new(-2.552, 45.873, -257.590), -- FrozenPeak5
+		Vector3.new(-191.062, 37.427, -193.693), -- FrozenPeak6
+		Vector3.new(-280.541, 53.240, 1.224), -- FrozenPeak7
+		Vector3.new(-212.644, 57.076, 158.806), -- FrozenPeak8
+	}
+
 	for i = 1, count do
-		local angle = (i - 1) / count * math.pi * 2 + rng:NextNumber(-0.15, 0.15)
-		local radius = rng:NextNumber(ENCLOSURE_RADIUS * 0.7, ENCLOSURE_RADIUS * 0.92)
-		local position = Vector3.new(math.sin(angle) * radius, -20, math.cos(angle) * radius)
+		-- Discarded on purpose - see comment above; preserves RNG state so
+		-- each peak's shape generation is unaffected by the switch to fixed
+		-- positions.
+		local _angle = (i - 1) / count * math.pi * 2 + rng:NextNumber(-0.15, 0.15)
+		local _radius = rng:NextNumber(APRON_BAND_INNER, APRON_BAND_OUTER)
+
+		local position = HAND_PLACED_POSITIONS[i]
 		buildFrozenPeak(position, rng, folder, "FrozenPeak" .. i)
 	end
 end
@@ -1024,7 +1079,7 @@ end
 	Returns 0 inside the plaza and outside the wall, so terrain only ever
 	exists in the annulus.
 ]]
-local function mountainHeight(localX: number, localZ: number): number
+function mountainHeight(localX: number, localZ: number): number
 	local dist = math.sqrt(localX * localX + localZ * localZ)
 	if dist < APRON_INNER or dist > RANGE_OUTER then
 		return 0
@@ -1277,6 +1332,84 @@ function IceAgeEnvironment.BuildAll(parent: Instance): Folder
 	buildAuroraStreaks(folder)
 
 	return folder
+end
+
+--[[
+	GROUND-TRUTH FINAL PASS for FrozenPeaks, called by LobbyBuilder AFTER
+	BuildTerrainMountains has actually written the range/apron into Terrain.
+
+	buildFrozenPeaks already places each peak using mountainHeight(x, z) plus
+	a measure-then-correct pass against its OWN built geometry (see that
+	function's doc comment) - that gets every peak within roughly a stud or
+	two of the real surface, but not exactly onto it: Terrain's rendered
+	surface does not sit exactly at the analytic height sampled during the
+	build - it bulges upward by roughly half a voxel (TERRAIN_RES is 4, so up
+	to ~2 studs) depending on neighbouring voxel occupancy, and that bulge is
+	not practically predictable from mountainHeight() alone.
+
+	Raycasting the ACTUAL Terrain (which does not exist yet when
+	buildFrozenPeaks runs, only after this later call) removes that
+	uncertainty entirely: whatever the true rendered surface turns out to be,
+	each peak is shifted to sit CLEARANCE studs above it, guaranteeing no
+	part of any peak overlaps the snow, regardless of any analytic
+	approximation error upstream.
+]]
+function IceAgeEnvironment.SnapFrozenPeaksToTerrain(frozenPeaksFolder: Instance)
+	local CLEARANCE = 1.5
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Include
+	rayParams.FilterDescendantsInstances = { workspace.Terrain }
+
+	for _, model in ipairs(frozenPeaksFolder:GetChildren()) do
+		if model:IsA("Model") then
+			local cf, size = model:GetBoundingBox()
+			local actualBottom = cf.Position.Y - size.Y / 2
+
+			--[[
+				Sample terrain across the model's WHOLE footprint, not just its
+				centre point. A peak's base spans up to ~60 studs (baseRadius
+				20-30 doubled by the skirt), and apron height genuinely varies
+				across that span (radial blend plus per-point noise drift) - a
+				single centre raycast can miss a locally higher patch of terrain
+				under an outlying shingle, leaving that one part dipping into the
+				snow even though the model's centre clears it fine. Sampling a
+				ring plus the centre and taking the HIGHEST point found is what
+				actually guarantees the whole footprint clears, not just one spot
+				in it.
+			]]
+			local footprintRadius = math.sqrt((size.X / 2) ^ 2 + (size.Z / 2) ^ 2) -- circumscribes the rectangular bbox, not just its shorter half-width
+			local highestTerrainY = -math.huge
+			local sampleOffsets = { Vector3.new(0, 0, 0) }
+			-- Three concentric rings (not one) at 12 angles each: a single ring
+			-- missed a dip on FrozenPeak7 during testing - the footprint is an
+			-- irregular jittered blob, not a clean disc, so bumps can sit at any
+			-- radius fraction, not just the outer edge.
+			for _, radiusFraction in ipairs({ 0.35, 0.7, 1.0 }) do
+				for a = 0, 330, 30 do
+					local rad = math.rad(a)
+					local r = footprintRadius * radiusFraction
+					table.insert(sampleOffsets, Vector3.new(math.sin(rad) * r, 0, math.cos(rad) * r))
+				end
+			end
+
+			for _, offset in ipairs(sampleOffsets) do
+				local sampleX, sampleZ = cf.Position.X + offset.X, cf.Position.Z + offset.Z
+				local hit = workspace:Raycast(
+					Vector3.new(sampleX, cf.Position.Y + 400, sampleZ),
+					Vector3.new(0, -800, 0),
+					rayParams
+				)
+				if hit and hit.Position.Y > highestTerrainY then
+					highestTerrainY = hit.Position.Y
+				end
+			end
+
+			if highestTerrainY > -math.huge then
+				local correction = (highestTerrainY + CLEARANCE) - actualBottom
+				model:PivotTo(model:GetPivot() + Vector3.new(0, correction, 0))
+			end
+		end
+	end
 end
 
 return IceAgeEnvironment

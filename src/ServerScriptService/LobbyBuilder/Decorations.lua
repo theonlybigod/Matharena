@@ -350,11 +350,20 @@ function Decorations.BuildAll(parent: Instance): Folder
 		Trees.Build(position, variantId, treesFolder)
 	end
 
-	local flowersFolder = Instance.new("Folder")
-	flowersFolder.Name = "FlowerBeds"
-	flowersFolder.Parent = folder
-	for _, def in ipairs(LobbyConfig.BUILDINGS) do
-		createFlowerBed(def.position + Vector3.new(0, 0, def.size.Y / 2 + 2), flowersFolder)
+	-- Flower beds - REMOVED FROM EVERY THEME (not just IceAge). Originally
+	-- scoped to skip IceAge only (flowers reading as thematically wrong on
+	-- a snowbound building), then explicitly extended to all five maps -
+	-- every FlowerBedSoil/FlowerStem/Flower part is gone everywhere now.
+	-- createFlowerBed itself is left defined (unused) rather than deleted,
+	-- in case a future theme wants it back - only this call site is gone.
+	local ENABLE_FLOWER_BEDS = false
+	if ENABLE_FLOWER_BEDS then
+		local flowersFolder = Instance.new("Folder")
+		flowersFolder.Name = "FlowerBeds"
+		flowersFolder.Parent = folder
+		for _, def in ipairs(LobbyConfig.BUILDINGS) do
+			createFlowerBed(def.position + Vector3.new(0, 0, def.size.Y / 2 + 2), flowersFolder)
+		end
 	end
 
 	-- Perimeter fill lights (replaces the old square's "4 corner lights" -

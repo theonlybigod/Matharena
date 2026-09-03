@@ -109,6 +109,109 @@ local BuildVersion = {}
 --       (clearance sized for terrain's smoothed render, which bulges ~half
 --       a voxel above nominal), and a 140-stud flat skirt past the rim
 --       stops the dunes cresting above the plate.
-BuildVersion.CURRENT = 9
+--  10 = Ice Age FrozenPeaks reposition: the 8 part-built foothill peaks
+--       moved from a fixed ring at 70-92% of ENCLOSURE_RADIUS (700-920
+--       studs, deep inside the real Terrain mountain range built by
+--       BuildTerrainMountains) onto the snow apron between the plaza rim
+--       and the range's own inner edge (210-300 studs), with each peak's
+--       Y now sampled from the same mountainHeight(x, z) the terrain range
+--       itself uses instead of a hardcoded -20, so the base sits flush
+--       with the snow instead of buried in or floating above it.
+--  11 = Ice Age FrozenPeaks ground-contact fix: version 10's placement
+--       still embedded every peak 2-7 studs into the terrain, because
+--       buildFrozenPeak's tier-0 shingles get random jitter AND a
+--       rotated CFrame, so a model's true GetBoundingBox() bottom does
+--       not sit at the Y it was built at - mountainHeight(x, z) was
+--       correct, but nothing accounted for that gap between intended and
+--       actual geometry. buildFrozenPeak now returns its model, and
+--       buildFrozenPeaks measures each one's real bounding-box bottom
+--       after building it and shifts it vertically by whatever the actual
+--       difference turns out to be, plus a small deliberate
+--       GROUND_CLEARANCE (1.5 studs) so the base sits ON the snow rather
+--       than exactly flush-touching it.
+--  12 = Ice Age FrozenPeaks ground-truth snap: version 11 still left every
+--       peak sitting ~0.5 studs INTO the terrain, because Terrain's actual
+--       rendered surface bulges above the analytic mountainHeight() value
+--       by roughly half a voxel (~2 studs) depending on neighbouring
+--       occupancy - not something predictable from the formula alone.
+--       LobbyBuilder now calls the new IceAgeEnvironment.
+--       SnapFrozenPeaksToTerrain(frozenPeaksFolder) immediately after
+--       BuildTerrainMountains actually writes the range, which raycasts
+--       each peak's real position against the just-built Terrain and
+--       shifts it to sit exactly CLEARANCE studs above the true surface -
+--       ground truth instead of a second analytic guess.
+--  13 = Ice Age FrozenPeaks footprint sampling: version 12's snap still used
+--       a single centre raycast, so it guaranteed clearance AT the model's
+--       centre point but not across its whole ~60-stud base - apron height
+--       genuinely varies across that span, so an outlying shingle could sit
+--       over locally higher terrain than the centre and still dip in.
+--       SnapFrozenPeaksToTerrain now samples the centre plus an 8-point
+--       ring at the model's own bounding-radius and corrects against the
+--       HIGHEST terrain point found across all of them, guaranteeing the
+--       entire footprint clears rather than just its centre.
+--  14 = Ice Age FrozenPeaks sampling density: version 13's single ring still
+--       missed a dip on FrozenPeak7 (an irregular jittered blob, not a
+--       clean disc, so bumps can sit at any radius fraction). Now samples
+--       three concentric rings (35%/70%/100% of radius) at 12 angles each,
+--       and uses the bounding box's DIAGONAL as the sample radius (not just
+--       its shorter half-width) so a non-square footprint's corners are
+--       covered too, not just the nearer edge.
+--  15 = Ice Age FrozenPeaks locked to hand-placed positions: after version
+--       14's procedural+ground-truth-snap placement was live and verified
+--       clean (zero overlap, confirmed by dense per-part sampling), the
+--       positions were manually fine-tuned by hand in Studio and approved
+--       as final. buildFrozenPeaks now uses 8 hardcoded Vector3 literals
+--       (read directly off the hand-placed Tundra place) instead of
+--       procedural angle/radius placement, and LobbyBuilder no longer calls
+--       SnapFrozenPeaksToTerrain for IceAge - both changes exist specifically
+--       so no future rebuild can move these peaks again. The discarded
+--       angle/radius RNG draws are kept in buildFrozenPeaks purely so each
+--       peak's shape generation (baseRadius, peakHeight, shingle jitter)
+--       consumes the same RNG sequence as before and stays byte-identical.
+--  16 = Ice Age FrozenPeaks position correction: version 15's hardcoded
+--       positions were captured from a stale/incorrect read - re-verified
+--       directly against the currently-connected Tundra place (single-map
+--       session, confirmed via Workspace containing only LobbyIceAge/Arena,
+--       no other maps), read twice independently with identical results
+--       both times, and found to differ from version 15's values by up to
+--       ~30 studs on some axes. HAND_PLACED_POSITIONS updated to the
+--       confirmed-correct values; no other logic changed.
+BuildVersion.CURRENT = 16
+--  17 = Ice Age FrozenPeaks ground-clearance fix: with SnapFrozenPeaksToTerrain
+--       removed (version 15), the raw hand-placed Y values had no correction
+--       against the actual terrain and all 8 peaks ended up embedded 4.5-8.5
+--       studs into the snow (found via the same dense per-part sampling used
+--       to verify version 14). Fixed with a Y-ONLY vertical nudge per peak -
+--       X/Z left byte-identical to version 16 - computed from each peak's
+--       measured worst-clearance point so every peak now clears the terrain
+--       by exactly 1.5 studs, verified with a second independent dense-
+--       sampling pass after the shift.
+BuildVersion.CURRENT = 17
+--  18 = Ice Age FrozenPeaks: version 17's ground-clearance fix reverted per
+--       explicit request ("they look odd now") - each peak shifted back
+--       down by the exact inverse of version 17's own per-peak correction,
+--       restoring HAND_PLACED_POSITIONS to their original hand-placed Y
+--       values (matching version 16 to within ~0.005 studs of float
+--       rounding). X/Z untouched throughout. Peaks are once again embedded
+--       several studs into the terrain, same as before version 17 - that is
+--       the explicitly requested state, not an oversight.
+BuildVersion.CURRENT = 18
+--  19 = Ice Age flower beds removed. Decorations.lua's createFlowerBed (one
+--       bed per building - FlowerBedSoil, Flower1/2/3, FlowerStem1/2/3, 28
+--       parts total across 4 buildings) is now skipped specifically for
+--       IceAge via a CURRENT_THEME_ID guard - flowers at the foot of a
+--       snowbound building read as thematically wrong, and were explicitly
+--       requested removed. Every other theme (Futuristic, Lava, Space,
+--       UnderTheSea) is unaffected - createFlowerBed itself is untouched,
+--       only IceAge's call to it is skipped. Also removed live from the
+--       already-built Tundra place.
+BuildVersion.CURRENT = 19
+--  20 = Flower beds extended to ALL FIVE maps, not just IceAge. Version 19's
+--       CURRENT_THEME_ID guard is replaced with a flat ENABLE_FLOWER_BEDS =
+--       false switch, so createFlowerBed's call site never runs regardless
+--       of theme. createFlowerBed itself stays defined but unused, in case
+--       a future theme wants flowers back. The now-unused CURRENT_THEME_ID
+--       tracking added in version 19 is removed along with it.
+BuildVersion.CURRENT = 20
 
 return BuildVersion

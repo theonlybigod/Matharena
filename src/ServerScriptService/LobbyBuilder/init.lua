@@ -267,6 +267,11 @@ function LobbyBuilder.Build(mapDef: MapsConfig.MapDef?, force: boolean?, enableS
 		local ok, tiles = pcall(IceAgeEnvironment.BuildTerrainMountains, worldOrigin)
 		if ok then
 			print(("[LobbyBuilder] IceAge terrain range written (%s tiles)."):format(tostring(tiles)))
+			-- SnapFrozenPeaksToTerrain deliberately NOT called here anymore:
+			-- FrozenPeaks are now hand-placed, fixed positions (see
+			-- buildFrozenPeaks' own doc comment) - auto-snapping them to terrain
+			-- on every rebuild would silently move them again, exactly what
+			-- hardcoding their positions was meant to prevent.
 		else
 			-- Terrain writes can fail on region/limit errors; the map is still
 			-- perfectly playable without the backdrop, so warn rather than
