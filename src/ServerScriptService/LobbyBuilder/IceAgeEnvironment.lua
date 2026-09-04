@@ -385,14 +385,14 @@ local function buildFrozenPeaks(parent: Instance)
 	local APRON_BAND_OUTER = 300 -- unused for placement now, kept only so the discarded RNG draw below matches the original sequence
 
 	local HAND_PLACED_POSITIONS = {
-		Vector3.new(-10.785, 53.935, 271.781), -- FrozenPeak1
-		Vector3.new(155.608, 38.311, 224.775), -- FrozenPeak2
-		Vector3.new(284.544, 32.810, 11.854), -- FrozenPeak3
-		Vector3.new(182.733, 40.803, -198.399), -- FrozenPeak4
-		Vector3.new(-2.552, 45.873, -257.590), -- FrozenPeak5
-		Vector3.new(-191.062, 37.427, -193.693), -- FrozenPeak6
-		Vector3.new(-280.541, 53.240, 1.224), -- FrozenPeak7
-		Vector3.new(-212.644, 57.076, 158.806), -- FrozenPeak8
+		Vector3.new(-9.796, 51.215, 270.892), -- FrozenPeak1
+		Vector3.new(155.496, 37.168, 224.646), -- FrozenPeak2
+		Vector3.new(285.977, 35.299, 13.087), -- FrozenPeak3
+		Vector3.new(181.235, 42.365, -197.170), -- FrozenPeak4
+		Vector3.new(-2.875, 44.963, -257.762), -- FrozenPeak5
+		Vector3.new(-191.208, 34.791, -193.649), -- FrozenPeak6
+		Vector3.new(-281.680, 50.968, 2.653), -- FrozenPeak7
+		Vector3.new(-211.477, 55.263, 157.722), -- FrozenPeak8
 	}
 
 	for i = 1, count do

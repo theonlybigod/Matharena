@@ -4,7 +4,7 @@
 	Server-authoritative matchmaking + match flow:
 		- Queue formation via the lobby's queue portal (CollectionService
 		  tag "QueuePortal", set up in LobbyBuilder, Message 2)
-		- 15-second countdown once MIN_PLAYERS is reached (or an early
+		- 60-second countdown once MIN_PLAYERS is reached (or an early
 		  launch once MAX_PLAYERS is reached)
 		- Teleport to arena contestant platforms (CollectionService tag
 		  "ContestantPlatform", set up in ArenaBuilder, Message 3), then a

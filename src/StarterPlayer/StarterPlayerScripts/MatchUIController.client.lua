@@ -19,6 +19,14 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local mainUI = playerGui:WaitForChild("MainUI")
 
+-- Cached so a GameStateChanged transition alone (no fresh QueueUpdated
+-- payload) can still re-render with the right text - entering Playing
+-- while already queued for the next round needs to swap straight to
+-- "Waiting..." without waiting on the next queue event.
+local lastWaitingCount = 0
+local lastCountdownSeconds: number? = nil
+local currentGameState = MatchConfig.GameState.Lobby
+
 -- Queue status banner (top-center)
 local queueFrame = Instance.new("Frame")
 queueFrame.Name = "QueueStatus"
@@ -69,13 +77,21 @@ introLabel.Text = ""
 introLabel.Parent = mainUI
 
 local function updateQueueDisplay(waitingCount: number, countdownSeconds: number?)
+	lastWaitingCount = waitingCount
+	lastCountdownSeconds = countdownSeconds
+
 	if waitingCount <= 0 then
 		queueFrame.Visible = false
 		return
 	end
 
 	queueFrame.Visible = true
-	if countdownSeconds then
+	if currentGameState == MatchConfig.GameState.Playing then
+		-- A match is already underway - anyone queued here is waiting for it
+		-- to finish, not for more players to join, so a live "ready count"
+		-- would be misleading noise while a game is actively being played.
+		queueLabel.Text = "Waiting..."
+	elseif countdownSeconds then
 		queueLabel.Text = ("Match starting in %d... (%d/%d players)"):format(
 			countdownSeconds,
 			waitingCount,
@@ -109,6 +125,8 @@ RemoteEvents.Get("MatchWinner").OnClientEvent:Connect(function(winnerName: strin
 end)
 
 RemoteEvents.Get("GameStateChanged").OnClientEvent:Connect(function(state: string)
+	currentGameState = state
+
 	if state == MatchConfig.GameState.Lobby then
 		introLabel.Visible = false
 		introLabel.TextColor3 = UITheme.COLORS.Accent
@@ -117,7 +135,12 @@ RemoteEvents.Get("GameStateChanged").OnClientEvent:Connect(function(state: strin
 		introLabel.Visible = false
 	elseif state == MatchConfig.GameState.Playing then
 		introLabel.Visible = false
-		queueFrame.Visible = false
+		-- Deliberately NOT hidden here anymore: a player who readied up for
+		-- the next round while this one is still playing should keep seeing
+		-- the banner, just showing "Waiting..." instead of a player count -
+		-- re-render with the cached counts so it updates immediately rather
+		-- than waiting on the next QueueUpdated event.
+		updateQueueDisplay(lastWaitingCount, lastCountdownSeconds)
 	elseif state == MatchConfig.GameState.Winner then
 		queueFrame.Visible = false
 	elseif state == MatchConfig.GameState.Returning then

@@ -44,12 +44,24 @@
 	script/src tree is synced into SIX separate Roblox Places - the Hub
 	(this repo's main default.project.json) plus five dedicated
 	difficulty Places (place.<name>.project.json). DifficultyPlacesConfig
-	maps game.PlaceId to at most one assigned MapsConfig map id. On the
-	Hub, that lookup returns nil and every map still builds
-	(BuildAllMaps(), unchanged multi-map exploration lobby). On a
+	maps game.PlaceId to at most one assigned MapsConfig map id. On a
 	difficulty Place, only that ONE assigned map is built - the other
 	four are never created there at all, satisfying "only that one map
 	allocated on each server".
+
+	Hub placeholder: the Hub used to build every map at once
+	(BuildAllMaps(), an exploration lobby) and separately, briefly, tried
+	teleporting joining players elsewhere (HubRedirectSystem) - both
+	approaches are gone. TeleportService does not work within a single
+	local Play-Test session, and combined with disabling character
+	auto-spawn that left players stuck in an empty void with nothing
+	loaded at all. The Hub now simply builds ONLY the Futuristic map
+	directly - the exact same LobbyBuilder.Build/ArenaBuilder.BuildForMap
+	call the dedicated Futuristic Place already makes - so a player lands
+	straight on the real, playable Futuristic map with no redirect, no
+	teleport, and no walk-around. The other four maps' folders/content may
+	still exist from earlier builds but are no longer built or maintained
+	here.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -90,8 +102,7 @@ if assignedPlace then
 	-- Futuristic is flagged isDefault, for the Hub's sake) - but since
 	-- this Place only ever builds this one map, its spawns must be the
 	-- ones enabled here regardless of that flag. See LobbyBuilder.Build's
-	-- doc comment for why the Hub's BuildAllMaps() path below is
-	-- unaffected by this.
+	-- doc comment for why the Hub's branch below is unaffected by this.
 	local assignedMap = MapsConfig.GetMap(assignedPlace.mapId)
 	LobbyBuilder.Build(assignedMap, nil, true)
 
@@ -111,11 +122,19 @@ if assignedPlace then
 	ArenaBuilder.BuildForMap(assignedMap)
 else
 	-- The Hub (or a difficulty Place whose placeId hasn't been filled in
-	-- yet - see DifficultyPlacesConfig's doc comment): unchanged
-	-- multi-map exploration lobby plus the single shared central Arena,
-	-- exactly as before this system existed.
-	LobbyBuilder.BuildAllMaps()
-	ArenaBuilder.Build()
+	-- yet - see DifficultyPlacesConfig's doc comment): builds ONLY the
+	-- Futuristic map, the exact same call a dedicated difficulty Place
+	-- would make for its own assigned map - see the branch above. This is
+	-- what makes the Hub load directly into a real, playable map with no
+	-- redirect/teleport/walk-around: it IS that map's own server, not a
+	-- separate lobby pointing elsewhere. BuildAllMaps()/Build() (the old
+	-- five-map exploration lobby plus shared Arena) are no longer called
+	-- here at all - the other four maps' folders may still exist from
+	-- earlier builds but are not built or maintained by this branch.
+	local futuristicMap = MapsConfig.GetDefaultMap()
+	LobbyBuilder.Build(futuristicMap, nil, true)
+	LobbyBuilder.EnsureSpawnsEnabled(futuristicMap)
+	ArenaBuilder.BuildForMap(futuristicMap)
 end
 
 -- Always re-run the Lighting post-effect dedup, even when both builders

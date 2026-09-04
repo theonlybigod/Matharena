@@ -213,5 +213,21 @@ BuildVersion.CURRENT = 19
 --       a future theme wants flowers back. The now-unused CURRENT_THEME_ID
 --       tracking added in version 19 is removed along with it.
 BuildVersion.CURRENT = 20
+--  21 = Ice Age FrozenPeaks re-grounded. Versions 15-18's hardcoded
+--       HAND_PLACED_POSITIONS were captured as ABSOLUTE Y values at the
+--       time - fine until the terrain itself changed height underneath
+--       them (a snow-flush/terrain fix landed after they were captured),
+--       at which point the peaks silently stayed at their old fixed Y
+--       while the ground they were placed against moved - discovered as
+--       peaks floating 19-45 studs above the real terrain, not touching
+--       it at all, despite the X/Z and source code being completely
+--       unchanged. HAND_PLACED_POSITIONS' Y values are corrected to sit
+--       back on the CURRENT real terrain at a consistent -5 clearance
+--       (matching the previously-approved slight-embed look); X/Z
+--       untouched. This is the known fragility of storing an ABSOLUTE
+--       fixed position rather than a terrain-relative one: it will drift
+--       out of sync again if the terrain is ever rebuilt with different
+--       heights at these specific points in the future.
+BuildVersion.CURRENT = 21
 
 return BuildVersion
