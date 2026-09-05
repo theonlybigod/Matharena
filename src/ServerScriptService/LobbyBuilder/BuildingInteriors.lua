@@ -61,6 +61,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 local PartUtils = require(ReplicatedStorage.Modules.PartUtils)
 local LightingConfig = require(ReplicatedStorage.Modules.LightingConfig)
+local CosmeticsConfig = require(ReplicatedStorage.Modules.CosmeticsConfig)
 local LobbyTheme = require(script.Parent.LobbyTheme)
 
 local BuildingInteriors = {}
@@ -3780,44 +3781,59 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 	buildFeatureScreen(def, model, "FeaturedItemBoard", "FeaturedItemBoard")
 
 	--[[
-		Preview column: a plinth with a tall tinted shaft, recoloured by the
-		client to the featured item's previewColor. This is the one prop that
-		earns its place - the bottom-bar Shop shows colours as small swatches,
-		and seeing one at full height is the reason to walk in.
-
-		PUSHED OUT TO 0.85 OF THE HALF-WIDTH. At 0.45 it stood at x=8.1 in a
-		room whose screen is 30 wide (half-width 15), so the column was directly
-		in front of the screen's right-hand third - measured as 2 of 9
-		sightlines blocked from the doorway. At 0.85 it clears the screen's edge
-		entirely while still being the first thing you see on the way in.
+		The tall tinted preview column (FeaturedPreviewBase plinth +
+		FeaturedPreviewShaft neon cylinder) that used to stand here is
+		REMOVED (BuildVersion 22) - reported as an unwanted glowing beam
+		roughly double a character's height inside every Shop building.
+		ShopFeaturedController's matching shaft-tint code is removed too.
+		The featured item's colour is still shown via the FeaturedItemBoard
+		wall screen above.
 	]]
-	PartUtils.CreateDisc({
-		name = "FeaturedPreviewBase",
-		diameter = 5,
-		thickness = 0.8,
-		position = basePos + Vector3.new(halfX * 0.85, 0.4, -halfZ * 0.15),
-		material = FURNITURE_MATERIAL,
-		color = FURNITURE_COLOR,
-		canCollide = false,
-		parent = model,
-	})
-	local shaft = PartUtils.CreatePart({
-		name = "FeaturedPreviewShaft",
-		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(9, 3, 3),
-		cframe = CFrame.new(basePos + Vector3.new(halfX * 0.85, 5.3, -halfZ * 0.15))
-			* CFrame.Angles(0, 0, math.rad(90)),
-		material = ACCENT_MATERIAL,
-		color = ACCENT_COLOR,
-		transparency = 0.2,
-		canCollide = false,
-		parent = model,
-	})
-	CollectionService:AddTag(shaft, "FeaturedPreviewShaft")
 
-	-- Purchase terminal, mirrored to the opposite side from the preview
-	-- column so neither stands in front of the screen.
+	-- Purchase terminal - centered against the back wall now that there is
+	-- no preview column to keep clear of.
 	terminal(model, basePos + Vector3.new(-halfX * 0.85, 0, -halfZ * 0.15), "ShopTerminalPrompt", "Open Shop", "Shop", true)
+
+	--[[
+		REWARDS SIDE (BuildVersion 22): reward-only cosmetics get their own
+		physical presence on the opposite side of the room from the Shop
+		terminal, mirroring its presentation - a big wall sign plus a stand
+		of its own, rather than only being reachable through the Shop panel's
+		Rewards toggle. Uses the SAME terminal() helper and the SAME
+		buildSideScreen() panel every other big wall screen in this file
+		uses, just on the right (+X) wall instead of the back one, and with
+		a static "OPEN REWARDS" label built directly here rather than a
+		client controller - there is no daily-rotating content to drive, so
+		unlike FeaturedItemBoard this needs no ShopFeaturedController-style
+		Script at all.
+	]]
+	local rewardsBoard = buildSideScreen(def, model, "RewardsBoard", "RewardsBoard", 1)
+	local rewardsGui = Instance.new("SurfaceGui")
+	rewardsGui.Name = "RewardsBoardGui"
+	rewardsGui.Face = Enum.NormalId.Back
+	rewardsGui.LightInfluence = 0
+	rewardsGui.Parent = rewardsBoard
+	local rewardsBg = Instance.new("Frame")
+	rewardsBg.Size = UDim2.fromScale(1, 1)
+	rewardsBg.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+	rewardsBg.BorderSizePixel = 0
+	rewardsBg.Parent = rewardsGui
+	local rewardsLabel = Instance.new("TextLabel")
+	rewardsLabel.Size = UDim2.new(1, -20, 1, -20)
+	rewardsLabel.Position = UDim2.fromOffset(10, 10)
+	rewardsLabel.BackgroundTransparency = 1
+	rewardsLabel.Font = Enum.Font.GothamBlack
+	rewardsLabel.TextScaled = true
+	rewardsLabel.TextColor3 = CosmeticsConfig.RARITY_COLORS.Boundless
+	rewardsLabel.TextWrapped = true
+	rewardsLabel.Text = "OPEN\nREWARDS"
+	rewardsLabel.Parent = rewardsBg
+
+	-- Rewards terminal, mirrored to the opposite side from the Shop
+	-- terminal - triggering it opens the same Shop panel already used for
+	-- purchasing, switched straight to its Rewards view (see
+	-- ShopUIController.client.lua's RewardsTerminalPrompt wiring).
+	terminal(model, basePos + Vector3.new(halfX * 0.85, 0, -halfZ * 0.15), "RewardsTerminalPrompt", "Open Rewards", "Rewards", true)
 end
 
 --[==[ SUPERSEDED - the old Shop fit-out (shelves, aisle islands, counter,
@@ -4175,6 +4191,69 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 
 	-- Claim terminal, opposite the path.
 	terminal(model, basePos + Vector3.new(halfX * 0.5, 0, -halfZ * 0.2), "DailyRewardsTerminalPrompt", "Claim Daily Reward", "Daily Rewards", true)
+
+	--[[
+		FLOOR CLAIM PADS (BuildVersion 24): the StreakDayPlinths above are
+		offset beside the walking path on purpose (see their own comment - the
+		walk to the terminal must never be blocked), which means a player
+		walks PAST them, not OVER them. That reads fine visually but doesn't
+		satisfy "run over the day to collect the reward" - there is nothing
+		in the actual floor a player's own footsteps land on.
+
+		These seven pads sit directly in the centre aisle (x=0) at the SAME
+		z-position as their matching plinth, so a player walking a straight
+		line from the door to the terminal naturally steps on all seven in
+		order. Thin and non-collide (a walkable floor marking, not an
+		obstacle), tagged the same way as the plinths/caps so the same client
+		controller can recolour them by state, and carrying the same
+		"StreakDay" attribute so the server touch-handler (DailyRewardsSystem)
+		knows which day a pad represents without depending on instance order.
+	]]
+	for day = 1, DAYS do
+		local t = (day - 1) / (DAYS - 1)
+		local z = halfZ * 0.62 - t * (halfZ * 1.3)
+
+		local pad = PartUtils.CreateDisc({
+			name = ("StreakDayFloorPad%d"):format(day),
+			diameter = 4,
+			thickness = 0.2,
+			position = basePos + Vector3.new(0, 0.6, z),
+			material = ACCENT_MATERIAL,
+			color = ACCENT_COLOR,
+			canCollide = false,
+			parent = model,
+		})
+		pad:SetAttribute("StreakDay", day)
+		CollectionService:AddTag(pad, "StreakDayFloorPad")
+	end
+
+	--[[
+		Floor instruction sign, normal-sized font (NOT the big Bangers/
+		Featured-Today-style flourish font used for the room's title) -
+		positioned between the wall title and the actual pads, at head height
+		so it's readable while walking toward them rather than underfoot.
+	]]
+	local signPart = PartUtils.CreatePart({
+		name = "StreakPathSign",
+		size = Vector3.new(10, 2, 0.3),
+		position = basePos + Vector3.new(0, 6, halfZ * 0.62 + 2),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(16, 18, 26),
+		canCollide = false,
+		parent = model,
+	})
+	local signGui = Instance.new("SurfaceGui")
+	signGui.Face = Enum.NormalId.Back
+	signGui.LightInfluence = 0
+	signGui.Parent = signPart
+	local signLabel = Instance.new("TextLabel")
+	signLabel.Size = UDim2.fromScale(1, 1)
+	signLabel.BackgroundTransparency = 1
+	signLabel.Font = Enum.Font.Gotham
+	signLabel.TextScaled = true
+	signLabel.TextColor3 = Color3.fromRGB(200, 205, 220)
+	signLabel.Text = "Run over the day to collect the reward"
+	signLabel.Parent = signGui
 end
 
 --[===[ SUPERSEDED - the old Daily Rewards fit-out (milestone wall panels,

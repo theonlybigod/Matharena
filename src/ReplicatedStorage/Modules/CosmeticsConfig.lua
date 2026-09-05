@@ -1,40 +1,58 @@
 --[[
 	CosmeticsConfig.lua
 
-	Centralized, stable-ID catalog of every purchasable cosmetic in
-	MathArena's shop (Message 10). Pure data - no purchase/ownership/equip
-	logic lives here (see ServerScriptService/ShopSystem for that). New
-	cosmetics are added here only; nothing else needs to change to add one
-	- the shop UI and ShopSystem both iterate this table generically by
-	category rather than referencing individual items by name.
+	Centralized, stable-ID catalog of every cosmetic in MathArena's shop.
+	Pure data - no purchase/ownership/equip logic lives here (see
+	ServerScriptService/ShopSystem for that). New cosmetics are added here
+	only; nothing else needs to change to add one - the shop UI and
+	ShopSystem both iterate this table generically by category rather
+	than referencing individual items by name.
 
 	Categories are "equip slots" - a player may have at most one item
 	equipped per category at a time (see ShopSystem.EquipItem).
 
-	ASSUMPTION (documented, not stopped for - a low-risk content choice):
-	the design doc's flat item list is read as categories with variants:
-	"Trails" -> Classic/Fire/Lightning/Rainbow, "Victory animations" ->
-	Confetti/Fireworks/Dance. "Name colors"/"Question themes"/"Titles"
-	didn't specify which colors/themes/titles, so a small starting set is
-	defined below - easy to extend later since this table is the only
-	place that needs to change.
+	RARITY + ECONOMY REBUILD:
+	Every category now has exactly 20 items: 15 purchasable (5 Common, 3
+	Uncommon, 3 Rare, 2 Legendary, 2 Boundless) plus 5 reward-only items
+	(one per rarity, granted via the win-based Rewards track - see
+	RewardTrackConfig.lua - never purchasable with currency).
 
-	SCOPE NOTE (Message 10): this module and ShopSystem implement full
-	ownership/purchase/equip tracking, server-authoritative and ready for
-	a future message to build on. Actually RENDERING the equipped
-	cosmetic's effect in the world (a real trail/halo particle, playing a
-	victory dance animation, recoloring a nameplate, reskinning the
-	question panel, showing a title next to a player's name) is
-	intentionally NOT implemented here - that's a separate "presentation"
+	Purchasable pricing follows one fixed template per rarity, applied
+	identically across every category, so the shop reads as one coherent
+	economy rather than six independently-priced catalogs:
+		Common:    50 / 75 / 100 / 125 / 150 Coins
+		Uncommon:  250 Coins / 350 Coins / 6 Gems
+		Rare:      600 Coins / 5 Gems / 9 Gems
+		Legendary: 3,000 Coins / 30 Gems
+		Boundless: 25,000 Coins (exactly one) / 250 Gems (exactly one)
+	GEMS_TO_COINS_RATE below (1 Gem ~= 100 Coins of value) is exactly why
+	those two Boundless prices land on the same value: 250 Gems * 100 =
+	25,000 Coins. Every other tier's Gem price is chosen the same way, so
+	Coins and Gems buyers are always paying a comparable amount for a
+	same-tier item, never a lopsided "real currency trap" price.
+
+	Reward-only items are granted via ShopSystem.GrantRewardItem, called
+	by RewardTrackSystem when a player claims a milestone (see
+	RewardTrackConfig.lua for the exact win counts). Each category's 5
+	reward items span all 5 rarities too, at ascending, category-specific
+	win counts - see RewardTrackConfig's own doc comment for why every
+	milestone's winsRequired must be globally unique across the whole
+	game, not just within one category.
+
+	SCOPE NOTE: this module and ShopSystem implement full ownership/
+	purchase/equip tracking, server-authoritative. Actually RENDERING the
+	equipped cosmetic's effect in the world (a real trail/halo particle,
+	playing a victory dance animation, recoloring a nameplate, reskinning
+	the question panel, showing a title next to a player's name) is
+	intentionally NOT implemented here - that's a separate presentation
 	layer that can read a player's equipped cosmetics (already tracked,
 	see ShopSystem) without any changes to this config or the shop system
-	itself. This keeps Message 10 scoped to the shop/economy system itself,
-	per its own instructions ("do not build unrelated features"). The
-	shop UI's "Preview" is this file's description + previewColor swatch,
-	not a live in-world preview.
+	itself. The shop UI's "Preview" is this file's description +
+	previewColor swatch, not a live in-world preview.
 ]]
 
 export type CurrencyType = "Coins" | "Gems"
+export type RarityType = "Common" | "Uncommon" | "Rare" | "Legendary" | "Boundless"
 
 export type CosmeticItem = {
 	id: string,
@@ -43,6 +61,7 @@ export type CosmeticItem = {
 	description: string,
 	currency: CurrencyType,
 	price: number,
+	rarity: RarityType,
 	previewColor: Color3, -- swatch shown in the shop UI in place of a real world effect (see SCOPE NOTE above)
 	rewardOnly: boolean?, -- true = not purchasable with currency; only ShopSystem.GrantRewardItem (RewardTrackSystem) can grant it
 }
@@ -68,26 +87,119 @@ CosmeticsConfig.CATEGORY_DISPLAY_NAMES = {
 	Title = "Titles",
 }
 
+-- Ascending order: Common is the lowest rarity, Boundless the highest.
+CosmeticsConfig.RARITIES = { "Common", "Uncommon", "Rare", "Legendary", "Boundless" }
+
+-- Numeric rank for sorting/comparison - higher is rarer.
+CosmeticsConfig.RARITY_RANK = {
+	Common = 1,
+	Uncommon = 2,
+	Rare = 3,
+	Legendary = 4,
+	Boundless = 5,
+}
+
+-- Reference color per rarity, for the future rarity-labeled shop UI.
+CosmeticsConfig.RARITY_COLORS = {
+	Common = Color3.fromRGB(176, 176, 176),
+	Uncommon = Color3.fromRGB(96, 205, 122),
+	Rare = Color3.fromRGB(63, 155, 255),
+	Legendary = Color3.fromRGB(186, 104, 255),
+	Boundless = Color3.fromRGB(255, 191, 0),
+}
+
+-- Design-reference conversion used to keep Coins pricing and Gems pricing
+-- in parity at every rarity tier (see module doc comment above). This is
+-- NOT an automatic currency-exchange feature - gems are earned separately
+-- (future system) - it only exists so whoever balances prices later has a
+-- single stated rate to check against instead of guessing.
+CosmeticsConfig.GEMS_TO_COINS_RATE = 100
+
 -- Keyed by stable id. GetItemsByCategory below sorts by id for a
 -- deterministic display order - insertion order here doesn't matter.
 local ITEMS: { [string]: CosmeticItem } = {
-	-- ===== Trail =====
+
+	-- ============================================================
+	-- ===== Trail ================================================
+	-- ============================================================
 	trail_classic = {
 		id = "trail_classic",
 		category = "Trail",
 		displayName = "Classic Trail",
 		description = "A clean, simple trail in MathArena's brand color.",
 		currency = "Coins",
-		price = 100,
+		price = 50,
+		rarity = "Common",
 		previewColor = Color3.fromRGB(30, 140, 255),
+	},
+	trail_aqua_wave = {
+		id = "trail_aqua_wave",
+		category = "Trail",
+		displayName = "Aqua Wave Trail",
+		description = "A gentle aqua wave that ripples behind you.",
+		currency = "Coins",
+		price = 75,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(60, 200, 220),
+	},
+	trail_emerald_streak = {
+		id = "trail_emerald_streak",
+		category = "Trail",
+		displayName = "Emerald Streak Trail",
+		description = "A crisp emerald streak with a soft glow.",
+		currency = "Coins",
+		price = 100,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(40, 180, 110),
+	},
+	trail_frost = {
+		id = "trail_frost",
+		category = "Trail",
+		displayName = "Frost Trail",
+		description = "A cool, icy trail that shimmers as you move.",
+		currency = "Coins",
+		price = 125,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(190, 230, 255),
+	},
+	trail_sunset = {
+		id = "trail_sunset",
+		category = "Trail",
+		displayName = "Sunset Trail",
+		description = "A warm gradient trail fading from orange to pink.",
+		currency = "Coins",
+		price = 150,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(255, 150, 110),
+	},
+	trail_toxic_green = {
+		id = "trail_toxic_green",
+		category = "Trail",
+		displayName = "Toxic Green Trail",
+		description = "A radioactive green trail with a faint hazard glow.",
+		currency = "Coins",
+		price = 250,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(140, 255, 60),
+	},
+	trail_cherry_blossom = {
+		id = "trail_cherry_blossom",
+		category = "Trail",
+		displayName = "Cherry Blossom Trail",
+		description = "A trail of drifting pink petals.",
+		currency = "Coins",
+		price = 350,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 180, 210),
 	},
 	trail_fire = {
 		id = "trail_fire",
 		category = "Trail",
 		displayName = "Fire Trail",
 		description = "A blazing orange-red trail that follows every step.",
-		currency = "Coins",
-		price = 250,
+		currency = "Gems",
+		price = 6,
+		rarity = "Uncommon",
 		previewColor = Color3.fromRGB(255, 90, 20),
 	},
 	trail_lightning = {
@@ -96,8 +208,59 @@ local ITEMS: { [string]: CosmeticItem } = {
 		displayName = "Lightning Trail",
 		description = "A crackling electric-blue trail with a sharp glow.",
 		currency = "Coins",
-		price = 250,
+		price = 600,
+		rarity = "Rare",
 		previewColor = Color3.fromRGB(140, 210, 255),
+	},
+	trail_obsidian_smoke = {
+		id = "trail_obsidian_smoke",
+		category = "Trail",
+		displayName = "Obsidian Smoke Trail",
+		description = "A dark, smoky trail with faint purple embers.",
+		currency = "Gems",
+		price = 5,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(60, 50, 70),
+	},
+	trail_solar_flare = {
+		id = "trail_solar_flare",
+		category = "Trail",
+		displayName = "Solar Flare Trail",
+		description = "A searing trail of solar plasma.",
+		currency = "Gems",
+		price = 9,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(255, 140, 40),
+	},
+	trail_nebula = {
+		id = "trail_nebula",
+		category = "Trail",
+		displayName = "Nebula Trail",
+		description = "A swirling trail of deep-space color.",
+		currency = "Coins",
+		price = 3000,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(130, 90, 220),
+	},
+	trail_golden_dust = {
+		id = "trail_golden_dust",
+		category = "Trail",
+		displayName = "Golden Dust Trail",
+		description = "A trail that scatters shimmering gold dust.",
+		currency = "Gems",
+		price = 30,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(255, 215, 80),
+	},
+	trail_void_walker = {
+		id = "trail_void_walker",
+		category = "Trail",
+		displayName = "Void Walker Trail",
+		description = "A trail that bends light into pure darkness.",
+		currency = "Coins",
+		price = 25000,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(20, 15, 30),
 	},
 	trail_rainbow = {
 		id = "trail_rainbow",
@@ -105,174 +268,42 @@ local ITEMS: { [string]: CosmeticItem } = {
 		displayName = "Rainbow Trail",
 		description = "A shifting, full-spectrum trail - the flashiest option.",
 		currency = "Gems",
-		price = 8,
+		price = 250,
+		rarity = "Boundless",
 		previewColor = Color3.fromRGB(255, 120, 255),
 	},
-
-	-- ===== Accessory =====
-	accessory_halo = {
-		id = "accessory_halo",
-		category = "Accessory",
-		displayName = "Halo",
-		description = "A softly glowing ring that hovers above your head.",
-		currency = "Gems",
-		price = 12,
-		previewColor = Color3.fromRGB(255, 245, 190),
-	},
-
-	-- ===== NameColor =====
-	namecolor_crimson = {
-		id = "namecolor_crimson",
-		category = "NameColor",
-		displayName = "Crimson Name",
-		description = "Recolors your displayed name a deep crimson red.",
-		currency = "Coins",
-		price = 75,
-		previewColor = Color3.fromRGB(200, 40, 40),
-	},
-	namecolor_azure = {
-		id = "namecolor_azure",
-		category = "NameColor",
-		displayName = "Azure Name",
-		description = "Recolors your displayed name a bright azure blue.",
-		currency = "Coins",
-		price = 75,
-		previewColor = Color3.fromRGB(50, 130, 220),
-	},
-	namecolor_emerald = {
-		id = "namecolor_emerald",
-		category = "NameColor",
-		displayName = "Emerald Name",
-		description = "Recolors your displayed name a rich emerald green.",
-		currency = "Coins",
-		price = 75,
-		previewColor = Color3.fromRGB(40, 170, 100),
-	},
-	namecolor_amethyst = {
-		id = "namecolor_amethyst",
-		category = "NameColor",
-		displayName = "Amethyst Name",
-		description = "Recolors your displayed name a royal purple.",
-		currency = "Coins",
-		price = 75,
-		previewColor = Color3.fromRGB(150, 80, 210),
-	},
-	namecolor_gold = {
-		id = "namecolor_gold",
-		category = "NameColor",
-		displayName = "Gold Name",
-		description = "Recolors your displayed name a shining gold.",
-		currency = "Gems",
-		price = 5,
-		previewColor = Color3.fromRGB(255, 215, 0),
-	},
-
-	-- ===== VictoryAnimation =====
-	victory_confetti = {
-		id = "victory_confetti",
-		category = "VictoryAnimation",
-		displayName = "Confetti Burst",
-		description = "A burst of colorful confetti when you win a match.",
-		currency = "Coins",
-		price = 150,
-		previewColor = Color3.fromRGB(255, 190, 60),
-	},
-	victory_fireworks = {
-		id = "victory_fireworks",
-		category = "VictoryAnimation",
-		displayName = "Fireworks Finale",
-		description = "A short fireworks show over the arena on your win.",
-		currency = "Coins",
-		price = 200,
-		previewColor = Color3.fromRGB(255, 100, 130),
-	},
-	victory_dance = {
-		id = "victory_dance",
-		category = "VictoryAnimation",
-		displayName = "Victory Dance",
-		description = "Your character performs a custom dance on your win.",
-		currency = "Gems",
-		price = 6,
-		previewColor = Color3.fromRGB(255, 150, 220),
-	},
-
-	-- ===== QuestionTheme =====
-	theme_classic = {
-		id = "theme_classic",
-		category = "QuestionTheme",
-		displayName = "Classic Theme",
-		description = "The default MathArena question panel styling.",
-		currency = "Coins",
-		price = 50,
-		previewColor = Color3.fromRGB(22, 22, 30),
-	},
-	theme_neon = {
-		id = "theme_neon",
-		category = "QuestionTheme",
-		displayName = "Neon Theme",
-		description = "A high-contrast neon look for the question panel.",
-		currency = "Coins",
-		price = 200,
-		previewColor = Color3.fromRGB(60, 255, 210),
-	},
-	theme_chalkboard = {
-		id = "theme_chalkboard",
-		category = "QuestionTheme",
-		displayName = "Chalkboard Theme",
-		description = "A classroom chalkboard look for the question panel.",
-		currency = "Coins",
-		price = 200,
-		previewColor = Color3.fromRGB(35, 55, 45),
-	},
-
-	-- ===== Title =====
-	title_rookie = {
-		id = "title_rookie",
-		category = "Title",
-		displayName = '"Rookie"',
-		description = 'Shows the title "Rookie" alongside your name.',
-		currency = "Coins",
-		price = 100,
-		previewColor = Color3.fromRGB(180, 180, 190),
-	},
-	title_challenger = {
-		id = "title_challenger",
-		category = "Title",
-		displayName = '"Challenger"',
-		description = 'Shows the title "Challenger" alongside your name.',
-		currency = "Coins",
-		price = 150,
-		previewColor = Color3.fromRGB(90, 170, 255),
-	},
-	title_mathlete_supreme = {
-		id = "title_mathlete_supreme",
-		category = "Title",
-		displayName = '"Mathlete Supreme"',
-		description = 'Shows the title "Mathlete Supreme" alongside your name.',
-		currency = "Gems",
-		price = 6,
-		previewColor = Color3.fromRGB(255, 215, 0),
-	},
-	title_perfectionist = {
-		id = "title_perfectionist",
-		category = "Title",
-		displayName = '"Perfectionist"',
-		description = 'Shows the title "Perfectionist" alongside your name.',
-		currency = "Gems",
-		price = 6,
-		previewColor = Color3.fromRGB(120, 255, 170),
-	},
-
-	-- ===== Reward-track exclusives (win-based Rewards system) - not for sale,
-	-- only granted via RewardTrackSystem/ShopSystem.GrantRewardItem =====
-	title_math_champion = {
-		id = "title_math_champion",
-		category = "Title",
-		displayName = '"Math Champion"',
-		description = 'Shows the title "Math Champion" alongside your name. Earned at 50 competitive wins.',
+	-- Reward-only (Trail)
+	trail_rookie_spark = {
+		id = "trail_rookie_spark",
+		category = "Trail",
+		displayName = "Rookie Spark Trail",
+		description = "A small spark trail awarded for your first steps in competitive play. Earned at 8 competitive wins.",
 		currency = "Coins",
 		price = 0,
-		previewColor = Color3.fromRGB(255, 200, 60),
+		rarity = "Common",
+		previewColor = Color3.fromRGB(255, 240, 150),
+		rewardOnly = true,
+	},
+	trail_rising_star = {
+		id = "trail_rising_star",
+		category = "Trail",
+		displayName = "Rising Star Trail",
+		description = "A trail of rising stars, earned for early competitive success. Earned at 22 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 220, 80),
+		rewardOnly = true,
+	},
+	trail_comet_tail = {
+		id = "trail_comet_tail",
+		category = "Trail",
+		displayName = "Comet Tail Trail",
+		description = "A streaking comet trail, earned by proven competitors. Earned at 45 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(150, 200, 255),
 		rewardOnly = true,
 	},
 	trail_champion = {
@@ -282,7 +313,218 @@ local ITEMS: { [string]: CosmeticItem } = {
 		description = "An exclusive golden trail. Earned at 75 competitive wins.",
 		currency = "Coins",
 		price = 0,
+		rarity = "Legendary",
 		previewColor = Color3.fromRGB(255, 180, 40),
+		rewardOnly = true,
+	},
+	trail_celestial_aurora = {
+		id = "trail_celestial_aurora",
+		category = "Trail",
+		displayName = "Celestial Aurora Trail",
+		description = "A shifting aurora trail reserved for MathArena's most elite competitors. Earned at 150 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(120, 255, 200),
+		rewardOnly = true,
+	},
+
+	-- ============================================================
+	-- ===== Accessory =============================================
+	-- ============================================================
+	accessory_paper_crown = {
+		id = "accessory_paper_crown",
+		category = "Accessory",
+		displayName = "Paper Crown",
+		description = "A lightweight paper crown for casual bragging rights.",
+		currency = "Coins",
+		price = 50,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(255, 230, 150),
+	},
+	accessory_bandana = {
+		id = "accessory_bandana",
+		category = "Accessory",
+		displayName = "Bandana",
+		description = "A simple bandana tied around your head.",
+		currency = "Coins",
+		price = 75,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(200, 60, 60),
+	},
+	accessory_sunglasses = {
+		id = "accessory_sunglasses",
+		category = "Accessory",
+		displayName = "Sunglasses",
+		description = "Cool shades for an even cooler mathlete.",
+		currency = "Coins",
+		price = 100,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(40, 40, 50),
+	},
+	accessory_bow_tie = {
+		id = "accessory_bow_tie",
+		category = "Accessory",
+		displayName = "Bow Tie",
+		description = "A dapper bow tie for formal competitive occasions.",
+		currency = "Coins",
+		price = 125,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(30, 30, 40),
+	},
+	accessory_backpack_charm = {
+		id = "accessory_backpack_charm",
+		category = "Accessory",
+		displayName = "Backpack Charm",
+		description = "A small charm that dangles from your backpack.",
+		currency = "Coins",
+		price = 150,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(255, 180, 220),
+	},
+	accessory_cape = {
+		id = "accessory_cape",
+		category = "Accessory",
+		displayName = "Cape",
+		description = "A flowing cape that billows as you move.",
+		currency = "Coins",
+		price = 250,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(180, 30, 40),
+	},
+	accessory_wings = {
+		id = "accessory_wings",
+		category = "Accessory",
+		displayName = "Wings",
+		description = "A pair of small decorative wings.",
+		currency = "Coins",
+		price = 350,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(240, 240, 250),
+	},
+	accessory_halo = {
+		id = "accessory_halo",
+		category = "Accessory",
+		displayName = "Halo",
+		description = "A softly glowing ring that hovers above your head.",
+		currency = "Gems",
+		price = 6,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 245, 190),
+	},
+	accessory_lantern_familiar = {
+		id = "accessory_lantern_familiar",
+		category = "Accessory",
+		displayName = "Lantern Familiar",
+		description = "A small floating lantern that follows you around.",
+		currency = "Coins",
+		price = 600,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(255, 200, 120),
+	},
+	accessory_ghost_companion = {
+		id = "accessory_ghost_companion",
+		category = "Accessory",
+		displayName = "Ghost Companion",
+		description = "A friendly translucent ghost that drifts beside you.",
+		currency = "Gems",
+		price = 5,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(220, 230, 255),
+	},
+	accessory_mini_drone = {
+		id = "accessory_mini_drone",
+		category = "Accessory",
+		displayName = "Mini Drone",
+		description = "A tiny hovering drone that orbits your character.",
+		currency = "Gems",
+		price = 9,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(150, 160, 180),
+	},
+	accessory_phoenix_familiar = {
+		id = "accessory_phoenix_familiar",
+		category = "Accessory",
+		displayName = "Phoenix Familiar",
+		description = "A small phoenix companion wreathed in flame.",
+		currency = "Coins",
+		price = 3000,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(255, 110, 40),
+	},
+	accessory_aura_ring = {
+		id = "accessory_aura_ring",
+		category = "Accessory",
+		displayName = "Aura Ring",
+		description = "A pulsing ring of energy that orbits you.",
+		currency = "Gems",
+		price = 30,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(170, 90, 230),
+	},
+	accessory_golden_wings = {
+		id = "accessory_golden_wings",
+		category = "Accessory",
+		displayName = "Golden Wings",
+		description = "A magnificent pair of golden wings.",
+		currency = "Coins",
+		price = 25000,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(255, 210, 60),
+	},
+	accessory_void_crown = {
+		id = "accessory_void_crown",
+		category = "Accessory",
+		displayName = "Void Crown",
+		description = "A crown wreathed in swirling void energy.",
+		currency = "Gems",
+		price = 250,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(80, 30, 120),
+	},
+	-- Reward-only (Accessory)
+	accessory_trainee_badge = {
+		id = "accessory_trainee_badge",
+		category = "Accessory",
+		displayName = "Trainee Badge",
+		description = "A small badge marking your first competitive win. Earned at 9 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(200, 200, 210),
+		rewardOnly = true,
+	},
+	accessory_bronze_medal_charm = {
+		id = "accessory_bronze_medal_charm",
+		category = "Accessory",
+		displayName = "Bronze Medal Charm",
+		description = "A bronze medal charm, earned through early competitive wins. Earned at 24 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(180, 120, 80),
+		rewardOnly = true,
+	},
+	accessory_silver_medal_charm = {
+		id = "accessory_silver_medal_charm",
+		category = "Accessory",
+		displayName = "Silver Medal Charm",
+		description = "A silver medal charm for proven competitors. Earned at 47 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(200, 205, 215),
+		rewardOnly = true,
+	},
+	accessory_platinum_medal_charm = {
+		id = "accessory_platinum_medal_charm",
+		category = "Accessory",
+		displayName = "Platinum Medal Charm",
+		description = "A platinum medal charm, reserved for elite competitors. Earned at 80 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(220, 225, 235),
 		rewardOnly = true,
 	},
 	accessory_champion_crown = {
@@ -292,7 +534,848 @@ local ITEMS: { [string]: CosmeticItem } = {
 		description = "An exclusive crown accessory. Earned at 100 competitive wins.",
 		currency = "Coins",
 		price = 0,
+		rarity = "Boundless",
 		previewColor = Color3.fromRGB(255, 215, 60),
+		rewardOnly = true,
+	},
+
+	-- ============================================================
+	-- ===== NameColor =============================================
+	-- ============================================================
+	namecolor_crimson = {
+		id = "namecolor_crimson",
+		category = "NameColor",
+		displayName = "Crimson Name",
+		description = "Recolors your displayed name a deep crimson red.",
+		currency = "Coins",
+		price = 50,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(200, 40, 40),
+	},
+	namecolor_azure = {
+		id = "namecolor_azure",
+		category = "NameColor",
+		displayName = "Azure Name",
+		description = "Recolors your displayed name a bright azure blue.",
+		currency = "Coins",
+		price = 75,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(50, 130, 220),
+	},
+	namecolor_emerald = {
+		id = "namecolor_emerald",
+		category = "NameColor",
+		displayName = "Emerald Name",
+		description = "Recolors your displayed name a rich emerald green.",
+		currency = "Coins",
+		price = 100,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(40, 170, 100),
+	},
+	namecolor_amethyst = {
+		id = "namecolor_amethyst",
+		category = "NameColor",
+		displayName = "Amethyst Name",
+		description = "Recolors your displayed name a royal purple.",
+		currency = "Coins",
+		price = 125,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(150, 80, 210),
+	},
+	namecolor_slate = {
+		id = "namecolor_slate",
+		category = "NameColor",
+		displayName = "Slate Name",
+		description = "Recolors your displayed name a cool slate gray.",
+		currency = "Coins",
+		price = 150,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(110, 120, 135),
+	},
+	namecolor_coral = {
+		id = "namecolor_coral",
+		category = "NameColor",
+		displayName = "Coral Name",
+		description = "Recolors your displayed name a warm coral pink.",
+		currency = "Coins",
+		price = 250,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 130, 120),
+	},
+	namecolor_teal = {
+		id = "namecolor_teal",
+		category = "NameColor",
+		displayName = "Teal Name",
+		description = "Recolors your displayed name a deep teal.",
+		currency = "Coins",
+		price = 350,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(30, 150, 150),
+	},
+	namecolor_gold = {
+		id = "namecolor_gold",
+		category = "NameColor",
+		displayName = "Gold Name",
+		description = "Recolors your displayed name a shining gold.",
+		currency = "Gems",
+		price = 6,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 215, 0),
+	},
+	namecolor_magenta = {
+		id = "namecolor_magenta",
+		category = "NameColor",
+		displayName = "Magenta Name",
+		description = "Recolors your displayed name a vivid magenta.",
+		currency = "Coins",
+		price = 600,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(220, 40, 180),
+	},
+	namecolor_obsidian = {
+		id = "namecolor_obsidian",
+		category = "NameColor",
+		displayName = "Obsidian Name",
+		description = "Recolors your displayed name a glossy obsidian black.",
+		currency = "Gems",
+		price = 5,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(35, 35, 40),
+	},
+	namecolor_frost_white = {
+		id = "namecolor_frost_white",
+		category = "NameColor",
+		displayName = "Frost White Name",
+		description = "Recolors your displayed name a frosty white.",
+		currency = "Gems",
+		price = 9,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(230, 240, 255),
+	},
+	namecolor_molten_orange = {
+		id = "namecolor_molten_orange",
+		category = "NameColor",
+		displayName = "Molten Orange Name",
+		description = "Recolors your displayed name a molten orange.",
+		currency = "Coins",
+		price = 3000,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(255, 110, 30),
+	},
+	namecolor_prismatic = {
+		id = "namecolor_prismatic",
+		category = "NameColor",
+		displayName = "Prismatic Name",
+		description = "Recolors your displayed name with a shifting prismatic shimmer.",
+		currency = "Gems",
+		price = 30,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(200, 255, 240),
+	},
+	namecolor_radiant_platinum = {
+		id = "namecolor_radiant_platinum",
+		category = "NameColor",
+		displayName = "Radiant Platinum Name",
+		description = "Recolors your displayed name a radiant platinum.",
+		currency = "Coins",
+		price = 25000,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(235, 235, 240),
+	},
+	namecolor_void_black = {
+		id = "namecolor_void_black",
+		category = "NameColor",
+		displayName = "Void Black Name",
+		description = "Recolors your displayed name a bottomless void black.",
+		currency = "Gems",
+		price = 250,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(10, 10, 15),
+	},
+	-- Reward-only (NameColor)
+	namecolor_bronze_name = {
+		id = "namecolor_bronze_name",
+		category = "NameColor",
+		displayName = "Bronze Name",
+		description = "A bronze-tinted name color, earned for your first competitive wins. Earned at 11 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(180, 120, 80),
+		rewardOnly = true,
+	},
+	namecolor_silver_name = {
+		id = "namecolor_silver_name",
+		category = "NameColor",
+		displayName = "Silver Name",
+		description = "A silver-tinted name color for early competitive success. Earned at 26 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(200, 205, 215),
+		rewardOnly = true,
+	},
+	namecolor_sapphire_name = {
+		id = "namecolor_sapphire_name",
+		category = "NameColor",
+		displayName = "Sapphire Name",
+		description = "A deep sapphire name color for proven competitors. Earned at 49 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(40, 90, 200),
+		rewardOnly = true,
+	},
+	namecolor_diamond_name = {
+		id = "namecolor_diamond_name",
+		category = "NameColor",
+		displayName = "Diamond Name",
+		description = "A brilliant diamond-white name color for elite competitors. Earned at 85 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(210, 240, 255),
+		rewardOnly = true,
+	},
+	namecolor_champion_name = {
+		id = "namecolor_champion_name",
+		category = "NameColor",
+		displayName = "Champion's Name",
+		description = "A shimmering gold-white name color reserved for MathArena's champions. Earned at 155 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(255, 230, 150),
+		rewardOnly = true,
+	},
+
+	-- ============================================================
+	-- ===== VictoryAnimation ======================================
+	-- ============================================================
+	victory_confetti = {
+		id = "victory_confetti",
+		category = "VictoryAnimation",
+		displayName = "Confetti Burst",
+		description = "A burst of colorful confetti when you win a match.",
+		currency = "Coins",
+		price = 50,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(255, 190, 60),
+	},
+	victory_fist_pump = {
+		id = "victory_fist_pump",
+		category = "VictoryAnimation",
+		displayName = "Fist Pump",
+		description = "A confident fist pump on your win.",
+		currency = "Coins",
+		price = 75,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(255, 140, 80),
+	},
+	victory_thumbs_up = {
+		id = "victory_thumbs_up",
+		category = "VictoryAnimation",
+		displayName = "Thumbs Up",
+		description = "A friendly thumbs up on your win.",
+		currency = "Coins",
+		price = 100,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(120, 200, 255),
+	},
+	victory_bow = {
+		id = "victory_bow",
+		category = "VictoryAnimation",
+		displayName = "Bow",
+		description = "A polite bow to your opponents on your win.",
+		currency = "Coins",
+		price = 125,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(200, 180, 255),
+	},
+	victory_spin = {
+		id = "victory_spin",
+		category = "VictoryAnimation",
+		displayName = "Spin",
+		description = "A quick celebratory spin on your win.",
+		currency = "Coins",
+		price = 150,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(150, 255, 180),
+	},
+	victory_coin_rain = {
+		id = "victory_coin_rain",
+		category = "VictoryAnimation",
+		displayName = "Coin Rain",
+		description = "A shower of coins rains down on your win.",
+		currency = "Coins",
+		price = 250,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 215, 80),
+	},
+	victory_fireworks = {
+		id = "victory_fireworks",
+		category = "VictoryAnimation",
+		displayName = "Fireworks Finale",
+		description = "A short fireworks show over the arena on your win.",
+		currency = "Coins",
+		price = 350,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 100, 130),
+	},
+	victory_dance = {
+		id = "victory_dance",
+		category = "VictoryAnimation",
+		displayName = "Victory Dance",
+		description = "Your character performs a custom dance on your win.",
+		currency = "Gems",
+		price = 6,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 150, 220),
+	},
+	victory_backflip = {
+		id = "victory_backflip",
+		category = "VictoryAnimation",
+		displayName = "Backflip",
+		description = "A show-off backflip on your win.",
+		currency = "Coins",
+		price = 600,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(120, 220, 255),
+	},
+	victory_lightning_pose = {
+		id = "victory_lightning_pose",
+		category = "VictoryAnimation",
+		displayName = "Lightning Pose",
+		description = "A dramatic lightning-charged victory pose.",
+		currency = "Gems",
+		price = 5,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(170, 220, 255),
+	},
+	victory_star_shower = {
+		id = "victory_star_shower",
+		category = "VictoryAnimation",
+		displayName = "Star Shower",
+		description = "A shower of stars falls around you on your win.",
+		currency = "Gems",
+		price = 9,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(255, 240, 150),
+	},
+	victory_meteor_slam = {
+		id = "victory_meteor_slam",
+		category = "VictoryAnimation",
+		displayName = "Meteor Slam",
+		description = "A meteor slams down behind you as you celebrate.",
+		currency = "Coins",
+		price = 3000,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(255, 110, 60),
+	},
+	victory_golden_statue = {
+		id = "victory_golden_statue",
+		category = "VictoryAnimation",
+		displayName = "Golden Statue",
+		description = "You briefly strike a gleaming golden statue pose.",
+		currency = "Gems",
+		price = 30,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(255, 215, 80),
+	},
+	victory_supernova_finale = {
+		id = "victory_supernova_finale",
+		category = "VictoryAnimation",
+		displayName = "Supernova Finale",
+		description = "The arena erupts in a supernova of light on your win.",
+		currency = "Coins",
+		price = 25000,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(255, 200, 255),
+	},
+	victory_time_freeze_pose = {
+		id = "victory_time_freeze_pose",
+		category = "VictoryAnimation",
+		displayName = "Time Freeze Pose",
+		description = "Time itself seems to freeze around your victory pose.",
+		currency = "Gems",
+		price = 250,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(150, 220, 255),
+	},
+	-- Reward-only (VictoryAnimation)
+	victory_rookie_bow = {
+		id = "victory_rookie_bow",
+		category = "VictoryAnimation",
+		displayName = "Rookie's Bow",
+		description = "A humble rookie's bow, earned for your first competitive wins. Earned at 12 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(200, 200, 210),
+		rewardOnly = true,
+	},
+	victory_rising_applause = {
+		id = "victory_rising_applause",
+		category = "VictoryAnimation",
+		displayName = "Rising Applause",
+		description = "A wave of applause greets your win, earned for early success. Earned at 27 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 220, 150),
+		rewardOnly = true,
+	},
+	victory_champions_roar = {
+		id = "victory_champions_roar",
+		category = "VictoryAnimation",
+		displayName = "Champion's Roar",
+		description = "A triumphant roar earned by proven competitors. Earned at 51 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(255, 140, 80),
+		rewardOnly = true,
+	},
+	victory_aura_burst = {
+		id = "victory_aura_burst",
+		category = "VictoryAnimation",
+		displayName = "Victory Aura Burst",
+		description = "A burst of pure competitive aura surrounds your win. Earned at 90 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(200, 120, 255),
+		rewardOnly = true,
+	},
+	victory_legends_never_fade = {
+		id = "victory_legends_never_fade",
+		category = "VictoryAnimation",
+		displayName = "Legends Never Fade",
+		description = "A legendary victory pose reserved for MathArena's greatest champions. Earned at 165 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(255, 215, 80),
+		rewardOnly = true,
+	},
+
+	-- ============================================================
+	-- ===== QuestionTheme =========================================
+	-- ============================================================
+	theme_classic = {
+		id = "theme_classic",
+		category = "QuestionTheme",
+		displayName = "Classic Theme",
+		description = "The default MathArena question panel styling.",
+		currency = "Coins",
+		price = 50,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(22, 22, 30),
+	},
+	theme_parchment = {
+		id = "theme_parchment",
+		category = "QuestionTheme",
+		displayName = "Parchment Theme",
+		description = "An aged parchment look for the question panel.",
+		currency = "Coins",
+		price = 75,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(210, 190, 150),
+	},
+	theme_notebook = {
+		id = "theme_notebook",
+		category = "QuestionTheme",
+		displayName = "Notebook Theme",
+		description = "A ruled notebook-paper look for the question panel.",
+		currency = "Coins",
+		price = 100,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(245, 245, 235),
+	},
+	theme_blueprint = {
+		id = "theme_blueprint",
+		category = "QuestionTheme",
+		displayName = "Blueprint Theme",
+		description = "A technical blueprint look for the question panel.",
+		currency = "Coins",
+		price = 125,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(40, 80, 140),
+	},
+	theme_pastel = {
+		id = "theme_pastel",
+		category = "QuestionTheme",
+		displayName = "Pastel Theme",
+		description = "A soft pastel look for the question panel.",
+		currency = "Coins",
+		price = 150,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(255, 220, 235),
+	},
+	theme_chalkboard = {
+		id = "theme_chalkboard",
+		category = "QuestionTheme",
+		displayName = "Chalkboard Theme",
+		description = "A classroom chalkboard look for the question panel.",
+		currency = "Coins",
+		price = 250,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(35, 55, 45),
+	},
+	theme_retro_arcade = {
+		id = "theme_retro_arcade",
+		category = "QuestionTheme",
+		displayName = "Retro Arcade Theme",
+		description = "A retro arcade-cabinet look for the question panel.",
+		currency = "Coins",
+		price = 350,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 60, 140),
+	},
+	theme_neon = {
+		id = "theme_neon",
+		category = "QuestionTheme",
+		displayName = "Neon Theme",
+		description = "A high-contrast neon look for the question panel.",
+		currency = "Gems",
+		price = 6,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(60, 255, 210),
+	},
+	theme_holographic = {
+		id = "theme_holographic",
+		category = "QuestionTheme",
+		displayName = "Holographic Theme",
+		description = "A shifting holographic look for the question panel.",
+		currency = "Coins",
+		price = 600,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(170, 220, 255),
+	},
+	theme_deep_space = {
+		id = "theme_deep_space",
+		category = "QuestionTheme",
+		displayName = "Deep Space Theme",
+		description = "A deep-space starfield look for the question panel.",
+		currency = "Gems",
+		price = 5,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(20, 20, 45),
+	},
+	theme_circuit_board = {
+		id = "theme_circuit_board",
+		category = "QuestionTheme",
+		displayName = "Circuit Board Theme",
+		description = "A glowing circuit-board look for the question panel.",
+		currency = "Gems",
+		price = 9,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(60, 220, 120),
+	},
+	theme_molten_core = {
+		id = "theme_molten_core",
+		category = "QuestionTheme",
+		displayName = "Molten Core Theme",
+		description = "A molten, lava-lit look for the question panel.",
+		currency = "Coins",
+		price = 3000,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(255, 90, 30),
+	},
+	theme_crystal_cavern = {
+		id = "theme_crystal_cavern",
+		category = "QuestionTheme",
+		displayName = "Crystal Cavern Theme",
+		description = "A glittering crystal-cavern look for the question panel.",
+		currency = "Gems",
+		price = 30,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(150, 220, 255),
+	},
+	theme_aurora_skies = {
+		id = "theme_aurora_skies",
+		category = "QuestionTheme",
+		displayName = "Aurora Skies Theme",
+		description = "A shifting aurora-lit sky look for the question panel.",
+		currency = "Coins",
+		price = 25000,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(120, 255, 200),
+	},
+	theme_void_rift = {
+		id = "theme_void_rift",
+		category = "QuestionTheme",
+		displayName = "Void Rift Theme",
+		description = "A tear in reality itself as the question panel's look.",
+		currency = "Gems",
+		price = 250,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(90, 30, 140),
+	},
+	-- Reward-only (QuestionTheme)
+	theme_scholars = {
+		id = "theme_scholars",
+		category = "QuestionTheme",
+		displayName = "Scholar's Theme",
+		description = "A studious scholar's look, earned for your first competitive wins. Earned at 13 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(200, 190, 160),
+		rewardOnly = true,
+	},
+	theme_mathlete = {
+		id = "theme_mathlete",
+		category = "QuestionTheme",
+		displayName = "Mathlete's Theme",
+		description = "A dedicated mathlete's look, earned for early competitive success. Earned at 28 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(120, 180, 255),
+		rewardOnly = true,
+	},
+	theme_grandmaster = {
+		id = "theme_grandmaster",
+		category = "QuestionTheme",
+		displayName = "Grandmaster's Theme",
+		description = "A grandmaster's look, earned by proven competitors. Earned at 53 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(150, 90, 220),
+		rewardOnly = true,
+	},
+	theme_champions = {
+		id = "theme_champions",
+		category = "QuestionTheme",
+		displayName = "Champion's Theme",
+		description = "A champion's look, reserved for elite competitors. Earned at 95 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(255, 200, 60),
+		rewardOnly = true,
+	},
+	theme_legends = {
+		id = "theme_legends",
+		category = "QuestionTheme",
+		displayName = "Legend's Theme",
+		description = "A legendary look reserved for MathArena's greatest champions. Earned at 170 competitive wins.",
+		currency = "Coins",
+		price = 0,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(255, 230, 150),
+		rewardOnly = true,
+	},
+
+	-- ============================================================
+	-- ===== Title =================================================
+	-- ============================================================
+	title_rookie = {
+		id = "title_rookie",
+		category = "Title",
+		displayName = '"Rookie"',
+		description = 'Shows the title "Rookie" alongside your name.',
+		currency = "Coins",
+		price = 50,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(180, 180, 190),
+	},
+	title_challenger = {
+		id = "title_challenger",
+		category = "Title",
+		displayName = '"Challenger"',
+		description = 'Shows the title "Challenger" alongside your name.',
+		currency = "Coins",
+		price = 75,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(90, 170, 255),
+	},
+	title_number_cruncher = {
+		id = "title_number_cruncher",
+		category = "Title",
+		displayName = '"Number Cruncher"',
+		description = 'Shows the title "Number Cruncher" alongside your name.',
+		currency = "Coins",
+		price = 100,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(150, 200, 150),
+	},
+	title_quick_thinker = {
+		id = "title_quick_thinker",
+		category = "Title",
+		displayName = '"Quick Thinker"',
+		description = 'Shows the title "Quick Thinker" alongside your name.',
+		currency = "Coins",
+		price = 125,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(255, 200, 120),
+	},
+	title_problem_solver = {
+		id = "title_problem_solver",
+		category = "Title",
+		displayName = '"Problem Solver"',
+		description = 'Shows the title "Problem Solver" alongside your name.',
+		currency = "Coins",
+		price = 150,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(170, 170, 255),
+	},
+	title_sharp_mind = {
+		id = "title_sharp_mind",
+		category = "Title",
+		displayName = '"Sharp Mind"',
+		description = 'Shows the title "Sharp Mind" alongside your name.',
+		currency = "Coins",
+		price = 250,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(120, 220, 255),
+	},
+	title_equation_expert = {
+		id = "title_equation_expert",
+		category = "Title",
+		displayName = '"Equation Expert"',
+		description = 'Shows the title "Equation Expert" alongside your name.',
+		currency = "Coins",
+		price = 350,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 170, 90),
+	},
+	title_perfectionist = {
+		id = "title_perfectionist",
+		category = "Title",
+		displayName = '"Perfectionist"',
+		description = 'Shows the title "Perfectionist" alongside your name.',
+		currency = "Gems",
+		price = 6,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(120, 255, 170),
+	},
+	title_speed_demon = {
+		id = "title_speed_demon",
+		category = "Title",
+		displayName = '"Speed Demon"',
+		description = 'Shows the title "Speed Demon" alongside your name.',
+		currency = "Coins",
+		price = 600,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(255, 90, 90),
+	},
+	title_mathlete_supreme = {
+		id = "title_mathlete_supreme",
+		category = "Title",
+		displayName = '"Mathlete Supreme"',
+		description = 'Shows the title "Mathlete Supreme" alongside your name.',
+		currency = "Gems",
+		price = 5,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(255, 215, 0),
+	},
+	title_prodigy = {
+		id = "title_prodigy",
+		category = "Title",
+		displayName = '"Prodigy"',
+		description = 'Shows the title "Prodigy" alongside your name.',
+		currency = "Gems",
+		price = 9,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(200, 150, 255),
+	},
+	title_grandmaster = {
+		id = "title_grandmaster",
+		category = "Title",
+		displayName = '"Grandmaster"',
+		description = 'Shows the title "Grandmaster" alongside your name.',
+		currency = "Coins",
+		price = 3000,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(150, 90, 220),
+	},
+	title_calculating_machine = {
+		id = "title_calculating_machine",
+		category = "Title",
+		displayName = '"Calculating Machine"',
+		description = 'Shows the title "Calculating Machine" alongside your name.',
+		currency = "Gems",
+		price = 30,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(150, 200, 220),
+	},
+	title_unbeatable = {
+		id = "title_unbeatable",
+		category = "Title",
+		displayName = '"Unbeatable"',
+		description = 'Shows the title "Unbeatable" alongside your name.',
+		currency = "Coins",
+		price = 25000,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(255, 60, 60),
+	},
+	title_living_legend = {
+		id = "title_living_legend",
+		category = "Title",
+		displayName = '"Living Legend"',
+		description = 'Shows the title "Living Legend" alongside your name.',
+		currency = "Gems",
+		price = 250,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(255, 215, 80),
+	},
+	-- Reward-only (Title)
+	title_rookie_champion = {
+		id = "title_rookie_champion",
+		category = "Title",
+		displayName = '"Rookie Champion"',
+		description = 'Shows the title "Rookie Champion" alongside your name. Earned at 14 competitive wins.',
+		currency = "Coins",
+		price = 0,
+		rarity = "Common",
+		previewColor = Color3.fromRGB(200, 200, 210),
+		rewardOnly = true,
+	},
+	title_rising_star = {
+		id = "title_rising_star",
+		category = "Title",
+		displayName = '"Rising Star"',
+		description = 'Shows the title "Rising Star" alongside your name. Earned at 29 competitive wins.',
+		currency = "Coins",
+		price = 0,
+		rarity = "Uncommon",
+		previewColor = Color3.fromRGB(255, 220, 150),
+		rewardOnly = true,
+	},
+	title_tournament_veteran = {
+		id = "title_tournament_veteran",
+		category = "Title",
+		displayName = '"Tournament Veteran"',
+		description = 'Shows the title "Tournament Veteran" alongside your name. Earned at 42 competitive wins.',
+		currency = "Coins",
+		price = 0,
+		rarity = "Rare",
+		previewColor = Color3.fromRGB(150, 180, 255),
+		rewardOnly = true,
+	},
+	title_math_champion = {
+		id = "title_math_champion",
+		category = "Title",
+		displayName = '"Math Champion"',
+		description = 'Shows the title "Math Champion" alongside your name. Earned at 50 competitive wins.',
+		currency = "Coins",
+		price = 0,
+		rarity = "Legendary",
+		previewColor = Color3.fromRGB(255, 200, 60),
+		rewardOnly = true,
+	},
+	title_math_legend = {
+		id = "title_math_legend",
+		category = "Title",
+		displayName = '"Math Legend"',
+		description = 'Shows the title "Math Legend" alongside your name. Earned at 175 competitive wins.',
+		currency = "Coins",
+		price = 0,
+		rarity = "Boundless",
+		previewColor = Color3.fromRGB(255, 230, 150),
 		rewardOnly = true,
 	},
 }
@@ -311,6 +1394,28 @@ function CosmeticsConfig.GetItemsByCategory(category: string): { CosmeticItem }
 		end
 	end
 	table.sort(list, function(a, b)
+		return a.id < b.id
+	end)
+	return list
+end
+
+--[[
+	Same items as GetItemsByCategory, but ordered the way the rebuilt shop
+	UI wants to display them: rarest (Boundless) first, down to Common
+	last, with a stable id-based tiebreak within the same rarity so the
+	order never jitters between calls. Reward-only items sort in with
+	everything else here - callers that want the shop/rewards split
+	(Message: "reward-only items get their own section") should filter by
+	.rewardOnly themselves before or after calling this.
+]]
+function CosmeticsConfig.GetItemsByCategorySortedByRarity(category: string): { CosmeticItem }
+	local list = CosmeticsConfig.GetItemsByCategory(category)
+	table.sort(list, function(a, b)
+		local rankA = CosmeticsConfig.RARITY_RANK[a.rarity] or 0
+		local rankB = CosmeticsConfig.RARITY_RANK[b.rarity] or 0
+		if rankA ~= rankB then
+			return rankA > rankB
+		end
 		return a.id < b.id
 	end)
 	return list

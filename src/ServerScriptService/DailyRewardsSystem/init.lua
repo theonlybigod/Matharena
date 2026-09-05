@@ -35,6 +35,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 
 local DailyRewardsConfig = require(ReplicatedStorage.Modules.DailyRewardsConfig)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
@@ -196,6 +198,74 @@ function DailyRewardsSystem.Init()
 		local ok, reason = DailyRewardsSystem.ClaimDaily(player)
 		return { success = ok, reason = reason }
 	end
+
+	--[[
+		FLOOR TOUCH-TO-CLAIM (BuildVersion 24): "run over the day to collect
+		the reward" - BuildingInteriors.FurnishRewards lays seven
+		"StreakDayFloorPad" parts directly in the walking path, each carrying
+		a StreakDay attribute (1-7, the day's FIXED position in the 7-day
+		cycle - not an "offset from today", since the pads are static world
+		geometry laid out once, while each player's own current day rolls
+		independently). Touching one only claims if that pad's day is THIS
+		player's actual next claimable day - two players in the same room can
+		be on different days of their own streaks, so touching pad #5 must not
+		claim day 5 for a player who is actually only on day 3 of their own
+		cycle. ClaimDaily/BuildSnapshot above already contain the real
+		day-boundary logic; this only decides WHETHER to call them, never
+		reimplements the streak math itself.
+
+		A short per-player debounce guards against a Touched storm (multiple
+		body parts crossing the same thin pad within one footstep can fire
+		Touched more than once) - harmless either way since ClaimDaily is
+		already idempotent (a second call the same day just returns
+		"AlreadyClaimedToday"), but there is no reason to re-run the snapshot
+		build and profile lookup for every redundant touch.
+	]]
+	local lastTouchAttempt: { [Player]: number } = {}
+	local TOUCH_DEBOUNCE_SECONDS = 1.5
+
+	local function tryClaimFromPad(player: Player, day: number)
+		local now = os.clock()
+		if lastTouchAttempt[player] and now - lastTouchAttempt[player] < TOUCH_DEBOUNCE_SECONDS then
+			return
+		end
+		lastTouchAttempt[player] = now
+
+		local snapshot = DailyRewardsSystem.BuildSnapshot(player)
+		if not snapshot or not snapshot.canClaimToday or snapshot.nextClaimDay ~= day then
+			return
+		end
+		DailyRewardsSystem.ClaimDaily(player)
+	end
+
+	local function wirePad(part: BasePart)
+		local day = part:GetAttribute("StreakDay")
+		if typeof(day) ~= "number" then
+			return
+		end
+		part.Touched:Connect(function(hit: BasePart)
+			local character = hit.Parent
+			local player = character and Players:GetPlayerFromCharacter(character)
+			if player then
+				tryClaimFromPad(player, day)
+			end
+		end)
+	end
+
+	for _, part in ipairs(CollectionService:GetTagged("StreakDayFloorPad")) do
+		if part:IsA("BasePart") then
+			wirePad(part)
+		end
+	end
+	CollectionService:GetInstanceAddedSignal("StreakDayFloorPad"):Connect(function(part)
+		if part:IsA("BasePart") then
+			wirePad(part)
+		end
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		lastTouchAttempt[player] = nil
+	end)
 
 	print("[DailyRewardsSystem] Initialized")
 end

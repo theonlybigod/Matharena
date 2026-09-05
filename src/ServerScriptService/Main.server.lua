@@ -135,6 +135,24 @@ else
 	LobbyBuilder.Build(futuristicMap, nil, true)
 	LobbyBuilder.EnsureSpawnsEnabled(futuristicMap)
 	ArenaBuilder.BuildForMap(futuristicMap)
+
+	--[[
+		Permanent cleanup, every server start - not a one-time manual action.
+
+		This Place's SAVED data predates the Hub becoming Futuristic-only: it
+		was originally built by BuildAllMaps() and still has every other map's
+		folder (and, for IceAge/UnderTheSea, their directly-written Terrain)
+		baked in from that. A one-off live Studio cleanup of a single session
+		never survives a fresh session, a publish, or a real server start,
+		since all of those load from this Place's actual saved data, not from
+		whatever a previous in-memory session happened to have deleted. Doing
+		it here instead - as part of the actual build path, on every server
+		start - is what makes it actually stick. See LobbyBuilder.DestroyMap's
+		own doc comment for the full reasoning.
+	]]
+	for _, otherMapId in ipairs({ "Lava", "Space", "UnderTheSea", "IceAge" }) do
+		LobbyBuilder.DestroyMap(otherMapId)
+	end
 end
 
 -- Always re-run the Lighting post-effect dedup, even when both builders

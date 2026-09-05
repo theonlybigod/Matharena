@@ -59,7 +59,7 @@ local lastFetch = 0
 local lastVaultFetch = 0
 local cached: any = nil
 
-local function makeLabel(parent: Instance, size: UDim2, pos: UDim2, text: string, color: Color3, align: Enum.TextXAlignment, weight: Enum.FontWeight)
+local function makeLabel(parent: Instance, size: UDim2, pos: UDim2, text: string, color: Color3, align: Enum.TextXAlignment, weight: Enum.FontWeight, fontEnum: Enum.Font?)
 	local label = Instance.new("TextLabel")
 	label.Size = size
 	label.Position = pos
@@ -68,7 +68,7 @@ local function makeLabel(parent: Instance, size: UDim2, pos: UDim2, text: string
 	label.TextColor3 = color
 	label.TextScaled = true
 	label.TextXAlignment = align
-	label.FontFace = Font.fromEnum(Enum.Font.GothamMedium)
+	label.FontFace = Font.fromEnum(fontEnum or Enum.Font.GothamMedium)
 	label.FontFace.Weight = weight
 	label.Parent = parent
 	return label
@@ -197,8 +197,31 @@ local function buildVault(part: BasePart)
 	bg.BorderSizePixel = 0
 	bg.Parent = gui
 
-	makeLabel(bg, UDim2.new(1, -40, 0, 54), UDim2.new(0, 20, 0, 14), "YOUR STREAK VAULT", TEXT_BRIGHT, Enum.TextXAlignment.Left, Enum.FontWeight.Bold)
-	local status = makeLabel(bg, UDim2.new(1, -40, 0, 30), UDim2.new(0, 20, 0, 68), "Loading streak...", TEXT_DIM, Enum.TextXAlignment.Left, Enum.FontWeight.Regular)
+	--[[
+		Title redesign to match the Shop's "FEATURED TODAY" treatment: centred
+		across the top in Bangers (bold, rounded, reads as intentional styling
+		rather than a default label) instead of small left-aligned Gotham. The
+		status line below it is centred the same way per the same direction.
+	]]
+	makeLabel(
+		bg,
+		UDim2.new(1, 0, 0, 54),
+		UDim2.new(0, 0, 0, 10),
+		"YOUR STREAK VAULT",
+		GOLD,
+		Enum.TextXAlignment.Center,
+		Enum.FontWeight.Bold,
+		Enum.Font.Bangers
+	)
+	local status = makeLabel(
+		bg,
+		UDim2.new(1, -40, 0, 30),
+		UDim2.new(0, 20, 0, 72),
+		"Loading streak...",
+		TEXT_DIM,
+		Enum.TextXAlignment.Center,
+		Enum.FontWeight.Regular
+	)
 
 	-- Seven slots across the panel.
 	local rows = {}
@@ -393,6 +416,21 @@ for _, part in ipairs(CollectionService:GetTagged("StreakDayCap")) do
 	end
 end
 CollectionService:GetInstanceAddedSignal("StreakDayCap"):Connect(function(part)
+	if part:IsA("BasePart") then
+		registerCap(part)
+	end
+end)
+
+-- Floor claim pads (BuildVersion 24) recolour exactly like the caps above -
+-- registerCap only reads the shared "StreakDay" attribute and doesn't care
+-- which tag led it here, so the pads join the SAME plinthCaps[day] list and
+-- renderPlinths repaints both together from one snapshot, never disagreeing.
+for _, part in ipairs(CollectionService:GetTagged("StreakDayFloorPad")) do
+	if part:IsA("BasePart") then
+		registerCap(part)
+	end
+end
+CollectionService:GetInstanceAddedSignal("StreakDayFloorPad"):Connect(function(part)
 	if part:IsA("BasePart") then
 		registerCap(part)
 	end

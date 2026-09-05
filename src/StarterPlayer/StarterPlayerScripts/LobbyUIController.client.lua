@@ -48,11 +48,12 @@ local mainUI = playerGui:WaitForChild("MainUI")
 
 local buttonBar = Instance.new("Frame")
 buttonBar.Name = "LobbyButtonBar"
--- Message 33: widened from 760 to 880 (and re-centered to match) to fit
--- the new 7th button (Daily) without crowding - 7 buttons * 112 wide +
--- 6 gaps * 14 padding = 868, so 880 leaves a little breathing room.
-buttonBar.Size = UDim2.fromOffset(880, 92)
-buttonBar.Position = UDim2.new(0.5, -440, 1, -112)
+-- Inventory button added: widened from 880 to 1000 (and re-centered to
+-- match) to fit the new 8th button without crowding - 8 buttons * 112
+-- wide + 7 gaps * 14 padding = 994, so 1000 leaves a little breathing
+-- room, same margin the 7-button version kept.
+buttonBar.Size = UDim2.fromOffset(1000, 92)
+buttonBar.Position = UDim2.new(0.5, -500, 1, -112)
 buttonBar.BackgroundTransparency = 1
 buttonBar.Parent = mainUI
 
@@ -94,6 +95,14 @@ local dailyRewardsButton = createButton("RewardsButton", "\u{1F3C6}", "Rewards",
 -- DailyRewardsUIController.client.lua, which owns this button's click
 -- handling (same handoff pattern as ShopButton/PracticeButton below).
 local dailyButton = createButton("DailyButton", "\u{1F4C5}", "Daily", 7)
+-- Inventory: reward-only cosmetics and purchased cosmetics alike land
+-- here once owned, organized by category (Trails/Accessories/Name
+-- Colors/Victory Animations/Question Themes/Titles) - separate from the
+-- Shop's purchasable/Rewards-to-earn grids, this is just "what do I
+-- already have and what's equipped". See InventoryUIController.client.lua,
+-- which owns this button's click handling (same handoff pattern as
+-- ShopButton/PracticeButton above).
+local inventoryButton = createButton("InventoryButton", "\u{1F392}", "Items", 8)
 
 -- ===== Generic modal (reused by Settings/Stats) =====
 -- Message 26: upgraded to the premium panel style (gradient + glowing
@@ -210,6 +219,12 @@ dailyButton.MouseButton1Click:Connect(function()
 	-- Intentionally not handled here - DailyRewardsUIController.client.lua
 	-- owns this button's click handling and opens the real 7-day daily
 	-- streak panel, same handoff pattern as ShopButton above.
+end)
+
+inventoryButton.MouseButton1Click:Connect(function()
+	-- Intentionally not handled here - InventoryUIController.client.lua owns
+	-- this button's click handling and opens the real owned-items panel,
+	-- same handoff pattern as ShopButton above.
 end)
 
 -- ===== Stats panel (real data, Message 4) =====

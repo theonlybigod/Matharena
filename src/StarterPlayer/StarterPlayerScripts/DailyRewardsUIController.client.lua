@@ -197,27 +197,66 @@ lifetimeTabButton.MouseButton1Click:Connect(function()
 end)
 
 -- ===== Daily view content =====
+-- REBUILD (BuildVersion 24, floor claim pads): the 7-day track row and the
+-- "CLAIM TODAY'S REWARD" button that used to live here are REMOVED
+-- entirely - claiming now happens by walking over the physical floor pads
+-- in the Daily Rewards room (see BuildingInteriors.FurnishRewards and
+-- DailyRewardsSystem's touch-to-claim wiring). This tab is now just the
+-- status readout: your current streak, the same "already claimed - back
+-- in Xh Ym" countdown as before (explicitly kept - that feature was not
+-- part of what needed to change), and History.
 
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "StatusLabel"
-statusLabel.Size = UDim2.new(1, -120, 0, 26)
-statusLabel.Position = UDim2.fromOffset(0, 0)
+statusLabel.Size = UDim2.new(1, 0, 0, 40)
+statusLabel.Position = UDim2.fromOffset(0, 24)
 statusLabel.BackgroundTransparency = 1
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.TextSize = 15
-statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.TextColor3 = UITheme.COLORS.SubText
+statusLabel.Font = Enum.Font.GothamBlack
+statusLabel.TextScaled = true
+statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+statusLabel.TextColor3 = UITheme.COLORS.Text
 statusLabel.Text = ""
 statusLabel.ZIndex = 22
 statusLabel.Parent = dailyView
+
+-- Centred, normal-sized "come back tomorrow"/claim-availability line -
+-- separate from statusLabel above so the streak COUNT stays big/bold
+-- while this stays a plain readable sentence, matching the size contrast
+-- direction given for this screen.
+local claimStatusLabel = Instance.new("TextLabel")
+claimStatusLabel.Name = "ClaimStatusLabel"
+claimStatusLabel.Size = UDim2.new(1, 0, 0, 26)
+claimStatusLabel.Position = UDim2.fromOffset(0, 70)
+claimStatusLabel.BackgroundTransparency = 1
+claimStatusLabel.Font = Enum.Font.Gotham
+claimStatusLabel.TextSize = 16
+claimStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+claimStatusLabel.TextColor3 = UITheme.COLORS.SubText
+claimStatusLabel.Text = ""
+claimStatusLabel.ZIndex = 22
+claimStatusLabel.Parent = dailyView
+
+local floorHintLabel = Instance.new("TextLabel")
+floorHintLabel.Name = "FloorHintLabel"
+floorHintLabel.Size = UDim2.new(1, 0, 0, 60)
+floorHintLabel.Position = UDim2.fromOffset(0, 120)
+floorHintLabel.BackgroundTransparency = 1
+floorHintLabel.Font = Enum.Font.Gotham
+floorHintLabel.TextSize = 15
+floorHintLabel.TextWrapped = true
+floorHintLabel.TextXAlignment = Enum.TextXAlignment.Center
+floorHintLabel.TextColor3 = UITheme.COLORS.SubText
+floorHintLabel.Text = "Walk over today's floor pad in the Daily Rewards room to collect it."
+floorHintLabel.ZIndex = 22
+floorHintLabel.Parent = dailyView
 
 -- "Scroll back to further days that you've had" - opens a separate small
 -- overlay listing the real claim history log, capped short at about a
 -- week.
 local historyButton = Instance.new("TextButton")
 historyButton.Name = "HistoryButton"
-historyButton.Size = UDim2.fromOffset(110, 26)
-historyButton.Position = UDim2.new(1, -110, 0, 0)
+historyButton.Size = UDim2.fromOffset(140, 32)
+historyButton.Position = UDim2.new(0.5, -70, 0, 190)
 historyButton.Font = Enum.Font.GothamBold
 historyButton.TextScaled = true
 historyButton.Text = "History"
@@ -227,92 +266,6 @@ historyButton.ZIndex = 22
 UITheme.ApplyCorner(historyButton)
 UITheme.ApplyButtonHoverEffect(historyButton)
 historyButton.Parent = dailyView
-
--- 7-day track (a simple row of 7 day cards, not a scrolling list - the
--- whole cycle always fits on screen at once).
-local trackRow = Instance.new("Frame")
-trackRow.Name = "TrackRow"
-trackRow.Size = UDim2.new(1, 0, 0, 150)
-trackRow.Position = UDim2.fromOffset(0, 34)
-trackRow.BackgroundTransparency = 1
-trackRow.ZIndex = 22
-trackRow.Parent = dailyView
-
-local trackLayout = Instance.new("UIListLayout")
-trackLayout.SortOrder = Enum.SortOrder.LayoutOrder
-trackLayout.FillDirection = Enum.FillDirection.Horizontal
-trackLayout.Padding = UDim.new(0, 8)
-trackLayout.Parent = trackRow
-
--- Indexed by POSITION in the rolling window (1 = today/next claim, 2 =
--- the day after, ... 7 = six days out) rather than by a fixed day
--- number, since the whole point is the window rolls with today.
-local DAY_CARD_WIDTH = 66
-local dayCards: { [number]: { card: Frame, dayLabel: TextLabel, rewardLabel: TextLabel, stateLabel: TextLabel } } = {}
-
-for position = 1, 7 do
-	local card = Instance.new("Frame")
-	card.Name = "Position" .. position
-	card.LayoutOrder = position
-	card.Size = UDim2.fromOffset(DAY_CARD_WIDTH, 150)
-	card.BackgroundColor3 = UITheme.COLORS.Panel
-	card.ZIndex = 22
-	UITheme.ApplyCorner(card)
-	card.Parent = trackRow
-
-	local dayLabel = Instance.new("TextLabel")
-	dayLabel.Name = "DayLabel"
-	dayLabel.Size = UDim2.new(1, 0, 0, 22)
-	dayLabel.Position = UDim2.fromOffset(0, 8)
-	dayLabel.BackgroundTransparency = 1
-	dayLabel.Font = Enum.Font.GothamBold
-	dayLabel.TextScaled = true
-	dayLabel.TextColor3 = UITheme.COLORS.SubText
-	dayLabel.Text = ""
-	dayLabel.ZIndex = 23
-	dayLabel.Parent = card
-
-	local rewardLabel = Instance.new("TextLabel")
-	rewardLabel.Name = "RewardLabel"
-	rewardLabel.Size = UDim2.new(1, -6, 0, 80)
-	rewardLabel.Position = UDim2.fromOffset(3, 34)
-	rewardLabel.BackgroundTransparency = 1
-	rewardLabel.Font = Enum.Font.Gotham
-	rewardLabel.TextSize = 12
-	rewardLabel.TextWrapped = true
-	rewardLabel.TextColor3 = UITheme.COLORS.Gold
-	rewardLabel.Text = ""
-	rewardLabel.ZIndex = 23
-	rewardLabel.Parent = card
-
-	local stateLabel = Instance.new("TextLabel")
-	stateLabel.Name = "StateLabel"
-	stateLabel.Size = UDim2.new(1, 0, 0, 20)
-	stateLabel.Position = UDim2.new(0, 0, 1, -24)
-	stateLabel.BackgroundTransparency = 1
-	stateLabel.Font = Enum.Font.GothamBold
-	stateLabel.TextScaled = true
-	stateLabel.TextColor3 = UITheme.COLORS.SubText
-	stateLabel.Text = ""
-	stateLabel.ZIndex = 23
-	stateLabel.Parent = card
-
-	dayCards[position] = { card = card, dayLabel = dayLabel, rewardLabel = rewardLabel, stateLabel = stateLabel }
-end
-
-local claimButton = Instance.new("TextButton")
-claimButton.Name = "ClaimTodayButton"
-claimButton.Size = UDim2.new(1, 0, 0, 48)
-claimButton.Position = UDim2.fromOffset(0, 192)
-claimButton.Font = Enum.Font.GothamBlack
-claimButton.TextScaled = true
-claimButton.TextColor3 = UITheme.COLORS.Text
-claimButton.BackgroundColor3 = UITheme.COLORS.Success
-claimButton.Text = "CLAIM TODAY'S REWARD"
-claimButton.ZIndex = 22
-UITheme.ApplyCorner(claimButton)
-UITheme.ApplyButtonHoverEffect(claimButton)
-claimButton.Parent = dailyView
 
 -- ===== Lifetime view content - a scrolling, categorized milestone list.
 -- Gets the FULL content area now that it's not sharing space with the
@@ -610,53 +563,16 @@ local function refreshFromSnapshot(snapshot)
 		return
 	end
 
-	-- snapshot.track is already ordered starting at today (offsetFromToday
-	-- 0..6), so array position IS window position - no day-number lookup
-	-- needed here anymore.
-	for position, entry in ipairs(snapshot.track) do
-		local widgets = dayCards[position]
-		if widgets then
-			widgets.rewardLabel.Text = entry.label
-			widgets.dayLabel.Text = if entry.offsetFromToday == 0 then "TODAY"
-				elseif entry.offsetFromToday == 1 then "+1 DAY"
-				else ("+%d DAYS"):format(entry.offsetFromToday)
-
-			if entry.isToday then
-				widgets.card.BackgroundColor3 = UITheme.COLORS.Accent
-				widgets.stateLabel.Text = "TODAY"
-				widgets.stateLabel.TextColor3 = UITheme.COLORS.Text
-			elseif entry.isCollected then
-				widgets.card.BackgroundColor3 = UITheme.COLORS.Panel
-				widgets.stateLabel.Text = "\u{2713} DONE"
-				widgets.stateLabel.TextColor3 = UITheme.COLORS.Success
-			elseif entry.offsetFromToday == 0 and not entry.isToday then
-				-- Today's slot but already claimed for real today.
-				widgets.card.BackgroundColor3 = UITheme.COLORS.Panel
-				widgets.stateLabel.Text = "\u{2713} CLAIMED"
-				widgets.stateLabel.TextColor3 = UITheme.COLORS.Success
-			else
-				widgets.card.BackgroundColor3 = UITheme.COLORS.Panel
-				widgets.stateLabel.Text = ""
-			end
-		end
-	end
+	statusLabel.Text = ("STREAK: DAY %d/7"):format(snapshot.currentStreakDay)
 
 	if snapshot.canClaimToday then
-		claimButton.Visible = true
-		claimButton.Text = "CLAIM TODAY'S REWARD"
-		claimButton.BackgroundColor3 = UITheme.COLORS.Success
-		statusLabel.Text = ("Streak: Day %d/7  \u{2022}  %d total claims"):format(
-			snapshot.currentStreakDay,
-			snapshot.totalClaims
-		)
+		claimStatusLabel.Text = ("A reward is ready - %d total claims so far"):format(snapshot.totalClaims)
+		claimStatusLabel.TextColor3 = UITheme.COLORS.Success
 	else
-		claimButton.Visible = true
-		claimButton.Text = ("ALREADY CLAIMED \u{2022} back in %s"):format(formatCountdown(snapshot.secondsUntilNextDay))
-		claimButton.BackgroundColor3 = UITheme.COLORS.Panel
-		statusLabel.Text = ("Streak: Day %d/7  \u{2022}  %d total claims"):format(
-			snapshot.currentStreakDay,
-			snapshot.totalClaims
+		claimStatusLabel.Text = ("Today's reward already collected - come back in %s"):format(
+			formatCountdown(snapshot.secondsUntilNextDay)
 		)
+		claimStatusLabel.TextColor3 = UITheme.COLORS.SubText
 	end
 end
 
@@ -714,17 +630,11 @@ requestLifetimeSnapshot = function()
 	end
 end
 
-claimButton.MouseButton1Click:Connect(function()
-	if not (latestSnapshot and latestSnapshot.canClaimToday) then
-		return
-	end
-	claimButton.Active = false
-	local result = claimDailyRewardFunction:InvokeServer()
-	claimButton.Active = true
-	if result and result.success then
-		requestSnapshot()
-	end
-end)
+-- Claiming happens on the floor now (see BuildingInteriors.FurnishRewards'
+-- StreakDayFloorPad touch-to-claim wiring in DailyRewardsSystem) - there is
+-- no in-UI claim button left to wire a click handler to. requestSnapshot is
+-- still called on tab-open/panel-open so the status text reflects reality;
+-- the InventoryUpdated-style refresh-on-visit is all this tab needs now.
 
 -- ===== Open/close =====
 
@@ -747,15 +657,23 @@ end
 -- ===== Daily Rewards Terminal (in-world interaction) =====
 
 task.spawn(function()
+	-- Same StreamingEnabled fix as ShopUIController's terminal wiring: this
+	-- building's children can legitimately not have streamed in yet when
+	-- this script starts (right at spawn, far from this building), so a
+	-- one-shot FindFirstChild could return nil and never connect the
+	-- listener for the rest of the session even after the player walked
+	-- over. WaitForChild actually waits for streaming to catch up.
 	local lobby = Workspace:WaitForChild("Lobby", 10)
 	local rewardsBuilding = lobby and lobby:WaitForChild("Buildings", 10):WaitForChild("DailyRewards", 10)
-	local stand = rewardsBuilding and rewardsBuilding:FindFirstChild("DailyRewardsTerminalStand")
-	local prompt = stand and stand:FindFirstChild("DailyRewardsTerminalPrompt")
+	local stand = rewardsBuilding and rewardsBuilding:WaitForChild("DailyRewardsTerminalStand", 30)
+	local prompt = stand and stand:WaitForChild("DailyRewardsTerminalPrompt", 30)
 	if prompt then
 		(prompt :: ProximityPrompt).Triggered:Connect(function(triggeringPlayer: Player)
 			if triggeringPlayer == player then
 				openDailyRewardsPanel()
 			end
 		end)
+	else
+		warn("[DailyRewardsUIController] Daily Rewards terminal prompt never streamed in - in-world terminal will not open the panel this session")
 	end
 end)

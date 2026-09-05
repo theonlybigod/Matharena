@@ -40,6 +40,15 @@ local GOLD = Color3.fromRGB(255, 200, 62)
 --[[
 	Picks today's featured cosmetic.
 
+	PURCHASABLE ITEMS ONLY (fix alongside the rarity/rewards-split rebuild):
+	CosmeticsConfig.ITEMS now also contains 30 reward-only items (5 per
+	category, granted by the win-based Rewards track, never buyable). Before
+	this filter, pickFeatured() could land on one of those and this board
+	would show "Buy it at the Shop terminal" under something with a 0 price
+	that cannot actually be bought - confusing at best. rewardOnly items are
+	excluded from the candidate pool entirely; only real purchasable items
+	are ever featured.
+
 	CosmeticsConfig.ITEMS is keyed by id, and pairs() order is NOT stable
 	across runs in Luau - so the ids are collected and SORTED before
 	indexing. Without the sort, two clients could compute different "today's
@@ -48,8 +57,10 @@ local GOLD = Color3.fromRGB(255, 200, 62)
 ]]
 local function pickFeatured()
 	local ids = {}
-	for id in pairs(CosmeticsConfig.ITEMS) do
-		table.insert(ids, id)
+	for id, item in pairs(CosmeticsConfig.ITEMS) do
+		if not item.rewardOnly then
+			table.insert(ids, id)
+		end
 	end
 	if #ids == 0 then
 		return nil
@@ -63,25 +74,24 @@ local function pickFeatured()
 	return CosmeticsConfig.ITEMS[ids[index]]
 end
 
-local function makeLabel(parent: Instance, size: UDim2, pos: UDim2, text: string, color: Color3, weight: Enum.FontWeight, textSize: number)
+local function makeLabel(parent: Instance, size: UDim2, pos: UDim2, text: string, color: Color3, weight: Enum.FontWeight, textSize: number, xAlignment: Enum.TextXAlignment?, fontEnum: Enum.Font?)
 	local label = Instance.new("TextLabel")
 	label.Size = size
 	label.Position = pos
 	label.BackgroundTransparency = 1
 	label.Text = text
 	label.TextColor3 = color
-	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextXAlignment = xAlignment or Enum.TextXAlignment.Left
 	label.TextYAlignment = Enum.TextYAlignment.Top
 	label.TextSize = textSize
 	label.TextWrapped = true
-	label.FontFace = Font.fromEnum(Enum.Font.GothamMedium)
+	label.FontFace = Font.fromEnum(fontEnum or Enum.Font.GothamMedium)
 	label.FontFace.Weight = weight
 	label.Parent = parent
 	return label
 end
 
 local boards: { [BasePart]: any } = {}
-local shafts: { [BasePart]: boolean } = {}
 
 local function buildBoard(part: BasePart)
 	if boards[part] then
@@ -105,14 +115,33 @@ local function buildBoard(part: BasePart)
 	bg.BorderSizePixel = 0
 	bg.Parent = gui
 
-	local kicker = makeLabel(bg, UDim2.new(1, -50, 0, 26), UDim2.new(0, 25, 0, 20), "FEATURED TODAY", GOLD, Enum.FontWeight.Bold, 24)
-	local name = makeLabel(bg, UDim2.new(1, -50, 0, 52), UDim2.new(0, 25, 0, 52), "", TEXT_BRIGHT, Enum.FontWeight.Bold, 44)
-	local category = makeLabel(bg, UDim2.new(1, -50, 0, 26), UDim2.new(0, 25, 0, 112), "", TEXT_DIM, Enum.FontWeight.Medium, 22)
-	local desc = makeLabel(bg, UDim2.new(1, -50, 0, 130), UDim2.new(0, 25, 0, 150), "", TEXT_DIM, Enum.FontWeight.Regular, 24)
-	local price = makeLabel(bg, UDim2.new(1, -50, 0, 46), UDim2.new(0, 25, 0, 300), "", GOLD, Enum.FontWeight.Bold, 38)
-	local hint = makeLabel(bg, UDim2.new(1, -50, 0, 26), UDim2.new(0, 25, 0, 366), "Buy it at the Shop terminal", TEXT_DIM, Enum.FontWeight.Regular, 20)
+	--[[
+		"FEATURED TODAY" kicker redesign: centered across the top of the board
+		(was left-aligned), ~1.5x the old 24pt size (now 36pt), and set in
+		Bangers - a bold, rounded display font that reads as "artsy" at a
+		glance while staying completely legible at distance, unlike a script/
+		handwriting font. Every other line shifts down to make room and a new
+		Rarity line is inserted between Category and Description.
+	]]
+	local kicker = makeLabel(
+		bg,
+		UDim2.new(1, 0, 0, 46),
+		UDim2.new(0, 0, 0, 12),
+		"FEATURED TODAY",
+		GOLD,
+		Enum.FontWeight.Bold,
+		36,
+		Enum.TextXAlignment.Center,
+		Enum.Font.Bangers
+	)
+	local name = makeLabel(bg, UDim2.new(1, -50, 0, 52), UDim2.new(0, 25, 0, 70), "", TEXT_BRIGHT, Enum.FontWeight.Bold, 44)
+	local category = makeLabel(bg, UDim2.new(1, -50, 0, 26), UDim2.new(0, 25, 0, 126), "", TEXT_DIM, Enum.FontWeight.Medium, 22)
+	local rarity = makeLabel(bg, UDim2.new(1, -50, 0, 22), UDim2.new(0, 25, 0, 154), "", GOLD, Enum.FontWeight.Bold, 18)
+	local desc = makeLabel(bg, UDim2.new(1, -50, 0, 110), UDim2.new(0, 25, 0, 184), "", TEXT_DIM, Enum.FontWeight.Regular, 24)
+	local price = makeLabel(bg, UDim2.new(1, -50, 0, 46), UDim2.new(0, 25, 0, 306), "", GOLD, Enum.FontWeight.Bold, 38)
+	local hint = makeLabel(bg, UDim2.new(1, -50, 0, 26), UDim2.new(0, 25, 0, 364), "Buy it at the Shop terminal", TEXT_DIM, Enum.FontWeight.Regular, 20)
 
-	boards[part] = { kicker = kicker, name = name, category = category, desc = desc, price = price, hint = hint }
+	boards[part] = { kicker = kicker, name = name, category = category, rarity = rarity, desc = desc, price = price, hint = hint }
 end
 
 local function render()
@@ -122,6 +151,7 @@ local function render()
 		if not item then
 			board.name.Text = "No items available"
 			board.category.Text = ""
+			board.rarity.Text = ""
 			board.desc.Text = ""
 			board.price.Text = ""
 		else
@@ -129,18 +159,10 @@ local function render()
 			board.category.Text = (CosmeticsConfig.CATEGORY_DISPLAY_NAMES and CosmeticsConfig.CATEGORY_DISPLAY_NAMES[item.category])
 				or item.category
 				or ""
+			board.rarity.Text = (item.rarity or "Common"):upper()
+			board.rarity.TextColor3 = CosmeticsConfig.RARITY_COLORS[item.rarity] or GOLD
 			board.desc.Text = item.description or ""
 			board.price.Text = ("%d %s"):format(item.price or 0, item.currency or "Coins")
-		end
-	end
-
-	-- Tint the preview column to the item's colour, which is the whole point
-	-- of showing it at this size.
-	if item and item.previewColor then
-		for shaft in pairs(shafts) do
-			if shaft.Parent then
-				shaft.Color = item.previewColor
-			end
 		end
 	end
 end
@@ -164,14 +186,6 @@ bindTag("FeaturedItemBoard", function(part)
 end)
 CollectionService:GetInstanceRemovedSignal("FeaturedItemBoard"):Connect(function(part)
 	boards[part] = nil
-end)
-
-bindTag("FeaturedPreviewShaft", function(part)
-	shafts[part] = true
-	render()
-end)
-CollectionService:GetInstanceRemovedSignal("FeaturedPreviewShaft"):Connect(function(part)
-	shafts[part] = nil
 end)
 
 render()

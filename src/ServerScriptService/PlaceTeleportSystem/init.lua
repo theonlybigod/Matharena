@@ -66,6 +66,7 @@ local TeleportService = game:GetService("TeleportService")
 
 local GameplayConfig = require(ReplicatedStorage.Modules.GameplayConfig)
 local DifficultyPlacesConfig = require(ReplicatedStorage.Modules.DifficultyPlacesConfig)
+local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 
 local MatchSystem = require(ServerScriptService.MatchSystem)
@@ -152,6 +153,29 @@ local function onRequestPlayDifficulty(player: Player, rawTierId: unknown)
 		-- just join its queue exactly like the old direct-fire behavior.
 		MatchSystem.TryJoinQueue(player, tier.id)
 		return
+	end
+
+	--[[
+		The Hub special case. myPlace is nil here (the Hub isn't registered in
+		DifficultyPlacesConfig - see myPlace's own doc comment above), so the
+		check just above never matches for it, and every Play Mode click used
+		to cross-server-teleport away unconditionally - including for
+		Futuristic, even though Main.server.lua's Hub branch builds ONLY
+		MapsConfig.GetDefaultMap() there and nothing else. A player standing
+		on the Hub requesting that SAME map's difficulty is already standing
+		in an equivalent build; teleporting them to the separate "official"
+		Place for that tier would be a pointless, confusing hop into a second,
+		population-splitting instance of the same difficulty. Checked by map
+		identity (GetDefaultMap().difficultyId), not a hardcoded tier number,
+		so this stays correct if the Hub's built map or that map's assigned
+		difficulty ever changes.
+	]]
+	if not myPlace then
+		local hubMap = MapsConfig.GetDefaultMap()
+		if hubMap.difficultyId == tier.id then
+			MatchSystem.TryJoinQueue(player, tier.id)
+			return
+		end
 	end
 
 	teleportToDifficulty(player, destination)

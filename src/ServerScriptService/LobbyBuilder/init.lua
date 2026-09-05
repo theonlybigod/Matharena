@@ -50,6 +50,10 @@
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+-- Matches IceAgeEnvironment.lua's own TERRAIN_RES - Terrain's native voxel
+-- grid, used by DestroyMap's cleanup pass below.
+local TERRAIN_RESOLUTION = 4
+
 local MapsConfig = require(ReplicatedStorage.Modules.MapsConfig)
 local BuildVersion = require(ReplicatedStorage.Modules.BuildVersion)
 local LobbyTheme = require(script.LobbyTheme)
@@ -360,6 +364,61 @@ end
 function LobbyBuilder.RebuildAllMaps()
 	for _, def in ipairs(MapsConfig.MAPS) do
 		LobbyBuilder.Rebuild(def)
+	end
+end
+
+--[[
+	Permanently removes `mapId`'s entire Workspace folder AND any Terrain
+	it wrote directly (IceAge's mountain range, UnderTheSea's seabed - see
+	those maps' own BuildTerrainMountains/BuildTerrainDunes doc comments).
+	Safe to call unconditionally and repeatedly: a no-op if the folder is
+	already gone, and the Terrain clear is idempotent (filling Air with
+	Air does nothing).
+
+	Why this exists at all: destroying a map used to be something done
+	manually, once, live in a single Studio session (Terrain writes and
+	BaseParts alike) - which is why it never actually stuck. A manual
+	in-memory change to one session's Workspace has no bearing on what a
+	fresh session loads, what gets published, or what a real server starts
+	with - all of those load from the actual saved place data, which still
+	had every map's folder AND terrain baked in from before that manual
+	cleanup, because the cleanup was never encoded as something the build
+	pipeline itself repeats. This function is that fix: called from
+	Main.server.lua's Hub branch on every server start (see that file),
+	so the other four maps are removed freshly every time, regardless of
+	what this particular Place's saved data happens to contain.
+]]
+function LobbyBuilder.DestroyMap(mapId: string)
+	local def = MapsConfig.GetMap(mapId)
+	if not def then
+		return
+	end
+
+	local root = Workspace:FindFirstChild(def.workspaceFolderName)
+	if root then
+		root:Destroy()
+	end
+
+	-- Terrain is a single shared service, not a child of `root` - deleting
+	-- the folder above does nothing to voxels a themed environment module
+	-- wrote directly into it. Only IceAge and UnderTheSea currently do this
+	-- (see IceAgeEnvironment.BuildTerrainMountains/
+	-- UnderTheSeaEnvironment.BuildTerrainDunes), so this is a no-op for
+	-- every other theme.
+	if def.themeId == "IceAge" or def.themeId == "UnderTheSea" then
+		local worldOrigin = def.origin + Vector3.new(0, MapConfig.GROUND_ELEVATION, 0)
+		local RADIUS = 1000 -- matches ENCLOSURE_RADIUS - covers everything either theme could have written
+		local CHUNK = 700 -- kept well under Terrain:FillRegion's own size limit
+		for cx = -RADIUS, RADIUS - 1, CHUNK do
+			for cz = -RADIUS, RADIUS - 1, CHUNK do
+				local minPt = worldOrigin + Vector3.new(cx, -300, cz)
+				local maxPt = worldOrigin + Vector3.new(math.min(cx + CHUNK, RADIUS), 500, math.min(cz + CHUNK, RADIUS))
+				local region = Region3.new(minPt, maxPt):ExpandToGrid(TERRAIN_RESOLUTION)
+				pcall(function()
+					Workspace.Terrain:FillRegion(region, TERRAIN_RESOLUTION, Enum.Material.Air)
+				end)
+			end
+		end
 	end
 end
 

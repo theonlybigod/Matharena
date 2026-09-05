@@ -229,5 +229,34 @@ BuildVersion.CURRENT = 20
 --       out of sync again if the terrain is ever rebuilt with different
 --       heights at these specific points in the future.
 BuildVersion.CURRENT = 21
+--  22 = Shop terminal glow-beam removed. FeaturedPreviewShaft (a ~9-stud
+--       tall Neon cylinder, client-tinted to the featured item's colour
+--       by ShopFeaturedController) and its FeaturedPreviewBase plinth are
+--       gone from BuildingInteriors.FurnishShop - reported as an unwanted
+--       glowing beam roughly double a character's height inside every
+--       Shop building on every map. ShopFeaturedController's shaft-tint
+--       binding/tracking code is removed to match; the FeaturedItemBoard
+--       wall screen (today's featured item text) is untouched.
+BuildVersion.CURRENT = 22
+--  23 = Shop Rewards side added. FurnishShop now also builds a mirrored
+--       Rewards terminal + a big "OPEN REWARDS" wall sign on the shop's
+--       right (+X) wall, opposite the existing Shop terminal on the left -
+--       reward-only cosmetics now have their own physical presence in the
+--       building, not just the Shop panel's Rewards toggle. New instances:
+--       RewardsBoard/RewardsBoardFrame (side wall screen),
+--       RewardsTerminalStand/RewardsTerminalPrompt (terminal).
+BuildVersion.CURRENT = 23
+--  24 = Daily Rewards floor claim pads + wall title redesign. FurnishRewards
+--       now also builds 7 "StreakDayFloorPad" parts directly in the
+--       walking path (the existing StreakDayPlinths sit beside the path on
+--       purpose, so a player walks past them, not over them) plus a normal-
+--       font "Run over the day to collect the reward" sign.
+--       DailyRewardsSystem wires real touch-to-claim on these pads
+--       server-side. The StreakVaultBoard wall title ("YOUR STREAK VAULT")
+--       and its status line are now centred in Bangers, matching the
+--       Shop's "FEATURED TODAY" treatment. The popup's old 7-day row +
+--       "CLAIM TODAY'S REWARD" button are removed - claiming is now floor-
+--       only, the popup just reflects status.
+BuildVersion.CURRENT = 24
 
 return BuildVersion
