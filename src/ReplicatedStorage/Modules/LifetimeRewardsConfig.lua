@@ -69,6 +69,9 @@ local MILESTONES: { LifetimeMilestone } = {
 	{ id = "CorrectAnswers250", category = "Correct Answers", target = 250, metric = correctAnswersMetric, label = "250 Lifetime Correct Answers", coins = 250, gems = 10 },
 	{ id = "CorrectAnswers500", category = "Correct Answers", target = 500, metric = correctAnswersMetric, label = "500 Lifetime Correct Answers", coins = 400, gems = 25 },
 	{ id = "CorrectAnswers1000", category = "Correct Answers", target = 1000, metric = correctAnswersMetric, label = "1000 Lifetime Correct Answers", coins = 750, gems = 60 },
+	-- Very hard to obtain, per explicit direction: a genuine long-haul goal
+	-- above the existing ladder, not just one more incremental step.
+	{ id = "CorrectAnswers2000", category = "Correct Answers", target = 2000, metric = correctAnswersMetric, label = "2000 Lifetime Correct Answers", coins = 1500, gems = 120 },
 
 	-- Games Played - participation, regardless of outcome.
 	{ id = "GamesPlayed10", category = "Games Played", target = 10, metric = gamesPlayedMetric, label = "Play 10 Matches", coins = 60 },
@@ -78,6 +81,9 @@ local MILESTONES: { LifetimeMilestone } = {
 	-- Win Streak - skill/consistency, not just raw totals.
 	{ id = "Streak5", category = "Win Streaks", target = 5, metric = longestStreakMetric, label = "Reach a 5-Match Win Streak", coins = 100, gems = 15 },
 	{ id = "Streak10", category = "Win Streaks", target = 10, metric = longestStreakMetric, label = "Reach a 10-Match Win Streak", coins = 300, gems = 40 },
+	-- Very hard to obtain: a 20-match win streak with zero losses is a
+	-- genuine top-tier skill/consistency goal, not just "play a lot".
+	{ id = "Streak20", category = "Win Streaks", target = 20, metric = longestStreakMetric, label = "Reach a 20-Match Win Streak", coins = 1200, gems = 100 },
 
 	-- Practice Mode reps - rewards players who use Practice to improve.
 	{ id = "PracticeReps50", category = "Practice", target = 50, metric = practiceRepsMetric, label = "Answer 50 Practice Questions Correctly", coins = 80 },
@@ -88,6 +94,9 @@ local MILESTONES: { LifetimeMilestone } = {
 	{ id = "PlayTime1h", category = "Time Played", target = 1, metric = playTimeHoursMetric, label = "Play for 1 Hour Total", coins = 60 },
 	{ id = "PlayTime5h", category = "Time Played", target = 5, metric = playTimeHoursMetric, label = "Play for 5 Hours Total", coins = 250, gems = 20 },
 	{ id = "PlayTime20h", category = "Time Played", target = 20, metric = playTimeHoursMetric, label = "Play for 20 Hours Total", coins = 700, gems = 60 },
+	-- Very hard to obtain: 50 hours total playtime is a genuine long-term
+	-- loyalty milestone, well beyond the existing ladder's top step.
+	{ id = "PlayTime50h", category = "Time Played", target = 50, metric = playTimeHoursMetric, label = "Play for 50 Hours Total", coins = 1800, gems = 150 },
 
 	-- Daily Login participation - rewards returning day after day, on top
 	-- of (not instead of) the Daily Rewards streak track itself.

@@ -48,12 +48,13 @@ local mainUI = playerGui:WaitForChild("MainUI")
 
 local buttonBar = Instance.new("Frame")
 buttonBar.Name = "LobbyButtonBar"
--- Inventory button added: widened from 880 to 1000 (and re-centered to
--- match) to fit the new 8th button without crowding - 8 buttons * 112
--- wide + 7 gaps * 14 padding = 994, so 1000 leaves a little breathing
--- room, same margin the 7-button version kept.
-buttonBar.Size = UDim2.fromOffset(1000, 92)
-buttonBar.Position = UDim2.new(0.5, -500, 1, -112)
+-- Shop and Daily buttons REMOVED per direction ("remove the daily rewards
+-- feature and the shop feature... from the bottom bar" - both are now
+-- reachable only through their in-world buildings/terminals). Down to 6
+-- buttons: 6*112 + 5*14 = 742, so 760 leaves the same breathing-room
+-- margin earlier button-count changes kept.
+buttonBar.Size = UDim2.fromOffset(760, 92)
+buttonBar.Position = UDim2.new(0.5, -380, 1, -112)
 buttonBar.BackgroundTransparency = 1
 buttonBar.Parent = mainUI
 
@@ -81,28 +82,15 @@ if playButtonStroke then
 end
 
 local practiceButton = createButton("PracticeButton", "\u{1F4DD}", "Practice", 2)
-local shopButton = createButton("ShopButton", "\u{1F6D2}", "Shop", 3)
+-- Items sits in the Shop button's OLD slot (3rd, "rearranged into the
+-- middle") now that Shop itself is removed from this bar - reward-only
+-- and purchased cosmetics alike land here once owned, organized by
+-- category. See InventoryUIController.client.lua, which owns this
+-- button's click handling (same handoff pattern as the others below).
+local inventoryButton = createButton("InventoryButton", "\u{1F392}", "Items", 3)
 local statsButton = createButton("StatsButton", "\u{1F4CA}", "Stats", 4)
 local settingsButton = createButton("SettingsButton", "\u{2699}", "Settings", 5)
 local dailyRewardsButton = createButton("RewardsButton", "\u{1F3C6}", "Rewards", 6)
--- Message 33 ("a daily reward section in the bottom tab that shows
--- you today's daily reward and lets you claim it, as well as the next
--- 6 days"): a SEVENTH bottom-bar button, distinct from RewardsButton
--- above (that one is the win-based track's quick-claim button, hidden
--- unless something's currently claimable - see RewardsUIController's
--- own doc comment). This one always shows, and opens the SAME 7-day
--- streak panel the Daily Rewards building's terminal opens - see
--- DailyRewardsUIController.client.lua, which owns this button's click
--- handling (same handoff pattern as ShopButton/PracticeButton below).
-local dailyButton = createButton("DailyButton", "\u{1F4C5}", "Daily", 7)
--- Inventory: reward-only cosmetics and purchased cosmetics alike land
--- here once owned, organized by category (Trails/Accessories/Name
--- Colors/Victory Animations/Question Themes/Titles) - separate from the
--- Shop's purchasable/Rewards-to-earn grids, this is just "what do I
--- already have and what's equipped". See InventoryUIController.client.lua,
--- which owns this button's click handling (same handoff pattern as
--- ShopButton/PracticeButton above).
-local inventoryButton = createButton("InventoryButton", "\u{1F392}", "Items", 8)
 
 -- ===== Generic modal (reused by Settings/Stats) =====
 -- Message 26: upgraded to the premium panel style (gradient + glowing
@@ -189,18 +177,11 @@ local function openModal(title: string, body: string)
 	UITheme.PlayOpenTween(modalPanel)
 end
 
-shopButton.MouseButton1Click:Connect(function()
-	-- Intentionally not handled here - ShopUIController.client.lua
-	-- (Message 10) owns this button's click handling and opens the real
-	-- shop panel. This connection is a no-op so anyone reading this file
-	-- doesn't mistake ShopButton for being unwired.
-end)
-
 practiceButton.MouseButton1Click:Connect(function()
 	-- Intentionally not handled here - PracticeUIController.client.lua owns
 	-- this button's click handling (immediate manual Practice entry, with
 	-- a confirm step if the player is currently queued), same handoff
-	-- pattern as ShopButton above.
+	-- pattern as the others.
 end)
 
 settingsButton.MouseButton1Click:Connect(function()
@@ -212,19 +193,13 @@ end)
 dailyRewardsButton.MouseButton1Click:Connect(function()
 	-- Intentionally not handled here - RewardsUIController.client.lua owns
 	-- this button's click handling and opens the real win-based Rewards
-	-- track panel, same handoff pattern as ShopButton above.
-end)
-
-dailyButton.MouseButton1Click:Connect(function()
-	-- Intentionally not handled here - DailyRewardsUIController.client.lua
-	-- owns this button's click handling and opens the real 7-day daily
-	-- streak panel, same handoff pattern as ShopButton above.
+	-- track panel, same handoff pattern as the others.
 end)
 
 inventoryButton.MouseButton1Click:Connect(function()
 	-- Intentionally not handled here - InventoryUIController.client.lua owns
 	-- this button's click handling and opens the real owned-items panel,
-	-- same handoff pattern as ShopButton above.
+	-- same handoff pattern as the others.
 end)
 
 -- ===== Stats panel (real data, Message 4) =====

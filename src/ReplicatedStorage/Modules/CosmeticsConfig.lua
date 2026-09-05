@@ -115,6 +115,76 @@ CosmeticsConfig.RARITY_COLORS = {
 -- single stated rate to check against instead of guessing.
 CosmeticsConfig.GEMS_TO_COINS_RATE = 100
 
+--[[
+	FEATURED ITEM OF THE DAY - shared picker.
+
+	Moved here from ShopFeaturedController.client.lua (display-only) so the
+	SAME deterministic answer is available to the SERVER too, for the 10%
+	daily-featured discount (ShopSystem.PurchaseItem needs to know "is this
+	the item that's discounted today" without trusting anything the client
+	says). One picker, two callers, instead of two copies that could drift.
+
+	RULES:
+	  - Purchasable items only (rewardOnly items can't be bought at all, so
+	    featuring one with a "buy it" hint and a discount would be nonsense).
+	  - NEVER Boundless. Featuring - and discounting - the single most
+	    exclusive tier in the game would cheapen exactly the items meant to
+	    stay rare/expensive-feeling; every other rarity is fair game.
+	  - Deterministic by UTC day number, sorted ids first (pairs() order is
+	    NOT stable in Luau - without the sort, two clients, or a client and
+	    the server, could compute different "today's item" from identical
+	    data).
+]]
+CosmeticsConfig.FEATURED_DISCOUNT_PERCENT = 10
+
+local featuredCandidateIds: { string }? = nil
+
+function CosmeticsConfig.GetFeaturedItem(): CosmeticItem?
+	if not featuredCandidateIds then
+		featuredCandidateIds = {}
+		for id, item in pairs(CosmeticsConfig.ITEMS) do
+			if not item.rewardOnly and item.rarity ~= "Boundless" then
+				table.insert(featuredCandidateIds, id)
+			end
+		end
+		table.sort(featuredCandidateIds)
+	end
+	if #featuredCandidateIds == 0 then
+		return nil
+	end
+
+	-- Whole days since the epoch, UTC. os.time() is UTC-based in Roblox, so
+	-- every client (and the server) rolls over to the next item at the same
+	-- instant.
+	local dayNumber = math.floor(os.time() / 86400)
+	local index = (dayNumber % #featuredCandidateIds) + 1
+	return CosmeticsConfig.ITEMS[featuredCandidateIds[index]]
+end
+
+--[[
+	The featured item's actual selling price today: FEATURED_DISCOUNT_PERCENT
+	off, rounded DOWN (never to-nearest) so the discount is always visibly
+	lower than the original price - for a cheap item (e.g. 5 Gems), rounding
+	to-nearest can land back on the exact same whole number (5 * 0.9 = 4.5,
+	which rounds UP to 5), which would show "10% OFF (was 5 Gems)" at 5 Gems
+	with no actual price change. Flooring avoids that for every item in the
+	catalog's price range.
+]]
+function CosmeticsConfig.GetDiscountedPrice(item: CosmeticItem): number
+	return math.max(1, math.min(item.price - 1, math.floor(item.price * (1 - CosmeticsConfig.FEATURED_DISCOUNT_PERCENT / 100))))
+end
+
+--[[
+	True only for the EXACT item GetFeaturedItem() returns today - the one
+	check ShopSystem.PurchaseItem needs to decide whether to charge the
+	discounted price. Comparing ids rather than re-deriving the discount
+	client-side keeps "is this item on sale" defined in exactly one place.
+]]
+function CosmeticsConfig.IsFeaturedToday(itemId: string): boolean
+	local featured = CosmeticsConfig.GetFeaturedItem()
+	return featured ~= nil and featured.id == itemId
+end
+
 -- Keyed by stable id. GetItemsByCategory below sorts by id for a
 -- deterministic display order - insertion order here doesn't matter.
 local ITEMS: { [string]: CosmeticItem } = {

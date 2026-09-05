@@ -258,5 +258,82 @@ BuildVersion.CURRENT = 23
 --       "CLAIM TODAY'S REWARD" button are removed - claiming is now floor-
 --       only, the popup just reflects status.
 BuildVersion.CURRENT = 24
+--  25 = Lifetime Rewards wall board. FurnishRewards now also builds a
+--       "LifetimeRewardsBoard" on the Daily Rewards room's left wall (via
+--       the shared buildSideScreen helper), rendered by
+--       RivalBoardController.client.lua with the same centred-Bangers-title
+--       treatment as the Shop and the Streak Vault: a two-column grid of
+--       every LifetimeRewardsConfig category with working progress bars
+--       and Claim buttons, mirroring the popup's Lifetime tab exactly
+--       (same remotes, same snapshot) rather than a second source of truth.
+BuildVersion.CURRENT = 25
+--  26 = Daily Rewards floor rebuild + Lifetime board relocation. The old
+--       StreakVaultBoard (back wall), StreakDayPlinth/StreakDayCap
+--       (side-offset props), and the DailyRewardsTerminalStand/Prompt are
+--       all REMOVED. Daily Rewards is now floor-only: a standing header
+--       board ("DAILY REWARDS" + streak status) plus seven fixed
+--       left-to-right walkable floor tiles (day 1 always leftmost, day 7
+--       always rightmost - never reordered), each one a real touchable
+--       claim button. LifetimeRewardsBoard moved from the left side wall
+--       to the back wall (Daily's old spot). No bottom-bar Daily button,
+--       no E-press terminal - Daily Rewards is reachable only by walking
+--       into the building. Also: 3 new Lifetime milestones (2000 lifetime
+--       correct answers, a 20-match win streak, 50 hours played).
+BuildVersion.CURRENT = 26
+--  27 = Daily Rewards floor runway, second pass. The standing header board
+--       and standing instruction sign (both mounted vertically, in front
+--       of the door - not wanted there) are REMOVED. Everything is now
+--       one continuous floor-mounted runway, Face=Top throughout: a
+--       title segment ("DAILY REWARDS" + streak status), an instruction
+--       segment ("Run over the day...", static), then the seven day
+--       cells - all turned flat so it reads as a rug/runway you walk
+--       along. Also fixes a real touch-to-claim bug: the previous floor
+--       tiles sat slightly BELOW this room's actual floor surface
+--       (measured, not guessed), so a walking character's feet never
+--       actually overlapped them - confirmed via GetTouchingParts only
+--       ever reporting the room's plain Floor part, never a tile. Every
+--       segment is now bottom-aligned to the real floor surface.
+BuildVersion.CURRENT = 27
+--  28 = Daily Rewards floor runway, reading-direction + sizing fix. Order
+--       reversed: the title+status segment ("top of the screen") is now
+--       nearest the back wall (beside the Lifetime board), the seven day
+--       cells ("bottom of the screen") are nearest the door - far side to
+--       close side, matching the old vertical wall screen's own top-to-
+--       bottom order instead of the reverse. All three segments' depths
+--       now scale together to fill the room's actual usable floor depth
+--       (with clearance at the back wall and the door) instead of a
+--       fixed size.
+BuildVersion.CURRENT = 28
+--  29 = Daily Rewards floor runway - text spaciousness fix. Individually
+--       rotating TextLabels (previous pass) made the text-wrapping engine
+--       compute line breaks in the narrow UNROTATED box, cramming the
+--       "run over the day..." sentence into one word per line. Fixed by
+--       building each segment's content in NATURAL wide-format
+--       coordinates (matching the old vertical wall screen's own
+--       numbers) inside a wrapper Frame sized to those natural
+--       dimensions, then rotating the WHOLE wrapper 90 as one rigid unit
+--       - the wrapper's declared (unrotated) size is what the text-layout
+--       engine sees, so every label gets its full natural amount of room
+--       regardless of the physical part's swapped canvas. Day-cell canvas
+--       also enlarged (220->300) for more breathing room.
+BuildVersion.CURRENT = 29
+--  30 = Daily Rewards floor runway - real bug fix + more spacious day
+--       cells. Fixed a genuine bug: renderFloorTiles checked
+--       `entry.collected`, a field that doesn't exist on the snapshot's
+--       track entries (the real field is `isCollected`) - so the green
+--       "CLAIMED" tint could never trigger for an already-collected day,
+--       silently, for every player, since this floor screen was built.
+--       Also: visible gaps between day tiles (was nearly touching),
+--       larger canvas (360, was 300) and generous margins/line spacing
+--       inside each tile, since the previous pass still read as cramped.
+BuildVersion.CURRENT = 30
+--  31 = Shop "OPEN SHOP" wall sign added. FurnishShop now builds a mirrored
+--       side screen on the Shop's LEFT (-X) wall (buildSideScreen, same
+--       helper the "OPEN REWARDS" sign on the right wall already used),
+--       tagged "ShopOpenBoard", labelled "OPEN SHOP" in this file's own
+--       ACCENT_COLOR. Closes the gap where the Rewards side had a big
+--       obvious wall sign and the Shop side (despite already having its
+--       own terminal) did not.
+BuildVersion.CURRENT = 31
 
 return BuildVersion

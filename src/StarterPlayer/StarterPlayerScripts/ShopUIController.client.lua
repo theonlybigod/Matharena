@@ -46,6 +46,7 @@ local RunService = game:GetService("RunService")
 
 local CosmeticsConfig = require(ReplicatedStorage.Modules.CosmeticsConfig)
 local RewardTrackConfig = require(ReplicatedStorage.Modules.RewardTrackConfig)
+local CharacterPreviewBuilder = require(ReplicatedStorage.Modules.CharacterPreviewBuilder)
 local RemoteEvents = require(ReplicatedStorage.Remotes.RemoteEvents)
 local RemoteFunctions = require(ReplicatedStorage.Remotes.RemoteFunctions)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
@@ -54,8 +55,6 @@ local OverlayManager = require(script.Parent.OverlayManager)
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local mainUI = playerGui:WaitForChild("MainUI")
-local lobbyButtonBar = mainUI:WaitForChild("LobbyButtonBar")
-local shopButton = lobbyButtonBar:WaitForChild("ShopButton") :: TextButton
 
 local getInventorySnapshotFunction = RemoteFunctions.Get("GetInventorySnapshot")
 local purchaseCosmeticItemFunction = RemoteFunctions.Get("PurchaseCosmeticItem")
@@ -318,101 +317,15 @@ local previewModel: Model? = nil
 local previewOrbitAngle = 0
 
 task.spawn(function()
-	local ok, description = pcall(function()
-		return Players:GetHumanoidDescriptionFromUserId(player.UserId)
-	end)
-	if not ok or not description then
-		warn("[ShopUIController] Could not load HumanoidDescription for character preview:", description)
+	local handle = CharacterPreviewBuilder.Build(player, previewViewport)
+	if not handle then
 		return
 	end
-
-	local ok2, model = pcall(function()
-		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
-	end)
-	if not ok2 or not model then
-		warn("[ShopUIController] Could not build character preview model:", model)
-		return
-	end
-
-	-- Strip worn accessories (hats/hair/etc) entirely rather than trying to
-	-- render them. Their Handle parts are positioned via a Weld computed at
-	-- attach time, and that weld does not always finish settling by the time
-	-- CreateHumanoidModelFromDescription returns - measured on this exact
-	-- model, one Handle sat at (55, 4.5, 7.3), studs away from the body,
-	-- which blew the bounding box out to 57 studs wide and made the camera
-	-- framing math below meaningless. The body itself (skin tone, build) is
-	-- what this preview is actually for, so removing accessories trades a
-	-- cosmetic detail for a guaranteed-correct, guaranteed-centered render.
-	for _, child in ipairs(model:GetChildren()) do
-		if child:IsA("Accessory") then
-			child:Destroy()
-		end
-	end
-
-	-- Anchor every part: a ViewportFrame's contents don't get the real
-	-- world's physics step, so an unanchored rig would just sit there inert
-	-- anyway, but anchoring makes that explicit and guarantees PivotTo below
-	-- moves the whole model as one rigid piece rather than parts drifting
-	-- apart from stale joint state.
-	for _, part in ipairs(model:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.Anchored = true
-			part.CanCollide = false
-		end
-	end
-
-	local humanoid = model:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-		humanoid.PlatformStand = true
-	end
-
-	-- PrimaryPart must be set explicitly - CreateHumanoidModelFromDescription
-	-- does not always return a model with one already assigned, and without
-	-- it PivotTo has no reliable anchor to move the whole rig as a single
-	-- rigid unit, which is what left the very first version of this preview
-	-- with parts scattered across a 57-stud bounding box instead of a
-	-- normal ~2-stud-wide standing character.
-	local rootPart = model:FindFirstChild("HumanoidRootPart")
-	if rootPart and rootPart:IsA("BasePart") then
-		model.PrimaryPart = rootPart
-	end
-
-	model.Parent = previewViewport
-
-	-- Accessories/mesh parts on a HumanoidDescription-built model can still
-	-- be streaming in for a moment after the Model itself is returned; a
-	-- brief wait here so the bounding box measured below reflects the fully
-	-- assembled character rather than a partial rig mid-load.
-	task.wait(0.3)
-
-	if model.PrimaryPart then
-		model:PivotTo(CFrame.new(0, 0, 0))
-	end
-
-	local center, size = model:GetBoundingBox()
-	local modelHeight = size.Y
-	local focusPoint = center.Position
-	-- Distance derived from the model's own measured height (roughly 5-6
-	-- studs for a typical R15 rig) rather than a fixed guess, so unusually
-	-- tall/short avatars still frame correctly without clipping.
-	local distance = modelHeight * 1.7
 	previewCamera.FieldOfView = 30
-
-	previewOrbitAngle = 0
-	RunService.RenderStepped:Connect(function(dt)
-		if not shopOverlay.Visible then
-			return
-		end
-		-- Slow orbit around the character - a static render reads as a flat
-		-- cutout; a turning one reads as an actual 3D preview.
-		previewOrbitAngle += dt * 0.5
-		local camPos = focusPoint
-			+ Vector3.new(math.sin(previewOrbitAngle) * distance, modelHeight * 0.15, math.cos(previewOrbitAngle) * distance)
-		previewCamera.CFrame = CFrame.new(camPos, focusPoint + Vector3.new(0, modelHeight * 0.05, 0))
+	CharacterPreviewBuilder.ConnectOrbit(previewCamera, handle, function()
+		return shopOverlay.Visible
 	end)
-
-	previewModel = model
+	previewModel = handle.model
 end)
 
 local detailsName = Instance.new("TextLabel")
@@ -580,6 +493,12 @@ local function updateDetailsPanel()
 		local winsRequired = winsRequiredByItemId[item.id]
 		detailsPrice.Text = if winsRequired then ("Earn at %d Wins"):format(winsRequired) else "Reward Only"
 		detailsPrice.TextColor3 = UITheme.COLORS.Gem
+	elseif CosmeticsConfig.IsFeaturedToday(item.id) then
+		-- Daily-featured discount, matches ShopSystem.PurchaseItem's own
+		-- server-side price check exactly - never invented client-side.
+		local discounted = CosmeticsConfig.GetDiscountedPrice(item)
+		detailsPrice.Text = ("%d %s (was %d) - Featured!"):format(discounted, item.currency, item.price)
+		detailsPrice.TextColor3 = if item.currency == "Gems" then UITheme.COLORS.Gem else UITheme.COLORS.Gold
 	else
 		detailsPrice.Text = ("%d %s"):format(item.price, item.currency)
 		detailsPrice.TextColor3 = if item.currency == "Gems" then UITheme.COLORS.Gem else UITheme.COLORS.Gold
@@ -608,7 +527,10 @@ local function updateDetailsPanel()
 	else
 		detailsStatus.Text = ""
 		actionButton.Visible = true
-		actionButton.Text = ("Purchase (%d %s)"):format(item.price, item.currency)
+		local purchasePrice = if CosmeticsConfig.IsFeaturedToday(item.id)
+			then CosmeticsConfig.GetDiscountedPrice(item)
+			else item.price
+		actionButton.Text = ("Purchase (%d %s)"):format(purchasePrice, item.currency)
 		actionButton.BackgroundColor3 = UITheme.COLORS.Success
 		secondaryActionButton.Visible = false
 	end
@@ -673,6 +595,10 @@ local function createItemCard(item: CosmeticsConfig.CosmeticItem, order: number)
 		local winsRequired = winsRequiredByItemId[item.id]
 		priceLabel.Text = if winsRequired then ("Earn @ %d Wins"):format(winsRequired) else "Reward Only"
 		priceLabel.TextColor3 = UITheme.COLORS.Gem
+	elseif CosmeticsConfig.IsFeaturedToday(item.id) then
+		local discounted = CosmeticsConfig.GetDiscountedPrice(item)
+		priceLabel.Text = ("%d %s (10%% off!)"):format(discounted, item.currency)
+		priceLabel.TextColor3 = if item.currency == "Gems" then UITheme.COLORS.Gem else UITheme.COLORS.Gold
 	else
 		priceLabel.Text = ("%d %s"):format(item.price, item.currency)
 		priceLabel.TextColor3 = if item.currency == "Gems" then UITheme.COLORS.Gem else UITheme.COLORS.Gold
@@ -859,13 +785,12 @@ end
 
 OverlayManager.Register(shopOverlay)
 
-shopButton.MouseButton1Click:Connect(function()
-	if shopOverlay.Visible then
-		shopOverlay.Visible = false
-	else
-		openShopPanel()
-	end
-end)
+-- The bottom-bar "Shop" button is REMOVED per direction ("the shop
+-- clickable in the bottom of the screen removed... put the items
+-- clickable in place of it") - the Shop is now reachable ONLY through its
+-- in-world terminal (below), same as how the Daily Rewards building's
+-- claiming is floor-only. No bottom-bar button/handler to wire here
+-- anymore.
 
 closeButton.MouseButton1Click:Connect(function()
 	shopOverlay.Visible = false
@@ -894,6 +819,7 @@ task.spawn(function()
 		(prompt :: ProximityPrompt).Triggered:Connect(function(triggeringPlayer: Player)
 			if triggeringPlayer == player then
 				openShopPanel()
+				setViewingRewards(false)
 			end
 		end)
 	else

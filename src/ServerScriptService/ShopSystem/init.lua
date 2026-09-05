@@ -50,10 +50,23 @@ local function buildSnapshot(player: Player): InventorySnapshot?
 	}
 end
 
+-- Categories with a real in-world visual (see CosmeticVisuals.lua) -
+-- mirrored onto PLAYER ATTRIBUTES (not just fired to the owner) because
+-- Attributes replicate automatically to every client, including players
+-- who join later - a one-off RemoteEvent fired only to the equipper
+-- would never let anyone ELSE see what they have equipped.
+local VISUAL_CATEGORIES = { "Accessory", "Trail", "NameColor", "Title" }
+
 local function pushInventoryUpdated(player: Player)
 	local snapshot = buildSnapshot(player)
 	if snapshot then
 		inventoryUpdatedEvent:FireClient(player, snapshot)
+		for _, category in ipairs(VISUAL_CATEGORIES) do
+			-- nil is a valid SetAttribute value (clears it) - correctly
+			-- reflects an unequipped category rather than leaving a stale
+			-- itemId attribute behind after Unequip.
+			player:SetAttribute("Equipped" .. category, snapshot.equipped[category])
+		end
 	end
 end
 
@@ -81,11 +94,20 @@ function ShopSystem.PurchaseItem(player: Player, itemId: string): (boolean, stri
 		return false, "AlreadyOwned"
 	end
 
+	-- Daily-featured discount: the SAME deterministic pick
+	-- ShopFeaturedController.client.lua shows on the wall board, re-derived
+	-- here server-side (never trusting a client-supplied "it's discounted"
+	-- flag) so the price actually charged always matches what the board
+	-- promised, for the one item genuinely on sale today.
+	local price = if CosmeticsConfig.IsFeaturedToday(itemId)
+		then CosmeticsConfig.GetDiscountedPrice(item)
+		else item.price
+
 	local spent: boolean
 	if item.currency == "Coins" then
-		spent = ProgressionSystem.SpendCoins(player, item.price)
+		spent = ProgressionSystem.SpendCoins(player, price)
 	else
-		spent = ProgressionSystem.SpendGems(player, item.price)
+		spent = ProgressionSystem.SpendGems(player, price)
 	end
 
 	if not spent then
@@ -178,7 +200,37 @@ function ShopSystem.GrantRewardItem(player: Player, itemId: string): (boolean, s
 	return true
 end
 
+--[[
+	Pushes each player's equip state (both the RemoteEvent and the
+	VISUAL_CATEGORIES attributes) once their profile is actually loaded -
+	without this, a player who never touches Purchase/Equip/Unequip this
+	session (the common case - most players don't re-equip every join)
+	would have every EquippedXxx attribute sitting at nil forever, so
+	nobody (including themselves) would ever see their already-equipped
+	cosmetics. Polls GetProfile with a bounded wait rather than assuming
+	some other system's PlayerAdded handler has already run LoadProfile -
+	same bounded-poll pattern CharacterPreviewBuilder already uses for a
+	similar "is this actually ready yet" wait.
+]]
+local function pushInitialStateWhenProfileReady(player: Player)
+	for _ = 1, 150 do
+		if DataSystem.GetProfile(player) then
+			pushInventoryUpdated(player)
+			return
+		end
+		task.wait(0.1)
+	end
+end
+
 function ShopSystem.Init()
+	local Players = game:GetService("Players")
+	for _, player in ipairs(Players:GetPlayers()) do
+		task.spawn(pushInitialStateWhenProfileReady, player)
+	end
+	Players.PlayerAdded:Connect(function(player)
+		task.spawn(pushInitialStateWhenProfileReady, player)
+	end)
+
 	getInventorySnapshotFunction.OnServerInvoke = function(player: Player)
 		return buildSnapshot(player) or { owned = {}, equipped = {} }
 	end

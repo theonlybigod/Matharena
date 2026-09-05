@@ -3795,6 +3795,39 @@ function BuildingInteriors.FurnishShop(def, model: Model)
 	terminal(model, basePos + Vector3.new(-halfX * 0.85, 0, -halfZ * 0.15), "ShopTerminalPrompt", "Open Shop", "Shop", true)
 
 	--[[
+		SHOP SIDE (BuildVersion 31): mirrors the Rewards side below exactly -
+		"the open shop screen on the left side of the shop... make it the
+		same one that is on the right side for the open rewards". Same
+		buildSideScreen() panel, same terminal() helper, just on the LEFT
+		(-X) wall instead of the right, labelled "OPEN SHOP" instead of
+		"OPEN REWARDS", and tinted with this file's own ACCENT_COLOR rather
+		than the Boundless gold used for the Rewards sign, so the two reads
+		as the Shop's own colour vs. the Rewards side's colour rather than
+		identical twins.
+	]]
+	local shopBoard = buildSideScreen(def, model, "ShopOpenBoard", "ShopOpenBoard", -1)
+	local shopBoardGui = Instance.new("SurfaceGui")
+	shopBoardGui.Name = "ShopOpenBoardGui"
+	shopBoardGui.Face = Enum.NormalId.Back
+	shopBoardGui.LightInfluence = 0
+	shopBoardGui.Parent = shopBoard
+	local shopBoardBg = Instance.new("Frame")
+	shopBoardBg.Size = UDim2.fromScale(1, 1)
+	shopBoardBg.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+	shopBoardBg.BorderSizePixel = 0
+	shopBoardBg.Parent = shopBoardGui
+	local shopBoardLabel = Instance.new("TextLabel")
+	shopBoardLabel.Size = UDim2.new(1, -20, 1, -20)
+	shopBoardLabel.Position = UDim2.fromOffset(10, 10)
+	shopBoardLabel.BackgroundTransparency = 1
+	shopBoardLabel.Font = Enum.Font.GothamBlack
+	shopBoardLabel.TextScaled = true
+	shopBoardLabel.TextColor3 = ACCENT_COLOR
+	shopBoardLabel.TextWrapped = true
+	shopBoardLabel.Text = "OPEN\nSHOP"
+	shopBoardLabel.Parent = shopBoardBg
+
+	--[[
 		REWARDS SIDE (BuildVersion 22): reward-only cosmetics get their own
 		physical presence on the opposite side of the room from the Shop
 		terminal, mirroring its presentation - a big wall sign plus a stand
@@ -4146,114 +4179,168 @@ function BuildingInteriors.FurnishRewards(def, model: Model)
 		addRewardsIdentity(def, model)
 	end
 
-	buildFeatureScreen(def, model, "StreakVaultBoard", "StreakVaultBoard")
+	--[[
+		LIFETIME REWARDS now takes the back wall - previously Daily's spot
+		(the old StreakVaultBoard). Daily's entire presentation moves to the
+		floor below. Rendered by RivalBoardController.client.lua, same as
+		before - only which wall it's mounted on changed (buildFeatureScreen,
+		the back-wall helper, instead of buildSideScreen).
+	]]
+	buildFeatureScreen(def, model, "LifetimeRewardsBoard", "LifetimeRewardsBoard")
 
 	--[[
-		THE STREAK PATH. Seven plinths in a single line running from the door
-		toward the screen, so you walk your own streak on the way in.
+		DAILY REWARDS FLOOR RUNWAY (third pass - reading direction + sizing):
+		ONE continuous floor screen, turned 90 degrees flat so it reads as a
+		rug/runway you walk along, keeping the same rough outline the old
+		wall screen had (title up top, status under it, day slots at the
+		bottom) but rotated into the floor plane rather than re-designed from
+		scratch:
 
-		Offset to one side of the centre aisle so the walk to the terminal is
-		never blocked, and kept low (3.4 tall) so they never obstruct the
-		screen from anywhere in the room.
+		  - "Top of the screen" (title + status) is nearest the BACK WALL
+		    (-Z, right where the old vertical wall screen actually stood, and
+		    right beside the Lifetime board that now occupies that wall).
+		  - "Bottom of the screen" (the day slots) is nearest the DOOR (+Z) -
+		    matching the old screen's own top-to-bottom order (title, status,
+		    slots), just read while walking from far (back wall) to close
+		    (door) instead of scanned top-to-bottom on a vertical panel.
+		  - Text within each segment still reads left-to-right, ordinary
+		    English direction - only the FAR-TO-CLOSE progression down the
+		    room is what changed from a normal screen.
+
+		FIT TO THE FLOOR: the three segments' depths are scaled together so
+		they always fill the room's actual usable depth (leaving clearance at
+		the back wall and the door) rather than a fixed size that might float
+		in empty space or overflow in a smaller room.
+
+		HEIGHT FIX (kept from the previous pass): every segment is bottom-
+		aligned to this room's actual Floor surface (measured directly - this
+		room's Floor part top sits at basePos.Y + FLOOR_SURFACE_Y, not at
+		basePos.Y itself), so they sit ON TOP of the real floor as a thin
+		walkable overlay. The very first version of this runway sat slightly
+		BELOW the real floor - confirmed via GetTouchingParts only ever
+		reporting the room's plain Floor part, never a tile - which silently
+		broke touch-to-claim.
+
+		No terminal, no standing boards, no side-offset plinths/caps - Daily
+		Rewards is reachable ONLY by walking over this floor now (no
+		bottom-bar button, no E-press terminal).
 	]]
+	local FLOOR_SURFACE_Y = 0.5 -- measured against this room's actual Floor part
 	local DAYS = 7
-	for day = 1, DAYS do
-		local t = (day - 1) / (DAYS - 1)
-		-- Front (door side) to back (screen side).
-		local z = halfZ * 0.62 - t * (halfZ * 1.3)
-		local x = -halfX * 0.5
+	local tileWidth = math.min((halfX * 1.6) / DAYS, 5)
+	local rowWidth = tileWidth * DAYS
+	local runwayWidth = math.min(rowWidth + 4, halfX * 1.8)
 
-		local plinth = PartUtils.CreatePart({
-			name = ("StreakDayPlinth%d"):format(day),
-			size = Vector3.new(3, 3.4, 3),
-			position = basePos + Vector3.new(x, 1.7, z),
-			material = FURNITURE_MATERIAL,
-			color = FURNITURE_COLOR,
-			parent = model,
-		})
-		plinth:SetAttribute("StreakDay", day)
-		CollectionService:AddTag(plinth, "StreakDayPlinth")
+	-- Natural (unscaled) depths for the three segments, kept in the same
+	-- rough proportions the old wall screen used (title/status got roughly
+	-- as much vertical room as the day-slot row did).
+	local titleDepthNatural = 6
+	local instructionDepthNatural = 3
+	local tileDepthNatural = 5
+	local totalNatural = titleDepthNatural + instructionDepthNatural + tileDepthNatural
 
-		-- Lit cap, recoloured per state by the client.
-		local cap = PartUtils.CreateDisc({
-			name = ("StreakDayCap%d"):format(day),
-			diameter = 2.6,
-			thickness = 0.45,
-			position = basePos + Vector3.new(x, 3.6, z),
-			material = ACCENT_MATERIAL,
-			color = ACCENT_COLOR,
-			canCollide = false,
-			parent = model,
-		})
-		cap:SetAttribute("StreakDay", day)
-		CollectionService:AddTag(cap, "StreakDayCap")
-	end
+	-- Usable depth: the room's full depth minus clearance at the back wall
+	-- (so the title segment doesn't touch the Lifetime board's wall) and at
+	-- the door (so nothing sits in the doorway itself).
+	local backClearance = 3
+	local doorClearance = 3
+	local usableDepth = (halfZ * 2) - backClearance - doorClearance
+	local depthScale = usableDepth / totalNatural
 
-	-- Claim terminal, opposite the path.
-	terminal(model, basePos + Vector3.new(halfX * 0.5, 0, -halfZ * 0.2), "DailyRewardsTerminalPrompt", "Claim Daily Reward", "Daily Rewards", true)
+	local titleDepth = titleDepthNatural * depthScale
+	local instructionDepth = instructionDepthNatural * depthScale
+	local tileDepth = tileDepthNatural * depthScale
 
-	--[[
-		FLOOR CLAIM PADS (BuildVersion 24): the StreakDayPlinths above are
-		offset beside the walking path on purpose (see their own comment - the
-		walk to the terminal must never be blocked), which means a player
-		walks PAST them, not OVER them. That reads fine visually but doesn't
-		satisfy "run over the day to collect the reward" - there is nothing
-		in the actual floor a player's own footsteps land on.
+	-- Cursor starts at the back wall (-Z, "top of the screen") and walks
+	-- toward the door (+Z, "bottom of the screen"), placing each segment
+	-- flush against the previous one - far side to close side, matching
+	-- the old screen's own top-to-bottom order.
+	local cursorZ = -halfZ + backClearance
 
-		These seven pads sit directly in the centre aisle (x=0) at the SAME
-		z-position as their matching plinth, so a player walking a straight
-		line from the door to the terminal naturally steps on all seven in
-		order. Thin and non-collide (a walkable floor marking, not an
-		obstacle), tagged the same way as the plinths/caps so the same client
-		controller can recolour them by state, and carrying the same
-		"StreakDay" attribute so the server touch-handler (DailyRewardsSystem)
-		knows which day a pad represents without depending on instance order.
-	]]
-	for day = 1, DAYS do
-		local t = (day - 1) / (DAYS - 1)
-		local z = halfZ * 0.62 - t * (halfZ * 1.3)
-
-		local pad = PartUtils.CreateDisc({
-			name = ("StreakDayFloorPad%d"):format(day),
-			diameter = 4,
-			thickness = 0.2,
-			position = basePos + Vector3.new(0, 0.6, z),
-			material = ACCENT_MATERIAL,
-			color = ACCENT_COLOR,
-			canCollide = false,
-			parent = model,
-		})
-		pad:SetAttribute("StreakDay", day)
-		CollectionService:AddTag(pad, "StreakDayFloorPad")
-	end
-
-	--[[
-		Floor instruction sign, normal-sized font (NOT the big Bangers/
-		Featured-Today-style flourish font used for the room's title) -
-		positioned between the wall title and the actual pads, at head height
-		so it's readable while walking toward them rather than underfoot.
-	]]
-	local signPart = PartUtils.CreatePart({
-		name = "StreakPathSign",
-		size = Vector3.new(10, 2, 0.3),
-		position = basePos + Vector3.new(0, 6, halfZ * 0.62 + 2),
+	-- ===== "Top of the screen": title + status (personalized - client-driven) =====
+	local titleZ = cursorZ + titleDepth / 2
+	local titleTile = PartUtils.CreatePart({
+		name = "DailyRewardsTitleTile",
+		size = Vector3.new(runwayWidth, 0.3, titleDepth),
+		position = basePos + Vector3.new(0, FLOOR_SURFACE_Y + 0.15, titleZ),
 		material = Enum.Material.SmoothPlastic,
 		color = Color3.fromRGB(16, 18, 26),
 		canCollide = false,
 		parent = model,
 	})
-	local signGui = Instance.new("SurfaceGui")
-	signGui.Face = Enum.NormalId.Back
-	signGui.LightInfluence = 0
-	signGui.Parent = signPart
-	local signLabel = Instance.new("TextLabel")
-	signLabel.Size = UDim2.fromScale(1, 1)
-	signLabel.BackgroundTransparency = 1
-	signLabel.Font = Enum.Font.Gotham
-	signLabel.TextScaled = true
-	signLabel.TextColor3 = Color3.fromRGB(200, 205, 220)
-	signLabel.Text = "Run over the day to collect the reward"
-	signLabel.Parent = signGui
+	CollectionService:AddTag(titleTile, "DailyRewardsTitleTile")
+	cursorZ += titleDepth
+
+	-- ===== Middle: instruction (static text, built directly here) =====
+	local instructionZ = cursorZ + instructionDepth / 2
+	local instructionTile = PartUtils.CreatePart({
+		name = "DailyRewardsInstructionTile",
+		size = Vector3.new(runwayWidth, 0.3, instructionDepth),
+		position = basePos + Vector3.new(0, FLOOR_SURFACE_Y + 0.15, instructionZ),
+		material = Enum.Material.SmoothPlastic,
+		color = Color3.fromRGB(16, 18, 26),
+		canCollide = false,
+		parent = model,
+	})
+	local instructionGui = Instance.new("SurfaceGui")
+	instructionGui.Face = Enum.NormalId.Top
+	instructionGui.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+	-- Canvas SWAPPED relative to the part's actual width/depth (this
+	-- segment is wide and shallow physically) to match Face=Top's default
+	-- axis mapping - confirmed empirically that fighting this any other way
+	-- (e.g. rotating the TextLabel itself) makes the wrapping engine compute
+	-- line-breaks in the narrow UNROTATED box, cramming the sentence into
+	-- one word per line. Instead: build the content in NATURAL wide-format
+	-- coordinates inside a wrapper sized to those natural dimensions, then
+	-- rotate the WHOLE wrapper 90 as one rigid unit - the wrapper's own
+	-- declared size (900x300, wide) is what the text-wrapping engine sees,
+	-- giving the sentence plenty of room, and the ROTATED bounding box
+	-- (300x900) exactly matches the swapped canvas, so nothing clips.
+	instructionGui.CanvasSize = Vector2.new(300, 900)
+	instructionGui.LightInfluence = 0
+	instructionGui.Parent = instructionTile
+
+	local instructionWrapper = Instance.new("Frame")
+	instructionWrapper.AnchorPoint = Vector2.new(0.5, 0.5)
+	instructionWrapper.Position = UDim2.fromScale(0.5, 0.5)
+	instructionWrapper.Size = UDim2.fromOffset(900, 300)
+	instructionWrapper.Rotation = 90
+	instructionWrapper.BackgroundTransparency = 1
+	instructionWrapper.Parent = instructionGui
+
+	local instructionLabel = Instance.new("TextLabel")
+	instructionLabel.Size = UDim2.new(1, -80, 1, -60)
+	instructionLabel.Position = UDim2.fromOffset(40, 30)
+	instructionLabel.BackgroundTransparency = 1
+	instructionLabel.Font = Enum.Font.Gotham
+	instructionLabel.TextScaled = true
+	instructionLabel.TextWrapped = true
+	instructionLabel.TextColor3 = Color3.fromRGB(200, 205, 220)
+	instructionLabel.Text = "Run over the day to collect the reward"
+	instructionLabel.Parent = instructionWrapper
+	cursorZ += instructionDepth
+
+	-- ===== "Bottom of the screen": seven day cells, nearest the door =====
+	-- Day 1 (left, -X) through day 7 (right, +X) - FIXED positions, never
+	-- reordered; only which cell is lit "today" changes.
+	local dayRowZ = cursorZ + tileDepth / 2
+	for day = 1, DAYS do
+		local x = -rowWidth / 2 + (day - 0.5) * tileWidth
+		local tile = PartUtils.CreatePart({
+			name = ("StreakDayFloorPad%d"):format(day),
+			-- Visible gap between tiles (was 0.15, nearly touching - too
+			-- cramped to read as 7 distinct cards) so each day reads as its
+			-- own clearly separated card, not one continuous slab.
+			size = Vector3.new(tileWidth - 1, 0.3, tileDepth),
+			position = basePos + Vector3.new(x, FLOOR_SURFACE_Y + 0.15, dayRowZ),
+			material = Enum.Material.SmoothPlastic,
+			color = Color3.fromRGB(20, 22, 30),
+			canCollide = false,
+			parent = model,
+		})
+		tile:SetAttribute("StreakDay", day)
+		CollectionService:AddTag(tile, "StreakDayFloorPad")
+	end
 end
 
 --[===[ SUPERSEDED - the old Daily Rewards fit-out (milestone wall panels,
